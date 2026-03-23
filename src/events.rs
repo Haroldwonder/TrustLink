@@ -50,6 +50,11 @@ impl Events {
         );
     }
 
+    /// Emit event when an attestation is renewed
+    pub fn attestation_renewed(env: &Env, attestation_id: &String, issuer: &Address, new_expiration: Option<u64>) {
+        env.events().publish(
+            (symbol_short!("renewed"), issuer.clone()),
+            (attestation_id.clone(), new_expiration),
     /// Emit an event when an expired attestation is encountered during a check.
     ///
     /// This event is **not** emitted for revoked attestations; revocation takes
@@ -71,20 +76,22 @@ impl Events {
         );
     }
 
-    /// Emit an event when the contract WASM is upgraded.
+    /// Emit an event when an attestation's expiration is updated.
     ///
     /// # Event schema
     /// ```text
-    /// topics: ("upgraded",)
-    /// data:   admin: Address
+    /// topics: ("updated", issuer: Address)
+    /// data:   (attestation_id: String, new_expiration: Option<u64>)
     /// ```
     ///
     /// # Parameters
-    /// - `admin` — address that triggered the upgrade.
-    pub fn contract_upgraded(env: &Env, admin: &Address) {
+    /// - `attestation_id` — ID of the updated attestation.
+    /// - `issuer` — address that performed the update.
+    /// - `new_expiration` — the new expiration value (None means no expiration).
+    pub fn attestation_updated(env: &Env, attestation_id: &String, issuer: &Address, new_expiration: Option<u64>) {
         env.events().publish(
-            (symbol_short!("upgraded"),),
-            admin.clone(),
+            (symbol_short!("updated"), issuer.clone()),
+            (attestation_id.clone(), new_expiration),
         );
     }
 }

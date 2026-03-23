@@ -9,6 +9,7 @@ TrustLink solves the problem of decentralized identity verification and trust es
 ### Key Features
 
 - **Authorized Issuers**: Admin-controlled registry of trusted attestation issuers
+- **Claim Type Registry**: Admin-managed registry of standard claim types with descriptions
 - **Flexible Claims**: Support for any claim type (KYC_PASSED, ACCREDITED_INVESTOR, MERCHANT_VERIFIED, etc.)
 - **Expiration Support**: Optional time-based expiration for attestations
 - **Revocation**: Issuers can revoke attestations at any time
@@ -52,6 +53,8 @@ src/
 - `Attestation(String)`: Individual attestation data
 - `SubjectAttestations(Address)`: Index of attestations per subject
 - `IssuerAttestations(Address)`: Index of attestations per issuer
+- `ClaimType(String)`: Registered claim type info keyed by identifier
+- `ClaimTypeList`: Ordered list of all registered claim type identifiers
 
 ## Usage
 
@@ -70,6 +73,33 @@ contract.register_issuer(&admin, &issuer_address);
 
 // Check if address is authorized
 let is_authorized = contract.is_issuer(&issuer_address);
+```
+
+### Claim Type Registry
+
+The contract ships with a set of standard claim types that the admin can pre-register on deployment.
+
+| Claim Type | Description |
+|---|---|
+| `KYC_PASSED` | Subject has passed KYC identity verification |
+| `ACCREDITED_INVESTOR` | Subject qualifies as an accredited investor |
+| `MERCHANT_VERIFIED` | Subject is a verified merchant |
+| `AML_CLEARED` | Subject has passed AML screening |
+| `SANCTIONS_CHECKED` | Subject has been checked against sanctions lists |
+
+```rust
+// Admin registers a claim type
+contract.register_claim_type(
+    &admin,
+    &String::from_str(&env, "KYC_PASSED"),
+    &String::from_str(&env, "Subject has passed KYC identity verification"),
+);
+
+// Look up a description
+let desc = contract.get_claim_type_description(&String::from_str(&env, "KYC_PASSED"));
+
+// List registered types (paginated)
+let page1 = contract.list_claim_types(&0, &10);
 ```
 
 ### Create Attestations
@@ -206,6 +236,12 @@ topics: ["revoked", issuer_address]
 data: attestation_id
 ```
 
+**ClaimTypeRegistered:**
+```rust
+topics: ["clmtype"]
+data: (claim_type, description)
+```
+
 ## Building and Testing
 
 ### Prerequisites
@@ -288,6 +324,10 @@ soroban contract invoke \
   -- initialize \
   --admin <ADMIN_ADDRESS>
 ```
+
+## Integration Guide
+
+For a step-by-step walkthrough covering Rust cross-contract patterns, JavaScript/TypeScript usage, error handling, and testnet testing, see [docs/integration-guide.md](docs/integration-guide.md).
 
 ## License
 
