@@ -385,6 +385,28 @@ impl TrustLinkContract {
         false
     }
 
+    /// Check if an address has a valid attestation for any of the given claim types
+    pub fn has_any_claim(env: Env, subject: Address, claim_types: Vec<String>) -> bool {
+        if claim_types.is_empty() {
+            return false;
+        }
+        let attestation_ids = Storage::get_subject_attestations(&env, &subject);
+        let current_time = env.ledger().timestamp();
+        for claim_type in claim_types.iter() {
+            for id in attestation_ids.iter() {
+                if let Ok(attestation) = Storage::get_attestation(&env, &id) {
+                    if attestation.claim_type == claim_type {
+                        if attestation.get_status(current_time) == AttestationStatus::Valid {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Get a specific attestation by ID
     /// Fetch the full attestation record by ID.
     ///
     /// # Parameters

@@ -137,6 +137,40 @@ if has_kyc {
 }
 ```
 
+### Verify Any of Multiple Claims
+
+`has_any_claim(env: Env, subject: Address, claim_types: Vec<String>) -> bool`
+
+| Parameter     | Type          | Description                                      |
+|---------------|---------------|--------------------------------------------------|
+| `env`         | `Env`         | Soroban environment (ledger time, storage)       |
+| `subject`     | `Address`     | The address whose attestations are queried       |
+| `claim_types` | `Vec<String>` | One or more claim type identifiers to check      |
+
+Returns `true` if the subject holds at least one valid attestation matching any of the listed claim types; `false` otherwise.
+
+**Behavior:**
+- Uses OR-logic — returns `true` on the first valid match found (short-circuit evaluation)
+- An empty `claim_types` list always returns `false`
+- Revoked, expired, and pending attestations are excluded from matching
+
+```rust
+// Check if user has either KYC or an accredited investor credential
+let claim_types = vec![
+    &env,
+    String::from_str(&env, "KYC_PASSED"),
+    String::from_str(&env, "ACCREDITED_INVESTOR"),
+    String::from_str(&env, "MERCHANT_VERIFIED"),
+];
+let has_any = contract.has_any_claim(&user_address, &claim_types);
+
+if has_any {
+    // Proceed — user satisfies at least one required credential
+}
+```
+
+**Relationship to `has_valid_claim`:** Calling `has_any_claim` with a single-element list is equivalent to calling `has_valid_claim` with that same claim type. Use `has_valid_claim` when checking a single claim type, and `has_any_claim` when OR-logic across multiple claim types is needed.
+
 ### Revoke Attestations
 
 ```rust
