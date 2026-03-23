@@ -124,6 +124,14 @@ let attestation = contract.get_attestation(&attestation_id);
 let status = contract.get_attestation_status(&attestation_id);
 // Returns: Valid, Expired, or Revoked
 
+// Find the most recent valid attestation by subject + claim type
+let attestation = contract.get_attestation_by_type(&user_address, &String::from_str(&env, "KYC_PASSED"));
+
+// Count queries — returns total count, no pagination needed
+let total = contract.get_subject_attestation_count(&user_address); // all attestations (incl. revoked/expired)
+let issued = contract.get_issuer_attestation_count(&issuer_address); // all issued by this issuer
+let valid  = contract.get_valid_claim_count(&user_address);          // only non-revoked, non-expired
+
 // List user's attestations (paginated)
 let attestations = contract.get_subject_attestations(&user_address, &0, &10);
 

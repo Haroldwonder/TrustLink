@@ -489,35 +489,39 @@ impl TrustLinkContract {
         Storage::get_admin(&env)
     }
 
-    /// Upgrade the contract WASM to a new version.
+    /// Return the total number of attestations ever created for a subject.
     ///
-    /// Uses Soroban's built-in upgrade mechanism. All existing storage is
-    /// preserved — only the executable code is replaced. Any required storage
-    /// migration should be performed in the new WASM's `migrate` function
-    /// immediately after upgrading.
-    ///
-    /// Only the current admin may call this function.
-    ///
-    /// # Parameters
-    /// - `admin` — current administrator address (must authorize).
-    /// - `new_wasm_hash` — 32-byte hash of the new contract WASM, obtained
-    ///   after uploading the WASM with `soroban contract upload`.
-    ///
-    /// # Errors
-    /// - [`Error::NotInitialized`] — contract has not been initialized.
-    /// - [`Error::Unauthorized`] — `admin` is not the registered administrator.
-    ///
-    /// # Examples
-    /// ```ignore
-    /// client.upgrade(&admin, &new_wasm_hash);
-    /// ```
-    pub fn upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>) -> Result<(), Error> {
-        admin.require_auth();
-        Validation::require_admin(&env, &admin)?;
+    /// Includes revoked and expired attestations. Returns 0 if the subject
+    /// has no attestations.
+    pub fn get_subject_attestation_count(env: Env, subject: Address) -> u32 {
+        Storage::get_subject_attestations(&env, &subject).len()
+    }
 
-        env.deployer().update_current_contract_wasm(new_wasm_hash);
-        Events::contract_upgraded(&env, &admin);
+    /// Return the total number of attestations ever created by an issuer.
+    ///
+    /// Includes revoked and expired attestations. Returns 0 if the issuer
+    /// has created no attestations.
+    pub fn get_issuer_attestation_count(env: Env, issuer: Address) -> u32 {
+        Storage::get_issuer_attestations(&env, &issuer).len()
+    }
 
-        Ok(())
+    /// Return the number of currently valid attestations for a subject.
+    ///
+    /// Only counts attestations that are neither revoked nor expired.
+    /// Returns 0 if the subject has no valid attestations.
+    pub fn get_valid_claim_count(env: Env, subject: Address) -> u32 {
+        let attestation_ids = Storage::get_subject_attestations(&env, &subject);
+        let current_time = env.ledger().timestamp();
+        let mut count: u32 = 0;
+
+        for id in attestation_ids.iter() {
+            if let Ok(attestation) = Storage::get_attestation(&env, &id) {
+                if attestation.get_status(current_time) == AttestationStatus::Valid {
+                    count += 1;
+                }
+            }
+        }
+
+        count
     }
 }
