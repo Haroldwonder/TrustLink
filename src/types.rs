@@ -1,5 +1,17 @@
 use soroban_sdk::{contracterror, contracttype, Address, Env, String};
 
+/// Contract metadata returned by `get_contract_metadata`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractMetadata {
+    /// Contract name.
+    pub name: String,
+    /// Semver version string, e.g. `"1.0.0"`.
+    pub version: String,
+    /// Short description of the contract.
+    pub description: String,
+}
+
 /// A single attestation record stored on-chain.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]

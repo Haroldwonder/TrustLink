@@ -12,6 +12,8 @@ use crate::types::{Attestation, Error};
 pub enum StorageKey {
     /// The contract administrator address.
     Admin,
+    /// Semver version string set at initialization.
+    Version,
     /// Presence flag for a registered issuer.
     Issuer(Address),
     /// Full [`Attestation`] record keyed by its ID.
@@ -41,6 +43,18 @@ impl Storage {
     pub fn set_admin(env: &Env, admin: &Address) {
         env.storage().instance().set(&StorageKey::Admin, admin);
         env.storage().instance().extend_ttl(INSTANCE_LIFETIME, INSTANCE_LIFETIME);
+    }
+
+    /// Persist `version` in instance storage alongside the admin.
+    pub fn set_version(env: &Env, version: &String) {
+        env.storage().instance().set(&StorageKey::Version, version);
+    }
+
+    /// Retrieve the contract version string.
+    ///
+    /// Returns `None` if the contract has not been initialized yet.
+    pub fn get_version(env: &Env) -> Option<String> {
+        env.storage().instance().get(&StorageKey::Version)
     }
 
     /// Retrieve the admin address.

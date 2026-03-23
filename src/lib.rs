@@ -16,8 +16,8 @@ mod events;
 #[cfg(test)]
 mod test;
 
-use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Vec};
-use types::{Attestation, AttestationStatus, Error};
+use soroban_sdk::{contract, contractimpl, Address, Env, String, Vec};
+use types::{Attestation, AttestationStatus, ContractMetadata, Error};
 use storage::Storage;
 use validation::Validation;
 use events::Events;
@@ -54,6 +54,7 @@ impl TrustLinkContract {
 
         admin.require_auth();
         Storage::set_admin(&env, &admin);
+        Storage::set_version(&env, &String::from_str(&env, "1.0.0"));
         Ok(())
     }
 
@@ -523,5 +524,29 @@ impl TrustLinkContract {
         }
 
         count
+    }
+
+    /// Return the semver version string set at initialization (e.g. `"1.0.0"`).
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] — contract has not been initialized.
+    pub fn get_version(env: Env) -> Result<String, Error> {
+        Storage::get_version(&env).ok_or(Error::NotInitialized)
+    }
+
+    /// Return static metadata about this contract.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] — contract has not been initialized.
+    pub fn get_contract_metadata(env: Env) -> Result<ContractMetadata, Error> {
+        let version = Storage::get_version(&env).ok_or(Error::NotInitialized)?;
+        Ok(ContractMetadata {
+            name: String::from_str(&env, "TrustLink"),
+            version,
+            description: String::from_str(
+                &env,
+                "On-chain attestation and verification system for the Stellar blockchain.",
+            ),
+        })
     }
 }

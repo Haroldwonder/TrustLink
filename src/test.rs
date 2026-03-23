@@ -609,3 +609,42 @@ fn test_valid_claim_count_excludes_expired() {
     // One expired, one still valid
     assert_eq!(client.get_valid_claim_count(&subject), 1);
 }
+
+// ── Version / metadata tests ──────────────────────────────────────────────────
+
+#[test]
+fn test_get_version_after_initialization() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let (_, client) = create_test_contract(&env);
+    client.initialize(&admin);
+
+    let version = client.get_version();
+    assert_eq!(version, String::from_str(&env, "1.0.0"));
+}
+
+#[test]
+fn test_get_contract_metadata_after_initialization() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let (_, client) = create_test_contract(&env);
+    client.initialize(&admin);
+
+    let meta = client.get_contract_metadata();
+    assert_eq!(meta.name, String::from_str(&env, "TrustLink"));
+    assert_eq!(meta.version, String::from_str(&env, "1.0.0"));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2)")]
+fn test_get_version_before_initialization_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, client) = create_test_contract(&env);
+    client.get_version(); // NotInitialized
+}
