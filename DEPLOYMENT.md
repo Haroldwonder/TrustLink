@@ -224,7 +224,75 @@ soroban network ls
 soroban config identity ls
 ```
 
-## Security Best Practices
+## Upgrades
+
+TrustLink supports in-place WASM upgrades via Soroban's built-in upgrade mechanism. The contract address and all storage (admin, issuers, attestations) are preserved — only the executable code is replaced.
+
+### How It Works
+
+1. The new WASM is uploaded to the ledger, producing a 32-byte hash.
+2. The admin calls `upgrade(admin, new_wasm_hash)` on the deployed contract.
+3. Soroban replaces the contract's executable atomically.
+4. If the new version requires storage schema changes, call a `migrate` function (defined in the new WASM) immediately after upgrading.
+
+### Step-by-Step Upgrade Process
+
+**1. Build and optimize the new contract version**
+```bash
+cargo build --target wasm32-unknown-unknown --release
+stellar contract optimize \
+  --wasm target/wasm32-unknown-unknown/release/trustlink.wasm
+```
+
+**2. Upload the new WASM to the network**
+```bash
+stellar contract upload \
+  --source ADMIN_SECRET_KEY \
+  --network testnet \
+  --wasm target/wasm32-unknown-unknown/release/trustlink.optimized.wasm
+# Outputs: <NEW_WASM_HASH>
+```
+
+**3. Invoke the upgrade function**
+```bash
+stellar contract invoke \
+  --id $CONTRACT_ID \
+  --source ADMIN_SECRET_KEY \
+  --network testnet \
+  -- upgrade \
+  --admin ADMIN_PUBLIC_ADDRESS \
+  --new_wasm_hash <NEW_WASM_HASH>
+```
+
+**4. (If applicable) Run migration**
+
+If the new contract version includes a `migrate` function for storage schema changes, call it immediately after upgrading:
+```bash
+stellar contract invoke \
+  --id $CONTRACT_ID \
+  --source ADMIN_SECRET_KEY \
+  --network testnet \
+  -- migrate
+```
+
+**5. Verify the upgrade**
+```bash
+# Confirm admin and state are intact
+stellar contract invoke \
+  --id $CONTRACT_ID \
+  --network testnet \
+  -- get_admin
+```
+
+### Security Notes
+
+- Only the registered admin can trigger an upgrade.
+- The new WASM must be uploaded to the ledger before calling `upgrade` — the hash must resolve.
+- An `upgraded` event is emitted on success, allowing off-chain indexers to detect the change.
+- Always test the upgrade on testnet before mainnet.
+- Use a multisig or hardware wallet for the admin key on mainnet.
+
+
 
 1. **Key Management**
    - Never commit private keys to version control

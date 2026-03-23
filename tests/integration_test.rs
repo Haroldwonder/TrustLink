@@ -6,7 +6,8 @@
 
 use soroban_sdk::{
     contract, contractimpl, contracterror, contracttype,
-    testutils::Address as _, Address, Env, String,
+    testutils::{Address as _, Ledger},
+    Address, Env, String,
 };
 
 // Import from the library crate
@@ -127,7 +128,7 @@ mod tests {
         
         // Test 2: Issue KYC attestation
         let kyc_claim = String::from_str(&env, "KYC_PASSED");
-        trustlink.create_attestation(&issuer, &borrower, &kyc_claim, &None);
+        trustlink.create_attestation(&issuer, &borrower, &kyc_claim, &None, &None);
         
         // Test 3: Loan request with KYC should succeed
         let result = lending.try_request_loan(
@@ -150,5 +151,46 @@ mod tests {
         // Test 6: After revocation, borrowing should be denied
         let can_borrow = lending.can_borrow(&borrower, &trustlink_id);
         assert!(!can_borrow);
+    }
+
+    #[test]
+    fn test_time_locked_attestation_cross_contract() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        // Set a known starting ledger time
+        let start_time: u64 = 1_000;
+        env.ledger().with_mut(|l| l.timestamp = start_time);
+
+        // Deploy TrustLink
+        let trustlink_id = env.register_contract(None, TrustLinkContract);
+        let trustlink = TrustLinkContractClient::new(&env, &trustlink_id);
+
+        // Setup
+        let admin = Address::generate(&env);
+        let issuer = Address::generate(&env);
+        let subject = Address::generate(&env);
+
+        trustlink.initialize(&admin);
+        trustlink.register_issuer(&admin, &issuer);
+
+        // Create a time-locked attestation with a future valid_from
+        let claim_type = String::from_str(&env, "ACCREDITED_INVESTOR");
+        let valid_from = start_time + 500;
+        let attestation_id =
+            trustlink.create_attestation(&issuer, &subject, &claim_type, &None, &Some(valid_from));
+
+        // Assert status is Pending and has_valid_claim returns false
+        let status = trustlink.get_attestation_status(&attestation_id);
+        assert_eq!(status, trustlink::types::AttestationStatus::Pending);
+        assert!(!trustlink.has_valid_claim(&subject, &claim_type));
+
+        // Advance ledger time past valid_from
+        env.ledger().with_mut(|l| l.timestamp = valid_from + 1);
+
+        // Assert status is Valid and has_valid_claim returns true
+        let status = trustlink.get_attestation_status(&attestation_id);
+        assert_eq!(status, trustlink::types::AttestationStatus::Valid);
+        assert!(trustlink.has_valid_claim(&subject, &claim_type));
     }
 }
