@@ -441,6 +441,38 @@ impl TrustLinkContract {
         Storage::is_issuer(&env, &address)
     }
 
+    /// Find the most recent valid attestation for a subject by claim type.
+    /// Iterates the subject's attestations in reverse (most recent first) and
+    /// returns the first one that is neither revoked nor expired.
+    /// Returns Error::NotFound if no valid attestation exists.
+    pub fn get_attestation_by_type(
+        env: Env,
+        subject: Address,
+        claim_type: String,
+    ) -> Result<Attestation, Error> {
+        let attestation_ids = Storage::get_subject_attestations(&env, &subject);
+        let current_time = env.ledger().timestamp();
+        let len = attestation_ids.len();
+
+        // Iterate in reverse so the most recently added attestation is checked first
+        let mut i = len;
+        while i > 0 {
+            i -= 1;
+            if let Some(id) = attestation_ids.get(i) {
+                if let Ok(attestation) = Storage::get_attestation(&env, &id) {
+                    if attestation.claim_type == claim_type
+                        && attestation.get_status(current_time) == AttestationStatus::Valid
+                    {
+                        return Ok(attestation);
+                    }
+                }
+            }
+        }
+
+        Err(Error::NotFound)
+    }
+
+    /// Get the admin address
     /// Return the current administrator address.
     ///
     /// # Returns
