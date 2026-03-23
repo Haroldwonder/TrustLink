@@ -1,85 +1,125 @@
-use soroban_sdk::{contracttype, Address, Env, String, Vec};
-use crate::types::{Attestation, Error};
+//! Storage helpers for TrustLink.
+//!
+//! All persistent data uses a 30-day TTL that is refreshed on every write.
+//! Instance storage (admin) shares a single TTL entry; persistent storage
+//! (issuers, attestations, indexes) each have their own TTL entry.
 
+use soroban_sdk::{contracttype, Address, Env, String, Vec};
+use crate::types::{Attestation, Error, IssuerMetadata};
+
+/// Keys used to address data in contract storage.
 #[contracttype]
 pub enum StorageKey {
+    /// The contract administrator address.
     Admin,
+    /// Semver version string set at initialization.
+    Version,
+    /// Presence flag for a registered issuer.
     Issuer(Address),
+    /// Full [`Attestation`] record keyed by its ID.
     Attestation(String),
+    /// Ordered list of attestation IDs for a subject address.
     SubjectAttestations(Address),
+    /// Ordered list of attestation IDs created by an issuer address.
     IssuerAttestations(Address),
+    /// Optional metadata associated with a registered issuer.
+    IssuerMetadata(Address),
 }
 
 const DAY_IN_LEDGERS: u32 = 17280;
 const INSTANCE_LIFETIME: u32 = DAY_IN_LEDGERS * 30; // 30 days
-const TEMP_LIFETIME: u32 = DAY_IN_LEDGERS * 7; // 7 days
 
+/// Low-level storage operations for TrustLink state.
+///
+/// All methods take `&Env` and operate on the appropriate storage tier
+/// (instance for admin, persistent for everything else).
 pub struct Storage;
 
 impl Storage {
-    // Admin management
+    /// Return `true` if the admin key exists in instance storage.
     pub fn has_admin(env: &Env) -> bool {
         env.storage().instance().has(&StorageKey::Admin)
     }
-    
+
+    /// Persist `admin` in instance storage and refresh the instance TTL.
     pub fn set_admin(env: &Env, admin: &Address) {
         env.storage().instance().set(&StorageKey::Admin, admin);
         env.storage().instance().extend_ttl(INSTANCE_LIFETIME, INSTANCE_LIFETIME);
     }
-    
+
+    /// Persist `version` in instance storage alongside the admin.
+    pub fn set_version(env: &Env, version: &String) {
+        env.storage().instance().set(&StorageKey::Version, version);
+    }
+
+    /// Retrieve the contract version string.
+    ///
+    /// Returns `None` if the contract has not been initialized yet.
+    pub fn get_version(env: &Env) -> Option<String> {
+        env.storage().instance().get(&StorageKey::Version)
+    }
+
+    /// Retrieve the admin address.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] — admin key is absent.
     pub fn get_admin(env: &Env) -> Result<Address, Error> {
         env.storage()
             .instance()
             .get(&StorageKey::Admin)
             .ok_or(Error::NotInitialized)
     }
-    
-    // Issuer management
+
+    /// Return `true` if `address` is in the issuer registry.
     pub fn is_issuer(env: &Env, address: &Address) -> bool {
-        let key = StorageKey::Issuer(address.clone());
-        env.storage().persistent().has(&key)
+        env.storage().persistent().has(&StorageKey::Issuer(address.clone()))
     }
-    
+
+    /// Add `issuer` to the registry and refresh its TTL.
     pub fn add_issuer(env: &Env, issuer: &Address) {
         let key = StorageKey::Issuer(issuer.clone());
         env.storage().persistent().set(&key, &true);
         env.storage().persistent().extend_ttl(&key, INSTANCE_LIFETIME, INSTANCE_LIFETIME);
     }
-    
+
+    /// Remove `issuer` from the registry.
     pub fn remove_issuer(env: &Env, issuer: &Address) {
-        let key = StorageKey::Issuer(issuer.clone());
-        env.storage().persistent().remove(&key);
+        env.storage().persistent().remove(&StorageKey::Issuer(issuer.clone()));
     }
-    
-    // Attestation management
+
+    /// Return `true` if an attestation with `id` exists in storage.
     pub fn has_attestation(env: &Env, id: &String) -> bool {
-        let key = StorageKey::Attestation(id.clone());
-        env.storage().persistent().has(&key)
+        env.storage().persistent().has(&StorageKey::Attestation(id.clone()))
     }
-    
+
+    /// Persist `attestation` and refresh its TTL.
     pub fn set_attestation(env: &Env, attestation: &Attestation) {
         let key = StorageKey::Attestation(attestation.id.clone());
         env.storage().persistent().set(&key, attestation);
         env.storage().persistent().extend_ttl(&key, INSTANCE_LIFETIME, INSTANCE_LIFETIME);
     }
-    
+
+    /// Retrieve an attestation by `id`.
+    ///
+    /// # Errors
+    /// - [`Error::NotFound`] — no attestation with that ID exists.
     pub fn get_attestation(env: &Env, id: &String) -> Result<Attestation, Error> {
-        let key = StorageKey::Attestation(id.clone());
         env.storage()
             .persistent()
-            .get(&key)
+            .get(&StorageKey::Attestation(id.clone()))
             .ok_or(Error::NotFound)
     }
-    
-    // Subject attestations index
+
+    /// Return the ordered list of attestation IDs for `subject`, or an empty
+    /// [`Vec`] if none exist.
     pub fn get_subject_attestations(env: &Env, subject: &Address) -> Vec<String> {
-        let key = StorageKey::SubjectAttestations(subject.clone());
         env.storage()
             .persistent()
-            .get(&key)
+            .get(&StorageKey::SubjectAttestations(subject.clone()))
             .unwrap_or(Vec::new(env))
     }
-    
+
+    /// Append `attestation_id` to `subject`'s attestation index and refresh TTL.
     pub fn add_subject_attestation(env: &Env, subject: &Address, attestation_id: &String) {
         let key = StorageKey::SubjectAttestations(subject.clone());
         let mut attestations = Self::get_subject_attestations(env, subject);
@@ -87,21 +127,36 @@ impl Storage {
         env.storage().persistent().set(&key, &attestations);
         env.storage().persistent().extend_ttl(&key, INSTANCE_LIFETIME, INSTANCE_LIFETIME);
     }
-    
-    // Issuer attestations index
+
+    /// Return the ordered list of attestation IDs created by `issuer`, or an
+    /// empty [`Vec`] if none exist.
     pub fn get_issuer_attestations(env: &Env, issuer: &Address) -> Vec<String> {
-        let key = StorageKey::IssuerAttestations(issuer.clone());
         env.storage()
             .persistent()
-            .get(&key)
+            .get(&StorageKey::IssuerAttestations(issuer.clone()))
             .unwrap_or(Vec::new(env))
     }
-    
+
+    /// Append `attestation_id` to `issuer`'s attestation index and refresh TTL.
     pub fn add_issuer_attestation(env: &Env, issuer: &Address, attestation_id: &String) {
         let key = StorageKey::IssuerAttestations(issuer.clone());
         let mut attestations = Self::get_issuer_attestations(env, issuer);
         attestations.push_back(attestation_id.clone());
         env.storage().persistent().set(&key, &attestations);
         env.storage().persistent().extend_ttl(&key, INSTANCE_LIFETIME, INSTANCE_LIFETIME);
+    }
+
+    /// Persist `metadata` for `issuer` and refresh its TTL.
+    pub fn set_issuer_metadata(env: &Env, issuer: &Address, metadata: &IssuerMetadata) {
+        let key = StorageKey::IssuerMetadata(issuer.clone());
+        env.storage().persistent().set(&key, metadata);
+        env.storage().persistent().extend_ttl(&key, INSTANCE_LIFETIME, INSTANCE_LIFETIME);
+    }
+
+    /// Retrieve metadata for `issuer`, or `None` if not set.
+    pub fn get_issuer_metadata(env: &Env, issuer: &Address) -> Option<IssuerMetadata> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::IssuerMetadata(issuer.clone()))
     }
 }
