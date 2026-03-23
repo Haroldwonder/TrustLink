@@ -281,6 +281,10 @@ soroban contract invoke \
   --admin <ADMIN_ADDRESS>
 ```
 
+## Integration Guide
+
+For a step-by-step walkthrough covering Rust cross-contract patterns, JavaScript/TypeScript usage, error handling, and testnet testing, see [docs/integration-guide.md](docs/integration-guide.md).
+
 ## License
 
 MIT
