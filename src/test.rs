@@ -478,3 +478,176 @@ fn test_batch_revoke_empty_vec() {
     let count = client.revoke_attestations_batch(&issuer, &ids);
     assert_eq!(count, 0);
 }
+
+#[test]
+fn test_get_valid_claims_multiple_types() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let (_, client) = create_test_contract(&env);
+
+    client.initialize(&admin);
+    client.register_issuer(&admin, &issuer);
+
+    client.create_attestation(&issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &None);
+    env.ledger().with_mut(|l| l.timestamp += 1);
+    client.create_attestation(&issuer, &subject, &String::from_str(&env, "ACCREDITED_INVESTOR"), &None);
+    env.ledger().with_mut(|l| l.timestamp += 1);
+    client.create_attestation(&issuer, &subject, &String::from_str(&env, "MERCHANT_VERIFIED"), &None);
+
+    let claims = client.get_valid_claims(&subject);
+    assert_eq!(claims.len(), 3);
+    assert!(claims.contains(&String::from_str(&env, "KYC_PASSED")));
+    assert!(claims.contains(&String::from_str(&env, "ACCREDITED_INVESTOR")));
+    assert!(claims.contains(&String::from_str(&env, "MERCHANT_VERIFIED")));
+}
+
+#[test]
+fn test_get_valid_claims_excludes_revoked() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let (_, client) = create_test_contract(&env);
+
+    client.initialize(&admin);
+    client.register_issuer(&admin, &issuer);
+
+    let id = client.create_attestation(&issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &None);
+    env.ledger().with_mut(|l| l.timestamp += 1);
+    client.create_attestation(&issuer, &subject, &String::from_str(&env, "ACCREDITED_INVESTOR"), &None);
+
+    client.revoke_attestation(&issuer, &id);
+
+    let claims = client.get_valid_claims(&subject);
+    assert_eq!(claims.len(), 1);
+    assert!(claims.contains(&String::from_str(&env, "ACCREDITED_INVESTOR")));
+    assert!(!claims.contains(&String::from_str(&env, "KYC_PASSED")));
+}
+
+#[test]
+fn test_get_valid_claims_excludes_expired() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let (_, client) = create_test_contract(&env);
+
+    client.initialize(&admin);
+    client.register_issuer(&admin, &issuer);
+
+    // Expires at timestamp 100
+    client.create_attestation(&issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &Some(100));
+    env.ledger().with_mut(|l| l.timestamp += 1);
+    client.create_attestation(&issuer, &subject, &String::from_str(&env, "ACCREDITED_INVESTOR"), &None);
+
+    // Advance past expiration
+    env.ledger().with_mut(|l| l.timestamp = 200);
+
+    let claims = client.get_valid_claims(&subject);
+    assert_eq!(claims.len(), 1);
+    assert!(claims.contains(&String::from_str(&env, "ACCREDITED_INVESTOR")));
+    assert!(!claims.contains(&String::from_str(&env, "KYC_PASSED")));
+}
+
+#[test]
+fn test_get_valid_claims_empty_when_none_valid() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let (_, client) = create_test_contract(&env);
+
+    client.initialize(&admin);
+    client.register_issuer(&admin, &issuer);
+
+    let id = client.create_attestation(&issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &None);
+    client.revoke_attestation(&issuer, &id);
+
+    let claims = client.get_valid_claims(&subject);
+    assert_eq!(claims.len(), 0);
+}
+
+#[test]
+fn test_get_valid_claims_empty_for_unknown_subject() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let (_, client) = create_test_contract(&env);
+    client.initialize(&admin);
+
+    let unknown = Address::generate(&env);
+    let claims = client.get_valid_claims(&unknown);
+    assert_eq!(claims.len(), 0);
+}
+
+#[test]
+fn test_get_valid_claims_deduplicates() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let (_, client) = create_test_contract(&env);
+
+    client.initialize(&admin);
+    client.register_issuer(&admin, &issuer);
+
+    // Two valid KYC_PASSED attestations from different timestamps
+    client.create_attestation(&issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &None);
+    env.ledger().with_mut(|l| l.timestamp += 1);
+    client.create_attestation(&issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &None);
+
+    let claims = client.get_valid_claims(&subject);
+    assert_eq!(claims.len(), 1);
+    assert!(claims.contains(&String::from_str(&env, "KYC_PASSED")));
+}
+
+#[test]
+fn test_get_valid_claims_large_attestation_set() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let (_, client) = create_test_contract(&env);
+
+    client.initialize(&admin);
+    client.register_issuer(&admin, &issuer);
+
+    // Create 20 attestations: 10 unique valid claim types + 10 revoked
+    let claim_types = [
+        "CLAIM_A", "CLAIM_B", "CLAIM_C", "CLAIM_D", "CLAIM_E",
+        "CLAIM_F", "CLAIM_G", "CLAIM_H", "CLAIM_I", "CLAIM_J",
+    ];
+
+    for (i, ct) in claim_types.iter().enumerate() {
+        env.ledger().with_mut(|l| l.timestamp = i as u64 + 1);
+        client.create_attestation(&issuer, &subject, &String::from_str(&env, ct), &None);
+    }
+
+    // Add 10 more that will be revoked
+    let mut revoke_ids = soroban_sdk::Vec::new(&env);
+    for (i, ct) in claim_types.iter().enumerate() {
+        env.ledger().with_mut(|l| l.timestamp = i as u64 + 100);
+        let id = client.create_attestation(&issuer, &subject, &String::from_str(&env, ct), &None);
+        revoke_ids.push_back(id);
+    }
+    client.revoke_attestations_batch(&issuer, &revoke_ids);
+
+    let claims = client.get_valid_claims(&subject);
+    // Should still return exactly 10 unique valid claim types
+    assert_eq!(claims.len(), 10);
+}

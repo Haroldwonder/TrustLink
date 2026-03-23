@@ -80,6 +80,52 @@ impl TrustLinkContract {
         Storage::add_issuer(&env, &issuer);
         Ok(())
     }
+    /// Return a deduplicated list of valid claim types for a subject.
+    ///
+    /// Iterates all attestations for `subject` and collects claim types whose
+    /// status is [`AttestationStatus::Valid`]. Revoked and expired attestations
+    /// are silently skipped. Duplicate claim types (e.g. two valid KYC_PASSED
+    /// attestations) appear only once in the result.
+    ///
+    /// # Parameters
+    /// - `subject` — address to query.
+    ///
+    /// # Returns
+    /// A [`Vec<String>`] of unique valid claim type strings. Empty if the
+    /// subject has no valid attestations.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// let claims = client.get_valid_claims(&user_address);
+    /// // e.g. ["KYC_PASSED", "ACCREDITED_INVESTOR"]
+    /// ```
+    pub fn get_valid_claims(env: Env, subject: Address) -> Vec<String> {
+        let attestation_ids = Storage::get_subject_attestations(&env, &subject);
+        let current_time = env.ledger().timestamp();
+        let mut result: Vec<String> = Vec::new(&env);
+
+        for id in attestation_ids.iter() {
+            if let Ok(attestation) = Storage::get_attestation(&env, &id) {
+                if attestation.get_status(current_time) == AttestationStatus::Valid {
+                    // Deduplicate: only add if not already present
+                    let mut already_present = false;
+                    for existing in result.iter() {
+                        if existing == attestation.claim_type {
+                            already_present = true;
+                            break;
+                        }
+                    }
+                    if !already_present {
+                        result.push_back(attestation.claim_type);
+                    }
+                }
+            }
+        }
+
+        result
+    }
+
+
 
     /// Remove an address from the authorized issuer registry.
     ///
@@ -419,6 +465,43 @@ impl TrustLinkContract {
         for i in start..end {
             if let Some(id) = all_ids.get(i) {
                 result.push_back(id);
+            }
+        }
+
+        result
+    }
+
+    /// Return a deduplicated list of valid claim types for a subject.
+    ///
+    /// Iterates all attestations for `subject` and collects claim types whose
+    /// status is [`AttestationStatus::Valid`]. Revoked and expired attestations
+    /// are silently skipped. Duplicate claim types appear only once in the result.
+    ///
+    /// # Parameters
+    /// - `subject` — address to query.
+    ///
+    /// # Returns
+    /// A [`Vec<String>`] of unique valid claim type strings. Empty if the
+    /// subject has no valid attestations.
+    pub fn get_valid_claims(env: Env, subject: Address) -> Vec<String> {
+        let attestation_ids = Storage::get_subject_attestations(&env, &subject);
+        let current_time = env.ledger().timestamp();
+        let mut result: Vec<String> = Vec::new(&env);
+
+        for id in attestation_ids.iter() {
+            if let Ok(attestation) = Storage::get_attestation(&env, &id) {
+                if attestation.get_status(current_time) == AttestationStatus::Valid {
+                    let mut already_present = false;
+                    for existing in result.iter() {
+                        if existing == attestation.claim_type {
+                            already_present = true;
+                            break;
+                        }
+                    }
+                    if !already_present {
+                        result.push_back(attestation.claim_type);
+                    }
+                }
             }
         }
 
