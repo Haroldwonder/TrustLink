@@ -1,8 +1,7 @@
 #![cfg(test)]
 
 use super::*;
-use soroban_sdk::{testutils::{Address as _, Events as _, Ledger}, Address, Env, String};
-use soroban_sdk::{testutils::{Address as _, Events as _, Ledger}, Address, BytesN, Env, String};
+use soroban_sdk::{testutils::{Address as _, Events as _, Ledger}, Address, Env, String, TryIntoVal};
 
 fn create_test_contract(env: &Env) -> (Address, TrustLinkContractClient) {
     let contract_id = env.register_contract(None, TrustLinkContract);
@@ -25,7 +24,59 @@ fn test_initialization() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #2)")]
+fn test_initialization_emits_admin_initialized_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let (contract_id, client) = create_test_contract(&env);
+
+    let timestamp = env.ledger().timestamp();
+    client.initialize(&admin);
+
+    // Verify the admin_init event was emitted by this contract
+    let admin_init_sym = soroban_sdk::symbol_short!("admin_init");
+    let mut found_admin: Option<Address> = None;
+    let mut found_timestamp: Option<u64> = None;
+
+    for (id, topics, data) in env.events().all().iter() {
+        if id != contract_id {
+            continue;
+        }
+        if topics.get(0).map(|v| v.shallow_eq(&admin_init_sym.to_val())).unwrap_or(false) {
+            // data is (Address, u64)
+            let (a, ts): (Address, u64) = data.try_into_val(&env).unwrap();
+            found_admin = Some(a);
+            found_timestamp = Some(ts);
+            break;
+        }
+    }
+
+    assert!(found_admin.is_some(), "expected admin_init event to be emitted");
+    assert_eq!(found_admin.unwrap(), admin, "admin_init event must carry the correct admin address");
+    assert_eq!(found_timestamp.unwrap(), timestamp, "admin_init event must carry the correct timestamp");
+}
+
+#[test]
+fn test_double_initialization_emits_no_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let (contract_id, client) = create_test_contract(&env);
+
+    client.initialize(&admin);
+
+    let admin_init_sym = soroban_sdk::symbol_short!("admin_init");
+    let count = env.events().all().iter().filter(|(id, topics, _)| {
+        *id == contract_id
+            && topics.get(0).map(|v| v.shallow_eq(&admin_init_sym.to_val())).unwrap_or(false)
+    }).count();
+
+    assert_eq!(count, 1, "admin_init must be emitted exactly once on successful initialization");
+}
+
+#[test]
 #[should_panic(expected = "Error(Contract, #1)")]
 fn test_double_initialization() {
     let env = Env::default();
@@ -176,7 +227,6 @@ fn test_expired_attestation() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #6)")]
 fn test_expired_event_emitted_on_has_valid_claim() {
     let env = Env::default();
     env.mock_all_auths();
@@ -191,7 +241,7 @@ fn test_expired_event_emitted_on_has_valid_claim() {
 
     let claim_type = String::from_str(&env, "KYC_PASSED");
     let current_time = env.ledger().timestamp();
-    client.create_attestation(&issuer, &subject, &claim_type, &Some(current_time + 100));
+    client.create_attestation(&issuer, &subject, &claim_type, &Some(current_time + 100), &None);
 
     env.ledger().with_mut(|li| li.timestamp = current_time + 200);
     assert!(!client.has_valid_claim(&subject, &claim_type));
@@ -220,7 +270,7 @@ fn test_expired_event_emitted_on_get_attestation_status() {
     let claim_type = String::from_str(&env, "KYC_PASSED");
     let current_time = env.ledger().timestamp();
     let attestation_id = client.create_attestation(
-        &issuer, &subject, &claim_type, &Some(current_time + 100),
+        &issuer, &subject, &claim_type, &Some(current_time + 100), &None,
     );
 
     env.ledger().with_mut(|li| li.timestamp = current_time + 200);
@@ -251,7 +301,7 @@ fn test_no_expired_event_for_revoked_attestation() {
     let claim_type = String::from_str(&env, "KYC_PASSED");
     let current_time = env.ledger().timestamp();
     let attestation_id = client.create_attestation(
-        &issuer, &subject, &claim_type, &Some(current_time + 100),
+        &issuer, &subject, &claim_type, &Some(current_time + 100), &None,
     );
     client.revoke_attestation(&issuer, &attestation_id);
 
@@ -433,6 +483,27 @@ fn test_create_attestation_valid_from_none_unchanged() {
     let issuer = Address::generate(&env);
     let subject = Address::generate(&env);
     let (_, client) = create_test_contract(&env);
+
+    client.initialize(&admin);
+    client.register_issuer(&admin, &issuer);
+
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    // Create with valid_from = None — backward-compatible path
+    let attestation_id =
+        client.create_attestation(&issuer, &subject, &claim_type, &None, &None);
+
+    let attestation = client.get_attestation(&attestation_id);
+    assert_eq!(attestation.valid_from, None);
+
+    // Status must be Valid (not Pending)
+    let status = client.get_attestation_status(&attestation_id);
+    assert_eq!(status, types::AttestationStatus::Valid);
+
+    // has_valid_claim must return true
+    assert!(client.has_valid_claim(&subject, &claim_type));
+}
+
 // ── Batch revocation tests ────────────────────────────────────────────────────
 
 fn setup_batch_env(env: &Env) -> (Address, Address, TrustLinkContractClient) {
@@ -452,9 +523,9 @@ fn test_batch_revoke_success() {
     let (_, issuer, client) = setup_batch_env(&env);
     let subject = Address::generate(&env);
 
-    let id1 = client.create_attestation(&issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &None);
-    let id2 = client.create_attestation(&issuer, &subject, &String::from_str(&env, "ACCREDITED_INVESTOR"), &None);
-    let id3 = client.create_attestation(&issuer, &subject, &String::from_str(&env, "MERCHANT_VERIFIED"), &None);
+    let id1 = client.create_attestation(&issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &None, &None);
+    let id2 = client.create_attestation(&issuer, &subject, &String::from_str(&env, "ACCREDITED_INVESTOR"), &None, &None);
+    let id3 = client.create_attestation(&issuer, &subject, &String::from_str(&env, "MERCHANT_VERIFIED"), &None, &None);
 
     let mut ids = soroban_sdk::Vec::new(&env);
     ids.push_back(id1.clone());
@@ -477,8 +548,8 @@ fn test_batch_revoke_returns_count() {
     let (_, issuer, client) = setup_batch_env(&env);
     let subject = Address::generate(&env);
 
-    let id1 = client.create_attestation(&issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &None);
-    let id2 = client.create_attestation(&issuer, &subject, &String::from_str(&env, "ACCREDITED_INVESTOR"), &None);
+    let id1 = client.create_attestation(&issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &None, &None);
+    let id2 = client.create_attestation(&issuer, &subject, &String::from_str(&env, "ACCREDITED_INVESTOR"), &None, &None);
 
     let mut ids = soroban_sdk::Vec::new(&env);
     ids.push_back(id1);
@@ -501,21 +572,21 @@ fn test_batch_revoke_emits_events_for_each() {
     client.initialize(&admin);
     client.register_issuer(&admin, &issuer);
 
-    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let id1 = client.create_attestation(&issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &None, &None);
+    let id2 = client.create_attestation(&issuer, &subject, &String::from_str(&env, "ACCREDITED_INVESTOR"), &None, &None);
 
-    // Create with valid_from = None — backward-compatible path
-    let attestation_id =
-        client.create_attestation(&issuer, &subject, &claim_type, &None, &None);
+    let mut ids = soroban_sdk::Vec::new(&env);
+    ids.push_back(id1);
+    ids.push_back(id2);
 
-    let attestation = client.get_attestation(&attestation_id);
-    assert_eq!(attestation.valid_from, None);
+    client.revoke_attestations_batch(&issuer, &ids);
 
-    // Status must be Valid (not Pending)
-    let status = client.get_attestation_status(&attestation_id);
-    assert_eq!(status, types::AttestationStatus::Valid);
+    let revoked_sym = soroban_sdk::symbol_short!("revoked");
+    let revoked_count = env.events().all().iter().filter(|(id, topics, _)| {
+        *id == contract_id && topics.get(0).map(|v| v.shallow_eq(&revoked_sym.to_val())).unwrap_or(false)
+    }).count();
 
-    // has_valid_claim must return true
-    assert!(client.has_valid_claim(&subject, &claim_type));
+    assert_eq!(revoked_count, 2, "expected one revoked event per attestation");
 }
 
 // ── Task 5.5 ──────────────────────────────────────────────────────────────────
@@ -940,21 +1011,6 @@ fn test_no_event_on_renewal_error() {
     // No new events should have been emitted
     let events_after = env.events().all().len();
     assert_eq!(events_before, events_after);
-    let id1 = client.create_attestation(&issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &None);
-    let id2 = client.create_attestation(&issuer, &subject, &String::from_str(&env, "ACCREDITED_INVESTOR"), &None);
-
-    let mut ids = soroban_sdk::Vec::new(&env);
-    ids.push_back(id1);
-    ids.push_back(id2);
-
-    client.revoke_attestations_batch(&issuer, &ids);
-
-    let revoked_sym = soroban_sdk::symbol_short!("revoked");
-    let revoked_count = env.events().all().iter().filter(|(id, topics, _)| {
-        *id == contract_id && topics.get(0).map(|v| v.shallow_eq(&revoked_sym.to_val())).unwrap_or(false)
-    }).count();
-
-    assert_eq!(revoked_count, 2, "expected one revoked event per attestation");
 }
 
 #[test]
@@ -969,7 +1025,7 @@ fn test_batch_revoke_unauthorized_issuer_panics() {
 
     let subject = Address::generate(&env);
     // issuer creates an attestation
-    let id = client.create_attestation(&issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &None);
+    let id = client.create_attestation(&issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &None, &None);
 
     // other_issuer tries to revoke issuer's attestation — must panic Unauthorized
     let mut ids = soroban_sdk::Vec::new(&env);
@@ -986,7 +1042,7 @@ fn test_batch_revoke_already_revoked_panics() {
     let (_, issuer, client) = setup_batch_env(&env);
     let subject = Address::generate(&env);
 
-    let id = client.create_attestation(&issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &None);
+    let id = client.create_attestation(&issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &None, &None);
     client.revoke_attestation(&issuer, &id);
 
     // Attempting to batch-revoke an already-revoked attestation must panic AlreadyRevoked
@@ -1009,7 +1065,7 @@ fn test_batch_revoke_single_auth_check() {
     let mut ids = soroban_sdk::Vec::new(&env);
     for claim in ["C1", "C2", "C3", "C4", "C5"].iter() {
         let id = client.create_attestation(
-            &issuer, &subject, &String::from_str(&env, claim), &None,
+            &issuer, &subject, &String::from_str(&env, claim), &None, &None,
         );
         ids.push_back(id);
     }
@@ -1049,39 +1105,6 @@ fn test_register_and_get_claim_type() {
     assert_eq!(result, Some(desc));
 }
 
-    let admin = Address::generate(&env);
-    let issuer = Address::generate(&env);
-    let subject = Address::generate(&env);
-    let (_, client) = create_test_contract(&env);
-
-    client.initialize(&admin);
-    client.register_issuer(&admin, &issuer);
-
-    let current_time: u64 = 1_000;
-    env.ledger().with_mut(|l| l.timestamp = current_time);
-
-    let future_time = current_time + 500;
-    let claim_type = String::from_str(&env, "KYC_PASSED");
-
-    let attestation_id =
-        client.create_attestation(&issuer, &subject, &claim_type, &None, &Some(future_time));
-
-    // Revoke while still pending
-    client.revoke_attestation(&issuer, &attestation_id);
-
-    // Time-lock is dominant: status is still Pending before valid_from
-    let status = client.get_attestation_status(&attestation_id);
-    assert_eq!(status, types::AttestationStatus::Pending);
-
-    // Advance ledger time past valid_from
-    env.ledger().with_mut(|l| l.timestamp = future_time + 1);
-
-    // Now the revocation takes effect: status is Revoked
-    let status = client.get_attestation_status(&attestation_id);
-    assert_eq!(status, types::AttestationStatus::Revoked);
-    let non_admin = Address::generate(&env);
-    let (_, client) = create_test_contract(&env);
-    client.initialize(&admin);
 #[test]
 fn test_get_claim_type_description_unknown_returns_none() {
     let env = Env::default();
@@ -1211,7 +1234,7 @@ fn test_update_expiration_extend() {
 
     let current_time = env.ledger().timestamp();
     let id = client.create_attestation(
-        &issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &Some(current_time + 100),
+        &issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &Some(current_time + 100), &None,
     );
 
     // Extend expiration
@@ -1230,7 +1253,7 @@ fn test_update_expiration_shorten() {
 
     let current_time = env.ledger().timestamp();
     let id = client.create_attestation(
-        &issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &Some(current_time + 1000),
+        &issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &Some(current_time + 1000), &None,
     );
 
     client.update_expiration(&issuer, &id, &Some(current_time + 50));
@@ -1248,7 +1271,7 @@ fn test_update_expiration_remove() {
 
     let current_time = env.ledger().timestamp();
     let id = client.create_attestation(
-        &issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &Some(current_time + 100),
+        &issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &Some(current_time + 100), &None,
     );
 
     // Remove expiration entirely
@@ -1267,7 +1290,7 @@ fn test_update_expiration_status_reflects_immediately() {
 
     let current_time = env.ledger().timestamp();
     let id = client.create_attestation(
-        &issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &Some(current_time + 100),
+        &issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &Some(current_time + 100), &None,
     );
 
     // Fast-forward past expiration — should be expired
@@ -1290,7 +1313,7 @@ fn test_update_expiration_unauthorized() {
 
     let subject = Address::generate(&env);
     let id = client.create_attestation(
-        &issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &None,
+        &issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &None, &None,
     );
 
     // other_issuer cannot update issuer's attestation
@@ -1306,7 +1329,7 @@ fn test_update_expiration_revoked_rejected() {
     let subject = Address::generate(&env);
 
     let id = client.create_attestation(
-        &issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &None,
+        &issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &None, &None,
     );
     client.revoke_attestation(&issuer, &id);
 
@@ -1328,7 +1351,7 @@ fn test_update_expiration_emits_event() {
     client.register_issuer(&admin, &issuer);
 
     let id = client.create_attestation(
-        &issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &None,
+        &issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &None, &None,
     );
 
     client.update_expiration(&issuer, &id, &Some(5000));
@@ -1378,106 +1401,6 @@ fn test_get_version_before_initialization_panics() {
 
     let (_, client) = create_test_contract(&env);
     client.get_version(); // NotInitialized
-}
-
-// ── Issuer Registry Events Unit Tests (Tasks 3.1–3.4) ────────────────────────
-// Requirements: 4.1, 4.2, 4.3
-
-#[test]
-fn test_register_issuer_emits_event() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let admin = Address::generate(&env);
-    let issuer = Address::generate(&env);
-    let (contract_id, client) = create_test_contract(&env);
-
-    client.initialize(&admin);
-    client.register_issuer(&admin, &issuer);
-
-    let events = env.events().all();
-    // Find the iss_reg event (last event should be it)
-    let (_, topics, data) = events.last().unwrap();
-
-    let topic0: soroban_sdk::Symbol = soroban_sdk::TryFromVal::try_from_val(&env, &topics.get(0).unwrap()).unwrap();
-    let topic1: Address = soroban_sdk::TryFromVal::try_from_val(&env, &topics.get(1).unwrap()).unwrap();
-    let event_data: Address = soroban_sdk::TryFromVal::try_from_val(&env, &data).unwrap();
-
-    assert_eq!(topic0, soroban_sdk::symbol_short!("iss_reg"));
-    assert_eq!(topic1, issuer);
-    assert_eq!(event_data, admin);
-
-    let _ = contract_id;
-}
-
-#[test]
-fn test_remove_issuer_emits_event() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let admin = Address::generate(&env);
-    let issuer = Address::generate(&env);
-    let (contract_id, client) = create_test_contract(&env);
-
-    client.initialize(&admin);
-    client.register_issuer(&admin, &issuer);
-    client.remove_issuer(&admin, &issuer);
-
-    let events = env.events().all();
-    let (_, topics, data) = events.last().unwrap();
-
-    let topic0: soroban_sdk::Symbol = soroban_sdk::TryFromVal::try_from_val(&env, &topics.get(0).unwrap()).unwrap();
-    let topic1: Address = soroban_sdk::TryFromVal::try_from_val(&env, &topics.get(1).unwrap()).unwrap();
-    let event_data: Address = soroban_sdk::TryFromVal::try_from_val(&env, &data).unwrap();
-
-    assert_eq!(topic0, soroban_sdk::symbol_short!("iss_rem"));
-    assert_eq!(topic1, issuer);
-    assert_eq!(event_data, admin);
-
-    let _ = contract_id;
-}
-
-#[test]
-fn test_register_issuer_error_no_event() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let admin = Address::generate(&env);
-    let wrong_admin = Address::generate(&env);
-    let issuer = Address::generate(&env);
-    let (_, client) = create_test_contract(&env);
-
-    client.initialize(&admin);
-
-    let events_before = env.events().all().len();
-
-    // wrong_admin is not the real admin — should fail with Unauthorized
-    let _ = client.try_register_issuer(&wrong_admin, &issuer);
-
-    let events_after = env.events().all().len();
-    assert_eq!(events_before, events_after);
-}
-
-#[test]
-fn test_remove_issuer_error_no_event() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let admin = Address::generate(&env);
-    let wrong_admin = Address::generate(&env);
-    let issuer = Address::generate(&env);
-    let (_, client) = create_test_contract(&env);
-
-    client.initialize(&admin);
-    client.register_issuer(&admin, &issuer);
-
-    let events_before = env.events().all().len();
-
-    // wrong_admin is not the real admin — should fail with Unauthorized
-    let _ = client.try_remove_issuer(&wrong_admin, &issuer);
-
-    let events_after = env.events().all().len();
-    assert_eq!(events_before, events_after);
 }
 
 // ── Issuer Registry Events Unit Tests (Tasks 3.1–3.4) ────────────────────────

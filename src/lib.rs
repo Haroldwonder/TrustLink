@@ -16,8 +16,8 @@ mod events;
 #[cfg(test)]
 mod test;
 
-use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Vec};
-use types::{Attestation, AttestationStatus, Error, IssuerMetadata};
+use soroban_sdk::{contract, contractimpl, Address, Env, String, Vec};
+use types::{Attestation, AttestationStatus, ClaimTypeInfo, ContractMetadata, Error, IssuerMetadata};
 use storage::Storage;
 use validation::Validation;
 use events::Events;
@@ -37,6 +37,8 @@ impl TrustLinkContract {
     /// Must be called exactly once after deployment. The `admin` address
     /// must authorize this call.
     ///
+    /// Emits an [`events::Events::admin_initialized`] event on success.
+    ///
     /// # Parameters
     /// - `admin` — address that will control issuer registration.
     ///
@@ -55,6 +57,7 @@ impl TrustLinkContract {
         admin.require_auth();
         Storage::set_admin(&env, &admin);
         Storage::set_version(&env, &String::from_str(&env, "1.0.0"));
+        Events::admin_initialized(&env, &admin, env.ledger().timestamp());
         Ok(())
     }
 
@@ -82,53 +85,6 @@ impl TrustLinkContract {
         Events::issuer_registered(&env, &issuer, &admin);
         Ok(())
     }
-    /// Return a deduplicated list of valid claim types for a subject.
-    ///
-    /// Iterates all attestations for `subject` and collects claim types whose
-    /// status is [`AttestationStatus::Valid`]. Revoked and expired attestations
-    /// are silently skipped. Duplicate claim types (e.g. two valid KYC_PASSED
-    /// attestations) appear only once in the result.
-    ///
-    /// # Parameters
-    /// - `subject` — address to query.
-    ///
-    /// # Returns
-    /// A [`Vec<String>`] of unique valid claim type strings. Empty if the
-    /// subject has no valid attestations.
-    ///
-    /// # Examples
-    /// ```ignore
-    /// let claims = client.get_valid_claims(&user_address);
-    /// // e.g. ["KYC_PASSED", "ACCREDITED_INVESTOR"]
-    /// ```
-    pub fn get_valid_claims(env: Env, subject: Address) -> Vec<String> {
-        let attestation_ids = Storage::get_subject_attestations(&env, &subject);
-        let current_time = env.ledger().timestamp();
-        let mut result: Vec<String> = Vec::new(&env);
-
-        for id in attestation_ids.iter() {
-            if let Ok(attestation) = Storage::get_attestation(&env, &id) {
-                if attestation.get_status(current_time) == AttestationStatus::Valid {
-                    // Deduplicate: only add if not already present
-                    let mut already_present = false;
-                    for existing in result.iter() {
-                        if existing == attestation.claim_type {
-                            already_present = true;
-                            break;
-                        }
-                    }
-                    if !already_present {
-                        result.push_back(attestation.claim_type);
-                    }
-                }
-            }
-        }
-
-        result
-    }
-
-
-
     /// Remove an address from the authorized issuer registry.
     ///
     /// Only the current admin may call this function. Removing an issuer does
