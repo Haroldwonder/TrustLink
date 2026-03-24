@@ -27,6 +27,20 @@ fn validate_metadata(metadata: &Option<String>) -> Result<(), Error> {
     Ok(())
 }
 
+fn validate_tags(tags: &Option<Vec<String>>) -> Result<(), Error> {
+    if let Some(t) = tags {
+        if t.len() > 5 {
+            return Err(Error::TooManyTags);
+        }
+        for tag in t.iter() {
+            if tag.len() > 32 {
+                return Err(Error::TagTooLong);
+            }
+        }
+    }
+    Ok(())
+}
+
 fn validate_native_expiration(env: &Env, expiration: Option<u64>) -> Result<(), Error> {
     if let Some(value) = expiration {
         if value <= env.ledger().timestamp() {
@@ -194,10 +208,12 @@ impl TrustLinkContract {
         claim_type: String,
         expiration: Option<u64>,
         metadata: Option<String>,
+        tags: Option<Vec<String>>,
     ) -> Result<String, Error> {
         issuer.require_auth();
         Validation::require_issuer(&env, &issuer)?;
         validate_metadata(&metadata)?;
+        validate_tags(&tags)?;
         validate_native_expiration(&env, expiration)?;
 
         let timestamp = env.ledger().timestamp();
@@ -224,6 +240,7 @@ impl TrustLinkContract {
             bridged: false,
             source_chain: None,
             source_tx: None,
+            tags,
         };
 
         store_attestation(&env, &attestation);
@@ -266,6 +283,7 @@ impl TrustLinkContract {
             bridged: false,
             source_chain: None,
             source_tx: None,
+            tags: None,
         };
 
         store_attestation(&env, &attestation);
@@ -313,6 +331,7 @@ impl TrustLinkContract {
             bridged: true,
             source_chain: Some(source_chain),
             source_tx: Some(source_tx),
+            tags: None,
         };
 
         store_attestation(&env, &attestation);
@@ -356,6 +375,7 @@ impl TrustLinkContract {
                 bridged: false,
                 source_chain: None,
                 source_tx: None,
+                tags: None,
             };
 
             store_attestation(&env, &attestation);
@@ -568,6 +588,30 @@ impl TrustLinkContract {
             start,
             limit,
         )
+    }
+
+    pub fn get_attestations_by_tag(
+        env: Env,
+        subject: Address,
+        tag: String,
+    ) -> Vec<String> {
+        let attestation_ids = Storage::get_subject_attestations(&env, &subject);
+        let mut result = Vec::new(&env);
+
+        for id in attestation_ids.iter() {
+            if let Ok(attestation) = Storage::get_attestation(&env, &id) {
+                if let Some(tags) = attestation.tags {
+                    for t in tags.iter() {
+                        if t == tag {
+                            result.push_back(id.clone());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        result
     }
 
     pub fn get_issuer_attestations(

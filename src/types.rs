@@ -1,6 +1,6 @@
 //! Shared data types and error definitions for TrustLink.
 
-use soroban_sdk::{contracterror, contracttype, xdr::ToXdr, Address, Bytes, Env, String};
+use soroban_sdk::{contracterror, contracttype, xdr::ToXdr, Address, Bytes, Env, String, Vec};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -49,6 +49,7 @@ pub struct Attestation {
     pub bridged: bool,
     pub source_chain: Option<String>,
     pub source_tx: Option<String>,
+    pub tags: Option<Vec<String>>,
 }
 
 #[contracttype]
@@ -76,6 +77,8 @@ pub enum Error {
     InvalidTimestamp = 11,
     InvalidFee = 12,
     FeeTokenRequired = 13,
+    TooManyTags = 14,
+    TagTooLong = 15,
 }
 
 impl Attestation {

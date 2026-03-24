@@ -918,6 +918,7 @@
                   "string": "KYC_PASSED"
                 },
                 "void",
+                "void",
                 "void"
               ]
             }
@@ -1134,6 +1135,7 @@
                     {
                       "string": "KYC_PASSED"
                     },
+                    "void",
                     "void",
                     "void"
                   ]

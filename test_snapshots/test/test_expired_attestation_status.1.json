@@ -66,6 +66,7 @@
                 {
                   "u64": 100
                 },
+                "void",
                 "void"
               ]
             }
@@ -206,6 +207,12 @@
                       "val": {
                         "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                       }
+                    },
+                    {
+                      "key": {
+                        "symbol": "tags"
+                      },
+                      "val": "void"
                     },
                     {
                       "key": {
@@ -781,6 +788,7 @@
                 {
                   "u64": 100
                 },
+                "void",
                 "void"
               ]
             }

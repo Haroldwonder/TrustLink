@@ -179,7 +179,7 @@ fn test_fee_is_disabled_by_default() {
     assert_eq!(fee_config.fee_collector, admin);
     assert_eq!(fee_config.fee_token, None);
 
-    let id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None);
+    let id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
     assert!(!client.get_attestation(&id).imported);
 }
 
@@ -193,7 +193,7 @@ fn test_create_attestation_sets_imported_false() {
     let claim_type = String::from_str(&env, "KYC_PASSED");
     let metadata = Some(String::from_str(&env, "source=acme"));
 
-    let id = client.create_attestation(&issuer, &subject, &claim_type, &None, &metadata);
+    let id = client.create_attestation(&issuer, &subject, &claim_type, &None, &metadata, &None);
     let attestation = client.get_attestation(&id);
 
     assert_eq!(attestation.subject, subject);
@@ -236,7 +236,7 @@ fn test_create_attestation_collects_fee_when_enabled() {
     asset_admin.mint(&issuer, &100);
     client.set_fee(&admin, &25, &collector, &Some(fee_token.clone()));
 
-    let id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None);
+    let id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
 
     assert_eq!(token_client.balance(&issuer), 75);
     assert_eq!(token_client.balance(&collector), 25);
@@ -257,7 +257,7 @@ fn test_create_attestation_rejects_without_fee_payment() {
 
     client.set_fee(&admin, &25, &collector, &Some(fee_token));
 
-    let result = client.try_create_attestation(&issuer, &subject, &claim_type, &None, &None);
+    let result = client.try_create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
 
     assert!(result.is_err());
     assert_eq!(token_client.balance(&collector), 0);
@@ -274,7 +274,7 @@ fn test_create_attestation_rejects_metadata_over_256_chars() {
     let claim_type = String::from_str(&env, "KYC_PASSED");
     let too_long = Some(String::from_bytes(&env, &[b'a'; 257]));
 
-    let result = client.try_create_attestation(&issuer, &subject, &claim_type, &None, &too_long);
+    let result = client.try_create_attestation(&issuer, &subject, &claim_type, &None, &too_long, &None);
     assert_eq!(result, Err(Ok(types::Error::MetadataTooLong)));
 }
 
@@ -288,8 +288,8 @@ fn test_duplicate_attestation_rejected_for_same_timestamp() {
     let claim_type = String::from_str(&env, "KYC_PASSED");
 
     env.ledger().with_mut(|li| li.timestamp = 1_000);
-    client.create_attestation(&issuer, &subject, &claim_type, &None, &None);
-    let result = client.try_create_attestation(&issuer, &subject, &claim_type, &None, &None);
+    client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+    let result = client.try_create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
 
     assert_eq!(result, Err(Ok(types::Error::DuplicateAttestation)));
 }
@@ -303,7 +303,7 @@ fn test_has_valid_claim_and_revocation() {
     let subject = Address::generate(&env);
     let claim_type = String::from_str(&env, "KYC_PASSED");
 
-    let id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None);
+    let id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
     assert!(client.has_valid_claim(&subject, &claim_type));
 
     client.revoke_attestation(&issuer, &id);
@@ -321,7 +321,7 @@ fn test_expired_attestation_status() {
     let claim_type = String::from_str(&env, "KYC_PASSED");
     let now = env.ledger().timestamp();
 
-    let id = client.create_attestation(&issuer, &subject, &claim_type, &Some(now + 100), &None);
+    let id = client.create_attestation(&issuer, &subject, &claim_type, &Some(now + 100), &None, &None);
     assert!(client.has_valid_claim(&subject, &claim_type));
 
     env.ledger().with_mut(|li| li.timestamp = now + 101);
@@ -629,4 +629,106 @@ fn test_imported_attestation_can_be_expired_today() {
         types::AttestationStatus::Expired
     );
     assert!(!client.has_valid_claim(&subject, &claim_type));
+}
+
+#[test]
+fn test_create_attestation_with_tags() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "TAGGED_CLAIM");
+
+    let mut tags = soroban_sdk::Vec::new(&env);
+    tags.push_back(String::from_str(&env, "tag1"));
+    tags.push_back(String::from_str(&env, "tag2"));
+
+    let id = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &None,
+        &None,
+        &Some(tags.clone()),
+    );
+    let att = client.get_attestation(&id);
+
+    assert_eq!(att.tags, Some(tags));
+}
+
+#[test]
+fn test_get_attestations_by_tag() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    let mut tags = soroban_sdk::Vec::new(&env);
+    tags.push_back(String::from_str(&env, "mytag"));
+    let id1 = client.create_attestation(
+        &issuer,
+        &subject,
+        &String::from_str(&env, "CLAIM_1"),
+        &None,
+        &None,
+        &Some(tags),
+    );
+
+    env.ledger().with_mut(|li| li.timestamp = 1_000);
+
+    let mut tags2 = soroban_sdk::Vec::new(&env);
+    tags2.push_back(String::from_str(&env, "othertag"));
+    let _id2 = client.create_attestation(
+        &issuer,
+        &subject,
+        &String::from_str(&env, "CLAIM_2"),
+        &None,
+        &None,
+        &Some(tags2),
+    );
+
+    let result = client.get_attestations_by_tag(&subject, &String::from_str(&env, "mytag"));
+    assert_eq!(result.len(), 1);
+    assert_eq!(result.get(0).unwrap(), id1);
+}
+
+#[test]
+fn test_tags_length_limits() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "TAGGED_CLAIM");
+
+    // Max 5 tags max
+    let mut too_many_tags = soroban_sdk::Vec::new(&env);
+    for _ in 0..6 {
+        too_many_tags.push_back(String::from_str(&env, "tag"));
+    }
+
+    let res1 = client.try_create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &None,
+        &None,
+        &Some(too_many_tags),
+    );
+    assert_eq!(res1, Err(Ok(types::Error::TooManyTags)));
+
+    // Max 32 chars
+    let mut long_tag = soroban_sdk::Vec::new(&env);
+    long_tag.push_back(String::from_bytes(&env, &[b'a'; 33]));
+    let res2 = client.try_create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &None,
+        &None,
+        &Some(long_tag),
+    );
+    assert_eq!(res2, Err(Ok(types::Error::TagTooLong)));
 }

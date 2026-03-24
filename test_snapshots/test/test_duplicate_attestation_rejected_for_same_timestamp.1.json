@@ -64,6 +64,7 @@
                   "string": "KYC_PASSED"
                 },
                 "void",
+                "void",
                 "void"
               ]
             }
@@ -200,6 +201,12 @@
                       "val": {
                         "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                       }
+                    },
+                    {
+                      "key": {
+                        "symbol": "tags"
+                      },
+                      "val": "void"
                     },
                     {
                       "key": {
@@ -773,6 +780,7 @@
                   "string": "KYC_PASSED"
                 },
                 "void",
+                "void",
                 "void"
               ]
             }
@@ -871,6 +879,7 @@
                   "string": "KYC_PASSED"
                 },
                 "void",
+                "void",
                 "void"
               ]
             }
@@ -965,6 +974,7 @@
                     {
                       "string": "KYC_PASSED"
                     },
+                    "void",
                     "void",
                     "void"
                   ]
