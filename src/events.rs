@@ -48,7 +48,7 @@ impl Events {
 
     pub fn admin_initialized(env: &Env, admin: &Address, timestamp: u64) {
         env.events().publish(
-            (symbol_short!("admin_init"),),
+            (symbol_short!("adm_init"),),
             (admin.clone(), timestamp),
         );
     }
