@@ -504,6 +504,12 @@ soroban contract invoke \
   --admin <ADMIN_ADDRESS>
 ```
 
+## Video Tutorial
+
+New to TrustLink or Soroban? Watch the [TrustLink Video Tutorial](https://www.youtube.com/watch?v=TODO_REPLACE_WITH_VIDEO_ID) for a 10–15 minute walkthrough covering what TrustLink is, how to deploy it, and how to integrate it into your contracts and frontend.
+
+A companion written guide with all commands and code snippets is available at [docs/video-tutorial-guide.md](docs/video-tutorial-guide.md).
+
 ## Integration Guide
 
 For a step-by-step walkthrough covering Rust cross-contract patterns, JavaScript/TypeScript usage, error handling, and testnet testing, see [docs/integration-guide.md](docs/integration-guide.md).
