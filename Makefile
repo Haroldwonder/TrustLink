@@ -45,3 +45,8 @@ fmt:
 clippy:
 	@echo "Running clippy..."
 	cargo clippy --all-targets -- -D warnings
+
+coverage:
+	@echo "Generating coverage report..."
+	cargo llvm-cov --html
+	@echo "Coverage report generated in target/llvm-cov/html/index.html"
