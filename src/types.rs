@@ -116,6 +116,9 @@ pub struct Attestation {
     pub source_tx: Option<String>,
     pub tags: Option<Vec<String>>,
     pub revocation_reason: Option<String>,
+    /// True when the subject has requested GDPR deletion of this attestation.
+    /// Deleted attestations are excluded from all query results.
+    pub deleted: bool,
 }
 
 #[contracttype]
@@ -173,6 +176,10 @@ pub struct MultiSigProposal {
 }
 
 impl Attestation {
+    /// Hashes an arbitrary byte payload and returns a 32-character lowercase hex string.
+    ///
+    /// Algorithm: SHA-256 over the XDR-encoded payload, digest truncated to the first 16 bytes,
+    /// hex-encoded to a 32-character lowercase string.
     pub fn hash_payload(env: &Env, payload: &Bytes) -> String {
         let hash = env.crypto().sha256(payload).to_array();
         const HEX: &[u8; 16] = b"0123456789abcdef";
@@ -184,6 +191,9 @@ impl Attestation {
         String::from_bytes(env, &hex)
     }
 
+    /// Generates a deterministic attestation ID from the given inputs.
+    ///
+    /// XDR field order: `issuer | subject | claim_type | timestamp`
     pub fn generate_id(
         env: &Env,
         issuer: &Address,
@@ -199,6 +209,9 @@ impl Attestation {
         Self::hash_payload(env, &payload)
     }
 
+    /// Generates a deterministic bridge attestation ID from the given inputs.
+    ///
+    /// XDR field order: `bridge | subject | claim_type | source_chain | source_tx | timestamp`
     pub fn generate_bridge_id(
         env: &Env,
         bridge: &Address,

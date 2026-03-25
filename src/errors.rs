@@ -39,4 +39,6 @@ pub enum Error {
     CannotEndorseOwn = 22,
     /// Endorser has already endorsed this attestation.
     AlreadyEndorsed = 23,
+    /// The contract is paused; write operations are temporarily disabled.
+    ContractPaused = 24,
 }

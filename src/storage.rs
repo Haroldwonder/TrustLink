@@ -72,11 +72,15 @@ pub enum StorageKey {
     ExpirationHook(Address),
     /// Append-only audit log for an attestation, keyed by attestation ID.
     AuditLog(String),
+    /// Global pause flag — when present and true, write operations are disabled.
+    Paused,
 }
 
 const DAY_IN_LEDGERS: u32 = 17280;
 const DEFAULT_TTL_DAYS: u32 = 30;
 const DEFAULT_INSTANCE_LIFETIME: u32 = DAY_IN_LEDGERS * DEFAULT_TTL_DAYS;
+// Only extend TTL on read if remaining TTL drops below this threshold (7 days)
+const MIN_TTL_THRESHOLD: u32 = 7 * DAY_IN_LEDGERS;
 
 /// Get the TTL in ledgers for the configured number of days.
 fn get_ttl_lifetime(env: &Env) -> u32 {
@@ -213,46 +217,28 @@ impl Storage {
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 
-    /// Retrieve an attestation by `id`.
-    ///
-    /// Extends the entry's TTL on every successful read so that frequently
-    /// accessed attestations are not evicted while still in active use.
-    /// The threshold and extension amount match the write-path constants,
-    /// meaning a read is never more expensive than a write in terms of
-    /// storage rent.
+    /// Retrieve an attestation by `id`. TTL is not extended on read to reduce
+    /// compute costs; TTL will be refreshed when the attestation is modified.
     ///
     /// # Errors
     /// - [`Error::NotFound`] — no attestation with that ID exists.
     pub fn get_attestation(env: &Env, id: &String) -> Result<Attestation, Error> {
         let key = StorageKey::Attestation(id.clone());
-        let attestation = env
-            .storage()
+        env.storage()
             .persistent()
             .get(&key)
-            .ok_or(Error::NotFound)?;
-        // Extend TTL on read so hot attestations stay alive without a write.
-        let ttl = get_ttl_lifetime(env);
-        env.storage().persistent().extend_ttl(&key, ttl, ttl);
-        Ok(attestation)
+            .ok_or(Error::NotFound)
     }
 
     /// Return the ordered list of attestation IDs for `subject`, or an empty
-    /// [`Vec`] if none exist.
-    ///
-    /// Extends the index TTL on read using the same threshold and amount as
-    /// write operations — no additional storage cost beyond what a write incurs.
+    /// [`Vec`] if none exist. TTL is only extended on index modification,
+    /// not on read, to reduce compute costs for frequent queries.
     pub fn get_subject_attestations(env: &Env, subject: &Address) -> Vec<String> {
         let key = StorageKey::SubjectAttestations(subject.clone());
-        let list = env
-            .storage()
+        env.storage()
             .persistent()
             .get(&key)
-            .unwrap_or(Vec::new(env));
-        if env.storage().persistent().has(&key) {
-            let ttl = get_ttl_lifetime(env);
-            env.storage().persistent().extend_ttl(&key, ttl, ttl);
-        }
-        list
+            .unwrap_or(Vec::new(env))
     }
 
     /// Append `attestation_id` to `subject`'s attestation index and refresh TTL.
@@ -265,23 +251,30 @@ impl Storage {
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 
+    /// Remove `attestation_id` from `subject`'s attestation index.
+    pub fn remove_subject_attestation(env: &Env, subject: &Address, attestation_id: &String) {
+        let key = StorageKey::SubjectAttestations(subject.clone());
+        let ttl = get_ttl_lifetime(env);
+        let existing = Self::get_subject_attestations(env, subject);
+        let mut updated = Vec::new(env);
+        for id in existing.iter() {
+            if &id != attestation_id {
+                updated.push_back(id);
+            }
+        }
+        env.storage().persistent().set(&key, &updated);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
     /// Return the ordered list of attestation IDs created by `issuer`, or an
-    /// empty [`Vec`] if none exist.
-    ///
-    /// Extends the index TTL on read using the same threshold and amount as
-    /// write operations — no additional storage cost beyond what a write incurs.
+    /// empty [`Vec`] if none exist. TTL is only extended on index modification,
+    /// not on read, to reduce compute costs for frequent queries.
     pub fn get_issuer_attestations(env: &Env, issuer: &Address) -> Vec<String> {
         let key = StorageKey::IssuerAttestations(issuer.clone());
-        let list = env
-            .storage()
+        env.storage()
             .persistent()
             .get(&key)
-            .unwrap_or(Vec::new(env));
-        if env.storage().persistent().has(&key) {
-            let ttl = get_ttl_lifetime(env);
-            env.storage().persistent().extend_ttl(&key, ttl, ttl);
-        }
-        list
+            .unwrap_or(Vec::new(env))
     }
 
     /// Append `attestation_id` to `issuer`'s attestation index and refresh TTL.
@@ -502,6 +495,23 @@ impl Storage {
         log.push_back(entry.clone());
         env.storage().persistent().set(&key, &log);
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    /// Return `true` if the contract is currently paused.
+    ///
+    /// Defaults to `false` (not paused) when the key is absent.
+    pub fn is_paused(env: &Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&StorageKey::Paused)
+            .unwrap_or(false)
+    }
+
+    /// Set the contract pause state and refresh the instance TTL.
+    pub fn set_paused(env: &Env, paused: bool) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::Paused, &paused);
+        env.storage().instance().extend_ttl(ttl, ttl);
     }
 }
 

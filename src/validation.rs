@@ -56,4 +56,15 @@ impl Validation {
         }
         Ok(())
     }
+
+    /// Assert that the contract is not currently paused.
+    ///
+    /// # Errors
+    /// - [`Error::ContractPaused`] — the contract has been paused by the admin.
+    pub fn require_not_paused(env: &Env) -> Result<(), Error> {
+        if Storage::is_paused(env) {
+            return Err(Error::ContractPaused);
+        }
+        Ok(())
+    }
 }

@@ -2,6 +2,39 @@
 
 Thanks for your interest in contributing! This guide covers everything you need to go from zero to a merged PR.
 
+## Development environment
+
+The fastest way to get a fully configured Rust + Soroban environment is to use the included devcontainer. No manual tool installation needed.
+
+**Open in VS Code (one click):**
+
+[![Open in Dev Containers](https://img.shields.io/static/v1?label=Dev%20Containers&message=Open&color=blue&logo=visualstudiocode)](vscode://ms-vscode-remote.remote-containers/cloneInVolume?url=https://github.com/Olisachukwuma1/TrustLink)
+
+**Open in GitHub Codespaces:**
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Olisachukwuma1/TrustLink)
+
+After the container finishes building, verify everything works:
+
+```bash
+# Run the test suite
+cargo test
+
+# Confirm Soroban CLI is available
+soroban --version
+
+# Confirm the wasm32 target is installed
+rustup target list --installed | grep wasm32
+```
+
+`cargo-watch` is pre-installed for live test feedback during development:
+
+```bash
+cargo watch -x "test"
+```
+
+---
+
 ## New to Stellar or Soroban?
 
 Before diving in, read [docs/stellar-concepts.md](docs/stellar-concepts.md) for a beginner-friendly explanation of ledger timestamps, storage TTL, `require_auth`, and the WASM deployment model — concepts that come up throughout the codebase.
