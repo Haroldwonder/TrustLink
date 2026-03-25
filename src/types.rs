@@ -127,6 +127,7 @@ pub struct MultiSigProposal {
 pub enum Error {
     AlreadyInitialized = 1,
     NotInitialized = 2,
+    /// Caller lacks required permissions. Includes rejection when `issuer` equals `subject` in `create_attestation`.
     Unauthorized = 3,
     NotFound = 4,
     DuplicateAttestation = 5,

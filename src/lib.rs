@@ -8,7 +8,7 @@ mod validation;
 #[cfg(test)]
 mod test;
 
-use soroban_sdk::{contract, contractimpl, token::TokenClient, Address, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, token::TokenClient, Address, Bytes, Env, String, Vec};
 
 use crate::events::Events;
 use crate::storage::Storage;
@@ -17,6 +17,22 @@ use crate::types::{
     GlobalStats, IssuerMetadata, MultiSigProposal, TtlConfig, MULTISIG_PROPOSAL_TTL_SECS,
 };
 use crate::validation::Validation;
+
+// Seconds in one day.
+const SECS_PER_DAY: u64 = 86_400;
+
+/// Minimal interface expected on a registered callback contract.
+/// The callback receives the subject, attestation ID, and expiration timestamp.
+mod callback {
+    use soroban_sdk::{contractclient, Address, Env, String};
+
+    #[contractclient(name = "ExpirationCallbackClient")]
+    pub trait ExpirationCallback {
+        fn notify_expiring(env: Env, subject: Address, attestation_id: String, expiration: u64);
+    }
+}
+
+use callback::ExpirationCallbackClient;
 
 fn validate_metadata(metadata: &Option<String>) -> Result<(), Error> {
     if let Some(value) = metadata {
@@ -117,6 +133,11 @@ fn store_attestation(env: &Env, attestation: &Attestation) {
     Storage::set_attestation(env, attestation);
     Storage::add_subject_attestation(env, &attestation.subject, &attestation.id);
     Storage::add_issuer_attestation(env, &attestation.issuer, &attestation.id);
+
+    // Increment total_issued counter atomically with the attestation write.
+    let mut stats = Storage::get_issuer_stats(env, &attestation.issuer);
+    stats.total_issued += 1;
+    Storage::set_issuer_stats(env, &attestation.issuer, &stats);
 }
 
 fn paginate_strings(env: &Env, values: Vec<String>, start: u32, limit: u32) -> Vec<String> {
@@ -131,6 +152,32 @@ fn paginate_strings(env: &Env, values: Vec<String>, start: u32, limit: u32) -> V
     }
 
     result
+}
+
+/// Fire the expiration hook for `subject` if one is registered and the
+/// attestation is inside the notification window. Failures are silently
+/// swallowed so the main flow is never interrupted.
+fn maybe_trigger_expiration_hook(
+    env: &Env,
+    subject: &Address,
+    attestation_id: &String,
+    expiration: u64,
+    current_time: u64,
+) {
+    let hook = match Storage::get_expiration_hook(env, subject) {
+        Some(h) => h,
+        None => return,
+    };
+
+    let notify_window = (hook.notify_days_before as u64) * SECS_PER_DAY;
+    let notify_from = expiration.saturating_sub(notify_window);
+
+    if current_time >= notify_from && current_time < expiration {
+        Events::expiration_hook_triggered(env, subject, attestation_id, expiration);
+        // Best-effort cross-contract call — ignore any panic/error.
+        let client = ExpirationCallbackClient::new(env, &hook.callback_contract);
+        let _ = client.try_notify_expiring(subject, attestation_id, &expiration);
+    }
 }
 
 #[contract]
@@ -159,9 +206,18 @@ impl TrustLinkContract {
         Ok(())
     }
 
+    pub fn transfer_admin(env: Env, current_admin: Address, new_admin: Address) -> Result<(), Error> {
+        current_admin.require_auth();
+        Validation::require_admin(&env, &current_admin)?;
+        Storage::set_admin(&env, &new_admin);
+        Events::admin_transferred(&env, &current_admin, &new_admin);
+        Ok(())
+    }
+
     pub fn register_issuer(env: Env, admin: Address, issuer: Address) -> Result<(), Error> {
         admin.require_auth();
         Validation::require_admin(&env, &admin)?;
+        let timestamp = env.ledger().timestamp();
         Storage::add_issuer(&env, &issuer);
         Storage::increment_total_issuers(&env);
         Events::issuer_registered(&env, &issuer, &admin, env.ledger().timestamp());
@@ -175,6 +231,60 @@ impl TrustLinkContract {
         Storage::decrement_total_issuers(&env);
         Events::issuer_removed(&env, &issuer, &admin, env.ledger().timestamp());
         Ok(())
+    }
+
+    /// Update the trust tier of an already-registered issuer.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — `issuer` is not registered.
+    pub fn update_issuer_tier(
+        env: Env,
+        admin: Address,
+        issuer: Address,
+        tier: IssuerTier,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        Validation::require_admin(&env, &admin)?;
+        Validation::require_issuer(&env, &issuer)?;
+        Storage::set_issuer_tier(&env, &issuer, &tier);
+        Events::issuer_tier_updated(&env, &issuer, &tier);
+        Ok(())
+    }
+
+    /// Return the trust tier of `issuer`, or `None` if not registered.
+    pub fn get_issuer_tier(env: Env, issuer: Address) -> Option<IssuerTier> {
+        Storage::get_issuer_tier(&env, &issuer)
+    }
+
+    /// Return `true` if `subject` holds a valid `claim_type` attestation issued
+    /// by an issuer whose tier is >= `min_tier`.
+    pub fn has_valid_claim_from_tier(
+        env: Env,
+        subject: Address,
+        claim_type: String,
+        min_tier: IssuerTier,
+    ) -> bool {
+        let attestation_ids = Storage::get_subject_attestations(&env, &subject);
+        let current_time = env.ledger().timestamp();
+        let min_rank = min_tier.rank();
+
+        for attestation_id in attestation_ids.iter() {
+            if let Ok(attestation) = Storage::get_attestation(&env, &attestation_id) {
+                if attestation.claim_type != claim_type {
+                    continue;
+                }
+                if attestation.get_status(current_time) != AttestationStatus::Valid {
+                    continue;
+                }
+                if let Some(tier) = Storage::get_issuer_tier(&env, &attestation.issuer) {
+                    if tier.rank() >= min_rank {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
     }
 
     pub fn register_bridge(
@@ -211,6 +321,10 @@ impl TrustLinkContract {
         Ok(())
     }
 
+    /// Creates a native attestation from a registered issuer about a subject.
+    ///
+    /// `issuer` and `subject` must be different addresses; self-attestation is
+    /// rejected with [`Error::Unauthorized`] to prevent self-certification.
     pub fn create_attestation(
         env: Env,
         issuer: Address,
@@ -225,6 +339,10 @@ impl TrustLinkContract {
         validate_metadata(&metadata)?;
         validate_tags(&tags)?;
         validate_native_expiration(&env, expiration)?;
+
+        if issuer == subject {
+            return Err(Error::Unauthorized);
+        }
 
         let timestamp = env.ledger().timestamp();
         let attestation_id =
@@ -420,6 +538,12 @@ impl TrustLinkContract {
         Storage::set_attestation(&env, &attestation);
         Storage::increment_total_revocations(&env, 1);
         Events::attestation_revoked(&env, &attestation_id, &issuer);
+
+        // Increment total_revoked counter atomically with the revocation write.
+        let mut stats = Storage::get_issuer_stats(&env, &issuer);
+        stats.total_revoked += 1;
+        Storage::set_issuer_stats(&env, &issuer, &stats);
+
         Ok(())
     }
 
@@ -513,7 +637,20 @@ impl TrustLinkContract {
             if let Ok(attestation) = Storage::get_attestation(&env, &attestation_id) {
                 if attestation.claim_type == claim_type {
                     match attestation.get_status(current_time) {
-                        AttestationStatus::Valid => return true,
+                        AttestationStatus::Valid => {
+                            // Fire expiration hook if the attestation has an
+                            // expiration and is inside the notification window.
+                            if let Some(exp) = attestation.expiration {
+                                maybe_trigger_expiration_hook(
+                                    &env,
+                                    &subject,
+                                    &attestation_id,
+                                    exp,
+                                    current_time,
+                                );
+                            }
+                            return true;
+                        }
                         AttestationStatus::Expired => {
                             Events::attestation_expired(&env, &attestation_id, &subject);
                         }
@@ -721,6 +858,10 @@ impl TrustLinkContract {
 
     pub fn is_issuer(env: Env, address: Address) -> bool {
         Storage::is_issuer(&env, &address)
+    }
+
+    pub fn get_issuer_stats(env: Env, issuer: Address) -> IssuerStats {
+        Storage::get_issuer_stats(&env, &issuer)
     }
 
     pub fn is_bridge(env: Env, address: Address) -> bool {
@@ -1012,5 +1153,31 @@ impl TrustLinkContract {
                 "On-chain attestation and verification system for the Stellar blockchain.",
             ),
         })
+    }
+
+    pub fn get_config(env: Env) -> ContractConfig {
+        let ttl_config = Storage::get_ttl_config(&env)
+            .unwrap_or(TtlConfig { ttl_days: 30 });
+
+        let fee_config = Storage::get_fee_config(&env)
+            .unwrap_or_else(|| FeeConfig {
+                attestation_fee: 0,
+                fee_collector: env.current_contract_address(),
+                fee_token: None,
+            });
+
+        let version = Storage::get_version(&env)
+            .unwrap_or_else(|| String::from_str(&env, ""));
+
+        ContractConfig {
+            ttl_config,
+            fee_config,
+            contract_name: String::from_str(&env, "TrustLink"),
+            contract_version: version,
+            contract_description: String::from_str(
+                &env,
+                "On-chain attestation and verification system for the Stellar blockchain.",
+            ),
+        }
     }
 }

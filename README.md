@@ -151,6 +151,10 @@ let page1 = contract.list_claim_types(&0, &10);
 
 ### Create Attestations
 
+Issuers cannot create an attestation where they are also the subject (`issuer ==
+subject`); that would allow trivial self-certification. The contract returns
+`Unauthorized` in that case.
+
 If fees are enabled, the issuer must hold enough of the configured token for
 the transfer to succeed.
 
@@ -316,6 +320,49 @@ if fully_verified {
 // Issuer revokes an attestation
 contract.revoke_attestation(&issuer, &attestation_id);
 ```
+
+### Expiration Hooks
+
+Subjects can register a callback contract to be notified when one of their attestations is approaching expiry. This lets wallets, dApps, or automation contracts react before a credential lapses.
+
+**Flow:**
+1. Subject calls `register_expiration_hook` with their callback contract address and how many days before expiry they want to be notified.
+2. Whenever `has_valid_claim` is called and a matching attestation is inside the notification window, TrustLink emits an `exp_hook` event and calls `notify_expiring` on the callback contract.
+3. If the callback call fails for any reason, the failure is silently swallowed — the main `has_valid_claim` result is unaffected.
+4. Subject can overwrite or remove their hook at any time.
+
+**Callback interface** — your contract must implement:
+```rust
+fn notify_expiring(env: Env, subject: Address, attestation_id: String, expiration: u64);
+```
+
+**Usage:**
+```rust
+// Register: notify me 7 days before any attestation expires
+contract.register_expiration_hook(
+    &subject,
+    &my_callback_contract,
+    &7,
+);
+
+// Retrieve the current hook
+let hook = contract.get_expiration_hook(&subject);
+
+// Remove the hook
+contract.remove_expiration_hook(&subject);
+```
+
+**Event emitted when hook fires:**
+```
+topics: ["exp_hook", subject_address]
+data:   (attestation_id, expiration_timestamp)
+```
+
+**Notes:**
+- Only the subject can register or remove their own hook (requires auth).
+- Attestations without an expiration never trigger the hook.
+- A subject can only have one hook at a time; re-registering overwrites the previous one.
+- Failed callback calls do not revert or affect the caller.
 
 ### Multi-Sig Attestations
 
@@ -647,6 +694,19 @@ For a step-by-step walkthrough covering Rust cross-contract patterns, JavaScript
 ## Storage Layout
 
 For a full reference of every on-chain storage key, the data each holds, TTL policy, serialization format, and a practical RPC read example for indexer developers, see [docs/storage-layout.md](docs/storage-layout.md).
+
+## Architecture Decision Records
+
+Key design choices are documented as ADRs in [docs/adr/](docs/adr/):
+
+| ADR | Decision |
+|-----|----------|
+| [ADR-001](docs/adr/ADR-001-deterministic-ids.md) | Deterministic IDs instead of sequential counters |
+| [ADR-002](docs/adr/ADR-002-persistent-storage.md) | Persistent storage instead of temporary storage |
+| [ADR-003](docs/adr/ADR-003-immutable-history.md) | Immutable attestation history (no delete) |
+| [ADR-004](docs/adr/ADR-004-dual-indexes.md) | Separate issuer and subject indexes |
+
+A blank [template](docs/adr/ADR-000-template.md) is available for new decisions.
 
 ## License
 

@@ -137,6 +137,11 @@ impl Storage {
         env.storage().instance().get(&StorageKey::FeeConfig)
     }
 
+    /// Retrieve the current TTL configuration.
+    pub fn get_ttl_config(env: &Env) -> Option<TtlConfig> {
+        env.storage().instance().get(&StorageKey::TtlConfig)
+    }
+
     /// Retrieve the admin address.
     ///
     /// # Errors
@@ -202,22 +207,44 @@ impl Storage {
 
     /// Retrieve an attestation by `id`.
     ///
+    /// Extends the entry's TTL on every successful read so that frequently
+    /// accessed attestations are not evicted while still in active use.
+    /// The threshold and extension amount match the write-path constants,
+    /// meaning a read is never more expensive than a write in terms of
+    /// storage rent.
+    ///
     /// # Errors
     /// - [`Error::NotFound`] — no attestation with that ID exists.
     pub fn get_attestation(env: &Env, id: &String) -> Result<Attestation, Error> {
-        env.storage()
+        let key = StorageKey::Attestation(id.clone());
+        let attestation = env
+            .storage()
             .persistent()
-            .get(&StorageKey::Attestation(id.clone()))
-            .ok_or(Error::NotFound)
+            .get(&key)
+            .ok_or(Error::NotFound)?;
+        // Extend TTL on read so hot attestations stay alive without a write.
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+        Ok(attestation)
     }
 
     /// Return the ordered list of attestation IDs for `subject`, or an empty
     /// [`Vec`] if none exist.
+    ///
+    /// Extends the index TTL on read using the same threshold and amount as
+    /// write operations — no additional storage cost beyond what a write incurs.
     pub fn get_subject_attestations(env: &Env, subject: &Address) -> Vec<String> {
-        env.storage()
+        let key = StorageKey::SubjectAttestations(subject.clone());
+        let list = env
+            .storage()
             .persistent()
-            .get(&StorageKey::SubjectAttestations(subject.clone()))
-            .unwrap_or(Vec::new(env))
+            .get(&key)
+            .unwrap_or(Vec::new(env));
+        if env.storage().persistent().has(&key) {
+            let ttl = get_ttl_lifetime(env);
+            env.storage().persistent().extend_ttl(&key, ttl, ttl);
+        }
+        list
     }
 
     /// Append `attestation_id` to `subject`'s attestation index and refresh TTL.
@@ -232,11 +259,21 @@ impl Storage {
 
     /// Return the ordered list of attestation IDs created by `issuer`, or an
     /// empty [`Vec`] if none exist.
+    ///
+    /// Extends the index TTL on read using the same threshold and amount as
+    /// write operations — no additional storage cost beyond what a write incurs.
     pub fn get_issuer_attestations(env: &Env, issuer: &Address) -> Vec<String> {
-        env.storage()
+        let key = StorageKey::IssuerAttestations(issuer.clone());
+        let list = env
+            .storage()
             .persistent()
-            .get(&StorageKey::IssuerAttestations(issuer.clone()))
-            .unwrap_or(Vec::new(env))
+            .get(&key)
+            .unwrap_or(Vec::new(env));
+        if env.storage().persistent().has(&key) {
+            let ttl = get_ttl_lifetime(env);
+            env.storage().persistent().extend_ttl(&key, ttl, ttl);
+        }
+        list
     }
 
     /// Append `attestation_id` to `issuer`'s attestation index and refresh TTL.

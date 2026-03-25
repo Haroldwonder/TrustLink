@@ -62,20 +62,13 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "string": "TAGGED_CLAIM"
+                  "string": "KYC"
+                },
+                {
+                  "u64": 1000000
                 },
                 "void",
-                "void",
-                {
-                  "vec": [
-                    {
-                      "string": "tag1"
-                    },
-                    {
-                      "string": "tag2"
-                    }
-                  ]
-                }
+                "void"
               ]
             }
           },
@@ -88,7 +81,7 @@
   "ledger": {
     "protocol_version": 21,
     "sequence_number": 0,
-    "timestamp": 0,
+    "timestamp": 1000000,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
     "base_reserve": 0,
     "min_persistent_entry_ttl": 4096,
@@ -105,7 +98,7 @@
                   "symbol": "Attestation"
                 },
                 {
-                  "string": "3fe5dca7b2dcf6ffd03534790de40156"
+                  "string": "0248fbca698dcbb9c979ffcf966aa72f"
                 }
               ]
             },
@@ -125,7 +118,7 @@
                       "symbol": "Attestation"
                     },
                     {
-                      "string": "3fe5dca7b2dcf6ffd03534790de40156"
+                      "string": "0248fbca698dcbb9c979ffcf966aa72f"
                     }
                   ]
                 },
@@ -145,21 +138,23 @@
                         "symbol": "claim_type"
                       },
                       "val": {
-                        "string": "TAGGED_CLAIM"
+                        "string": "KYC"
                       }
                     },
                     {
                       "key": {
                         "symbol": "expiration"
                       },
-                      "val": "void"
+                      "val": {
+                        "u64": 1000000
+                      }
                     },
                     {
                       "key": {
                         "symbol": "id"
                       },
                       "val": {
-                        "string": "3fe5dca7b2dcf6ffd03534790de40156"
+                        "string": "0248fbca698dcbb9c979ffcf966aa72f"
                       }
                     },
                     {
@@ -216,23 +211,14 @@
                       "key": {
                         "symbol": "tags"
                       },
-                      "val": {
-                        "vec": [
-                          {
-                            "string": "tag1"
-                          },
-                          {
-                            "string": "tag2"
-                          }
-                        ]
-                      }
+                      "val": "void"
                     },
                     {
                       "key": {
                         "symbol": "timestamp"
                       },
                       "val": {
-                        "u64": 0
+                        "u64": 999999
                       }
                     },
                     {
@@ -333,7 +319,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "3fe5dca7b2dcf6ffd03534790de40156"
+                      "string": "0248fbca698dcbb9c979ffcf966aa72f"
                     }
                   ]
                 }
@@ -382,7 +368,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "3fe5dca7b2dcf6ffd03534790de40156"
+                      "string": "0248fbca698dcbb9c979ffcf966aa72f"
                     }
                   ]
                 }
@@ -822,20 +808,13 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "string": "TAGGED_CLAIM"
+                  "string": "KYC"
+                },
+                {
+                  "u64": 1000000
                 },
                 "void",
-                "void",
-                {
-                  "vec": [
-                    {
-                      "string": "tag1"
-                    },
-                    {
-                      "string": "tag2"
-                    }
-                  ]
-                }
+                "void"
               ]
             }
           }
@@ -861,16 +840,16 @@
             "data": {
               "vec": [
                 {
-                  "string": "3fe5dca7b2dcf6ffd03534790de40156"
+                  "string": "0248fbca698dcbb9c979ffcf966aa72f"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "TAGGED_CLAIM"
+                  "string": "KYC"
                 },
                 {
-                  "u64": 0
+                  "u64": 999999
                 },
                 "void"
               ]
@@ -896,7 +875,7 @@
               }
             ],
             "data": {
-              "string": "3fe5dca7b2dcf6ffd03534790de40156"
+              "string": "0248fbca698dcbb9c979ffcf966aa72f"
             }
           }
         }
@@ -918,11 +897,18 @@
                 "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
               },
               {
-                "symbol": "get_attestation"
+                "symbol": "get_expiring_attestations"
               }
             ],
             "data": {
-              "string": "3fe5dca7b2dcf6ffd03534790de40156"
+              "vec": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                },
+                {
+                  "u64": 3600
+                }
+              ]
             }
           }
         }
@@ -941,121 +927,11 @@
                 "symbol": "fn_return"
               },
               {
-                "symbol": "get_attestation"
+                "symbol": "get_expiring_attestations"
               }
             ],
             "data": {
-              "map": [
-                {
-                  "key": {
-                    "symbol": "bridged"
-                  },
-                  "val": {
-                    "bool": false
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "claim_type"
-                  },
-                  "val": {
-                    "string": "TAGGED_CLAIM"
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "expiration"
-                  },
-                  "val": "void"
-                },
-                {
-                  "key": {
-                    "symbol": "id"
-                  },
-                  "val": {
-                    "string": "3fe5dca7b2dcf6ffd03534790de40156"
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "imported"
-                  },
-                  "val": {
-                    "bool": false
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "issuer"
-                  },
-                  "val": {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "metadata"
-                  },
-                  "val": "void"
-                },
-                {
-                  "key": {
-                    "symbol": "revoked"
-                  },
-                  "val": {
-                    "bool": false
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "source_chain"
-                  },
-                  "val": "void"
-                },
-                {
-                  "key": {
-                    "symbol": "source_tx"
-                  },
-                  "val": "void"
-                },
-                {
-                  "key": {
-                    "symbol": "subject"
-                  },
-                  "val": {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "tags"
-                  },
-                  "val": {
-                    "vec": [
-                      {
-                        "string": "tag1"
-                      },
-                      {
-                        "string": "tag2"
-                      }
-                    ]
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "timestamp"
-                  },
-                  "val": {
-                    "u64": 0
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "valid_from"
-                  },
-                  "val": "void"
-                }
-              ]
+              "vec": []
             }
           }
         }
