@@ -37,7 +37,7 @@ fn setup(env: &Env) -> (Address, Address, TrustLinkContractClient<'_>) {
     let admin = Address::generate(env);
     let issuer = Address::generate(env);
     client.initialize(&admin, &None);
-    client.register_issuer(&admin, &issuer, &None);
+    client.register_issuer(&admin, &issuer);
     (admin, issuer, client)
 }
 
@@ -279,14 +279,7 @@ fn test_create_attestation_rejects_self_attestation() {
     asset_admin.mint(&issuer, &100);
     client.set_fee(&admin, &25, &collector, &Some(fee_token.clone()));
 
-    let result = client.try_create_attestation(
-        &issuer,
-        &issuer,
-        &claim_type,
-        &None,
-        &None,
-        &None,
-    );
+    let result = client.try_create_attestation(&issuer, &issuer, &claim_type, &None, &None, &None);
     assert_eq!(result, Err(Ok(types::Error::Unauthorized)));
     assert_eq!(token_client.balance(&issuer), 100);
     assert_eq!(token_client.balance(&collector), 0);
@@ -303,7 +296,8 @@ fn test_create_attestation_rejects_metadata_over_256_chars() {
     let claim_type = String::from_str(&env, "KYC_PASSED");
     let too_long = Some(String::from_bytes(&env, &[b'a'; 257]));
 
-    let result = client.try_create_attestation(&issuer, &subject, &claim_type, &None, &too_long, &None);
+    let result =
+        client.try_create_attestation(&issuer, &subject, &claim_type, &None, &too_long, &None);
     assert_eq!(result, Err(Ok(types::Error::MetadataTooLong)));
 }
 
@@ -350,7 +344,14 @@ fn test_expired_attestation_status() {
     let claim_type = String::from_str(&env, "KYC_PASSED");
     let now = env.ledger().timestamp();
 
-    let id = client.create_attestation(&issuer, &subject, &claim_type, &Some(now + 100), &None, &None);
+    let id = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &Some(now + 100),
+        &None,
+        &None,
+    );
     assert!(client.has_valid_claim(&subject, &claim_type));
 
     env.ledger().with_mut(|li| li.timestamp = now + 101);
@@ -779,9 +780,9 @@ fn setup_multisig(
     let issuer2 = Address::generate(env);
     let issuer3 = Address::generate(env);
     client.initialize(&admin, &None);
-    client.register_issuer(&admin, &issuer1, &None);
-    client.register_issuer(&admin, &issuer2, &None);
-    client.register_issuer(&admin, &issuer3, &None);
+    client.register_issuer(&admin, &issuer1);
+    client.register_issuer(&admin, &issuer2);
+    client.register_issuer(&admin, &issuer3);
     (issuer1, issuer2, issuer3, admin, client)
 }
 
@@ -799,8 +800,7 @@ fn test_multisig_2_of_3_activates_on_second_signature() {
     required.push_back(issuer2.clone());
     required.push_back(issuer3.clone());
 
-    let proposal_id =
-        client.propose_attestation(&issuer1, &subject, &claim_type, &required, &2);
+    let proposal_id = client.propose_attestation(&issuer1, &subject, &claim_type, &required, &2);
 
     // After proposal, attestation should NOT exist yet.
     let proposal = client.get_multisig_proposal(&proposal_id);
@@ -830,8 +830,7 @@ fn test_multisig_3_of_3_requires_all_signers() {
     required.push_back(issuer2.clone());
     required.push_back(issuer3.clone());
 
-    let proposal_id =
-        client.propose_attestation(&issuer1, &subject, &claim_type, &required, &3);
+    let proposal_id = client.propose_attestation(&issuer1, &subject, &claim_type, &required, &3);
 
     client.cosign_attestation(&issuer2, &proposal_id);
     assert!(!client.has_valid_claim(&subject, &claim_type));
@@ -847,7 +846,7 @@ fn test_multisig_non_required_signer_rejected() {
 
     let (issuer1, issuer2, issuer3, admin, client) = setup_multisig(&env);
     let outsider = Address::generate(&env);
-    client.register_issuer(&admin, &outsider, &None);
+    client.register_issuer(&admin, &outsider);
 
     let subject = Address::generate(&env);
     let claim_type = String::from_str(&env, "ACCREDITED_INVESTOR");
@@ -857,8 +856,7 @@ fn test_multisig_non_required_signer_rejected() {
     required.push_back(issuer2.clone());
     required.push_back(issuer3.clone());
 
-    let proposal_id =
-        client.propose_attestation(&issuer1, &subject, &claim_type, &required, &2);
+    let proposal_id = client.propose_attestation(&issuer1, &subject, &claim_type, &required, &2);
 
     let result = client.try_cosign_attestation(&outsider, &proposal_id);
     assert_eq!(result, Err(Ok(types::Error::NotRequiredSigner)));
@@ -878,8 +876,7 @@ fn test_multisig_duplicate_cosign_rejected() {
     required.push_back(issuer2.clone());
     required.push_back(issuer3.clone());
 
-    let proposal_id =
-        client.propose_attestation(&issuer1, &subject, &claim_type, &required, &3);
+    let proposal_id = client.propose_attestation(&issuer1, &subject, &claim_type, &required, &3);
 
     // issuer1 already signed on proposal creation.
     let result = client.try_cosign_attestation(&issuer1, &proposal_id);
@@ -902,8 +899,7 @@ fn test_multisig_expired_proposal_rejected() {
     required.push_back(issuer2.clone());
     required.push_back(issuer3.clone());
 
-    let proposal_id =
-        client.propose_attestation(&issuer1, &subject, &claim_type, &required, &2);
+    let proposal_id = client.propose_attestation(&issuer1, &subject, &claim_type, &required, &2);
 
     // Advance past the 7-day expiry window.
     env.ledger()
@@ -928,13 +924,11 @@ fn test_multisig_invalid_threshold_rejected() {
     required.push_back(issuer3.clone());
 
     // threshold 0 is invalid.
-    let result =
-        client.try_propose_attestation(&issuer1, &subject, &claim_type, &required, &0);
+    let result = client.try_propose_attestation(&issuer1, &subject, &claim_type, &required, &0);
     assert_eq!(result, Err(Ok(types::Error::InvalidThreshold)));
 
     // threshold > signer count is invalid.
-    let result =
-        client.try_propose_attestation(&issuer1, &subject, &claim_type, &required, &4);
+    let result = client.try_propose_attestation(&issuer1, &subject, &claim_type, &required, &4);
     assert_eq!(result, Err(Ok(types::Error::InvalidThreshold)));
 }
 
@@ -952,8 +946,7 @@ fn test_multisig_proposal_emits_events() {
     required.push_back(issuer2.clone());
     required.push_back(issuer3.clone());
 
-    let proposal_id =
-        client.propose_attestation(&issuer1, &subject, &claim_type, &required, &2);
+    let proposal_id = client.propose_attestation(&issuer1, &subject, &claim_type, &required, &2);
 
     // Verify ms_prop event was emitted.
     let events = env.events().all();
@@ -1090,8 +1083,10 @@ fn test_id_uniqueness_same_issuer_different_subjects() {
     let claim_type = String::from_str(&env, "KYC_PASSED");
     let ts = 1_000_000u64;
 
-    let id1 = types::Attestation::generate_id(&env, &issuer, &Address::generate(&env), &claim_type, ts);
-    let id2 = types::Attestation::generate_id(&env, &issuer, &Address::generate(&env), &claim_type, ts);
+    let id1 =
+        types::Attestation::generate_id(&env, &issuer, &Address::generate(&env), &claim_type, ts);
+    let id2 =
+        types::Attestation::generate_id(&env, &issuer, &Address::generate(&env), &claim_type, ts);
     assert_ne!(id1, id2, "different subjects must produce different IDs");
 }
 
@@ -1103,8 +1098,10 @@ fn test_id_uniqueness_same_subject_different_issuers() {
     let claim_type = String::from_str(&env, "KYC_PASSED");
     let ts = 1_000_000u64;
 
-    let id1 = types::Attestation::generate_id(&env, &Address::generate(&env), &subject, &claim_type, ts);
-    let id2 = types::Attestation::generate_id(&env, &Address::generate(&env), &subject, &claim_type, ts);
+    let id1 =
+        types::Attestation::generate_id(&env, &Address::generate(&env), &subject, &claim_type, ts);
+    let id2 =
+        types::Attestation::generate_id(&env, &Address::generate(&env), &subject, &claim_type, ts);
     assert_ne!(id1, id2, "different issuers must produce different IDs");
 }
 
@@ -1116,8 +1113,20 @@ fn test_id_uniqueness_same_issuer_subject_different_claim_types() {
     let subject = Address::generate(&env);
     let ts = 1_000_000u64;
 
-    let id1 = types::Attestation::generate_id(&env, &issuer, &subject, &String::from_str(&env, "KYC_PASSED"), ts);
-    let id2 = types::Attestation::generate_id(&env, &issuer, &subject, &String::from_str(&env, "ACCREDITED_INVESTOR"), ts);
+    let id1 = types::Attestation::generate_id(
+        &env,
+        &issuer,
+        &subject,
+        &String::from_str(&env, "KYC_PASSED"),
+        ts,
+    );
+    let id2 = types::Attestation::generate_id(
+        &env,
+        &issuer,
+        &subject,
+        &String::from_str(&env, "ACCREDITED_INVESTOR"),
+        ts,
+    );
     assert_ne!(id1, id2, "different claim types must produce different IDs");
 }
 
@@ -1153,7 +1162,11 @@ fn test_id_determinism_same_inputs_same_id() {
 fn test_id_no_collisions_across_100_combinations() {
     let env = Env::default();
     let claim_types = [
-        "KYC_PASSED", "ACCREDITED_INVESTOR", "MERCHANT_VERIFIED", "AML_CLEARED", "SANCTIONS_CHECKED",
+        "KYC_PASSED",
+        "ACCREDITED_INVESTOR",
+        "MERCHANT_VERIFIED",
+        "AML_CLEARED",
+        "SANCTIONS_CHECKED",
     ];
 
     let mut ids = soroban_sdk::Vec::new(&env);
@@ -1176,6 +1189,7 @@ fn test_id_no_collisions_across_100_combinations() {
 
 // ── Pagination edge cases ────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 fn setup_with_n_attestations(env: &Env, n: u32) -> (Address, Address, TrustLinkContractClient<'_>) {
     let (admin, issuer, client) = setup(env);
     for _ in 0..n {
@@ -1219,7 +1233,7 @@ fn create_n_attestations_for_subject(
 fn test_subject_pagination_zero_attestations() {
     let env = Env::default();
     env.mock_all_auths();
-    let (_, issuer, client) = setup(&env);
+    let (_, _issuer, client) = setup(&env);
     let subject = Address::generate(&env);
     // subject has no attestations
     assert_eq!(client.get_subject_attestations(&subject, &0, &10).len(), 0);
@@ -1351,7 +1365,10 @@ fn test_audit_log_create_attestation() {
     let log = client.get_audit_log(&id);
 
     assert_eq!(log.len(), 1);
-    assert_eq!(log.get(0).unwrap().action, crate::types::AuditAction::Created);
+    assert_eq!(
+        log.get(0).unwrap().action,
+        crate::types::AuditAction::Created
+    );
     assert_eq!(log.get(0).unwrap().actor, issuer);
 }
 
@@ -1368,7 +1385,10 @@ fn test_audit_log_revoke_appends_entry() {
     let log = client.get_audit_log(&id);
 
     assert_eq!(log.len(), 2);
-    assert_eq!(log.get(1).unwrap().action, crate::types::AuditAction::Revoked);
+    assert_eq!(
+        log.get(1).unwrap().action,
+        crate::types::AuditAction::Revoked
+    );
     assert_eq!(log.get(1).unwrap().actor, issuer);
 }
 
@@ -1402,7 +1422,10 @@ fn test_audit_log_renew_appends_entry() {
     let log = client.get_audit_log(&id);
 
     assert_eq!(log.len(), 2);
-    assert_eq!(log.get(1).unwrap().action, crate::types::AuditAction::Renewed);
+    assert_eq!(
+        log.get(1).unwrap().action,
+        crate::types::AuditAction::Renewed
+    );
 }
 
 #[test]
@@ -1419,7 +1442,10 @@ fn test_audit_log_update_expiration_appends_entry() {
     let log = client.get_audit_log(&id);
 
     assert_eq!(log.len(), 2);
-    assert_eq!(log.get(1).unwrap().action, crate::types::AuditAction::Updated);
+    assert_eq!(
+        log.get(1).unwrap().action,
+        crate::types::AuditAction::Updated
+    );
 }
 
 #[test]
@@ -1437,9 +1463,18 @@ fn test_audit_log_is_append_only_across_multiple_actions() {
     let log = client.get_audit_log(&id);
 
     assert_eq!(log.len(), 3);
-    assert_eq!(log.get(0).unwrap().action, crate::types::AuditAction::Created);
-    assert_eq!(log.get(1).unwrap().action, crate::types::AuditAction::Renewed);
-    assert_eq!(log.get(2).unwrap().action, crate::types::AuditAction::Revoked);
+    assert_eq!(
+        log.get(0).unwrap().action,
+        crate::types::AuditAction::Created
+    );
+    assert_eq!(
+        log.get(1).unwrap().action,
+        crate::types::AuditAction::Renewed
+    );
+    assert_eq!(
+        log.get(2).unwrap().action,
+        crate::types::AuditAction::Revoked
+    );
 }
 
 #[test]
@@ -1471,5 +1506,8 @@ fn test_audit_log_batch_revoke_appends_entries() {
 
     assert_eq!(client.get_audit_log(&id1).len(), 2);
     assert_eq!(client.get_audit_log(&id2).len(), 2);
-    assert_eq!(client.get_audit_log(&id1).get(1).unwrap().action, crate::types::AuditAction::Revoked);
+    assert_eq!(
+        client.get_audit_log(&id1).get(1).unwrap().action,
+        crate::types::AuditAction::Revoked
+    );
 }

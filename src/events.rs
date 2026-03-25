@@ -55,7 +55,12 @@ impl Events {
         );
     }
 
-    pub fn attestation_revoked(env: &Env, attestation_id: &String, issuer: &Address, reason: &Option<String>) {
+    pub fn attestation_revoked(
+        env: &Env,
+        attestation_id: &String,
+        issuer: &Address,
+        reason: &Option<String>,
+    ) {
         env.events().publish(
             (symbol_short!("revoked"), issuer.clone()),
             (attestation_id.clone(), reason.clone()),
@@ -102,10 +107,8 @@ impl Events {
 
     /// Emitted when an issuer's tier is set or updated by the admin.
     pub fn issuer_tier_updated(env: &Env, issuer: &Address, tier: &IssuerTier) {
-        env.events().publish(
-            (symbol_short!("iss_tier"), issuer.clone()),
-            tier.clone(),
-        );
+        env.events()
+            .publish((symbol_short!("iss_tier"), issuer.clone()), *tier);
     }
 
     pub fn issuer_removed(env: &Env, issuer: &Address, admin: &Address, timestamp: u64) {
@@ -152,8 +155,10 @@ impl Events {
 
     /// Emitted when admin rights are transferred to a new address.
     pub fn admin_transferred(env: &Env, old_admin: &Address, new_admin: &Address) {
-        env.events()
-            .publish((symbol_short!("adm_xfer"),), (old_admin.clone(), new_admin.clone()));
+        env.events().publish(
+            (symbol_short!("adm_xfer"),),
+            (old_admin.clone(), new_admin.clone()),
+        );
     }
 
     /// Emitted when a multi-sig proposal reaches threshold and the attestation is activated.

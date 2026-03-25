@@ -28,7 +28,10 @@
 //! - `FeeConfig` — global attestation fee settings.
 //! - `GlobalStats` — running counters for total attestations, revocations, and issuers.
 
-use crate::types::{Attestation, AuditEntry, ClaimTypeInfo, Endorsement, Error, ExpirationHook, FeeConfig, GlobalStats, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, TtlConfig};
+use crate::types::{
+    Attestation, AuditEntry, ClaimTypeInfo, Endorsement, Error, ExpirationHook, FeeConfig,
+    GlobalStats, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, TtlConfig,
+};
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
 /// Keys used to address data in contract storage.
@@ -366,6 +369,7 @@ impl Storage {
     }
 
     /// Return `true` if a proposal with `id` exists.
+    #[allow(dead_code)]
     pub fn has_multisig_proposal(env: &Env, id: &String) -> bool {
         env.storage()
             .persistent()
@@ -479,6 +483,7 @@ impl Storage {
     }
 
     /// Persist an expiration hook for `subject`.
+    #[allow(dead_code)]
     pub fn set_expiration_hook(env: &Env, subject: &Address, hook: &ExpirationHook) {
         let key = StorageKey::ExpirationHook(subject.clone());
         let ttl = get_ttl_lifetime(env);

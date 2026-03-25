@@ -29,6 +29,7 @@ mod callback {
     use soroban_sdk::{contractclient, Address, Env, String};
 
     #[contractclient(name = "ExpirationCallbackClient")]
+    #[allow(dead_code)]
     pub trait ExpirationCallback {
         fn notify_expiring(env: Env, subject: Address, attestation_id: String, expiration: u64);
     }
@@ -151,8 +152,6 @@ fn store_attestation(env: &Env, attestation: &Attestation) {
     Storage::set_issuer_stats(env, &attestation.issuer, &stats);
 }
 
-
-
 /// Fire the expiration hook for `subject` if one is registered and the
 /// attestation is inside the notification window. Failures are silently
 /// swallowed so the main flow is never interrupted.
@@ -205,7 +204,11 @@ impl TrustLinkContract {
         Ok(())
     }
 
-    pub fn transfer_admin(env: Env, current_admin: Address, new_admin: Address) -> Result<(), Error> {
+    pub fn transfer_admin(
+        env: Env,
+        current_admin: Address,
+        new_admin: Address,
+    ) -> Result<(), Error> {
         current_admin.require_auth();
         Validation::require_admin(&env, &current_admin)?;
         Storage::set_admin(&env, &new_admin);
@@ -860,11 +863,7 @@ impl TrustLinkContract {
         )
     }
 
-    pub fn get_attestations_by_tag(
-        env: Env,
-        subject: Address,
-        tag: String,
-    ) -> Vec<String> {
+    pub fn get_attestations_by_tag(env: Env, subject: Address, tag: String) -> Vec<String> {
         let attestation_ids = Storage::get_subject_attestations(&env, &subject);
         let mut result = Vec::new(&env);
 
@@ -1075,11 +1074,7 @@ impl TrustLinkContract {
     /// - [`Error::ProposalFinalized`] — proposal already activated.
     /// - [`Error::NotRequiredSigner`] — issuer is not in the required signers list.
     /// - [`Error::AlreadySigned`] — issuer has already co-signed.
-    pub fn cosign_attestation(
-        env: Env,
-        issuer: Address,
-        proposal_id: String,
-    ) -> Result<(), Error> {
+    pub fn cosign_attestation(env: Env, issuer: Address, proposal_id: String) -> Result<(), Error> {
         issuer.require_auth();
         Validation::require_issuer(&env, &issuer)?;
 
@@ -1248,18 +1243,15 @@ impl TrustLinkContract {
     }
 
     pub fn get_config(env: Env) -> ContractConfig {
-        let ttl_config = Storage::get_ttl_config(&env)
-            .unwrap_or(TtlConfig { ttl_days: 30 });
+        let ttl_config = Storage::get_ttl_config(&env).unwrap_or(TtlConfig { ttl_days: 30 });
 
-        let fee_config = Storage::get_fee_config(&env)
-            .unwrap_or_else(|| FeeConfig {
-                attestation_fee: 0,
-                fee_collector: env.current_contract_address(),
-                fee_token: None,
-            });
+        let fee_config = Storage::get_fee_config(&env).unwrap_or_else(|| FeeConfig {
+            attestation_fee: 0,
+            fee_collector: env.current_contract_address(),
+            fee_token: None,
+        });
 
-        let version = Storage::get_version(&env)
-            .unwrap_or_else(|| String::from_str(&env, ""));
+        let version = Storage::get_version(&env).unwrap_or_else(|| String::from_str(&env, ""));
 
         ContractConfig {
             ttl_config,

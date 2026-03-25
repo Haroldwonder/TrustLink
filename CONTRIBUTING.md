@@ -2,6 +2,36 @@
 
 Thanks for your interest in contributing! This guide covers everything you need to go from zero to a merged PR.
 
+## Local Development Setup
+
+TrustLink uses [pre-commit](https://pre-commit.com) to enforce formatting and linting before every commit.
+
+**Install the hooks once after cloning:**
+
+```bash
+pip install pre-commit   # or: brew install pre-commit
+pre-commit install
+```
+
+After that, every `git commit` automatically runs:
+
+| Hook | What it checks |
+|---|---|
+| `cargo fmt --all -- --check` | Rust formatting (Rustfmt) |
+| `cargo clippy --all-targets --all-features -- -D warnings` | Rust lints (Clippy) |
+| `check-yaml` | Valid YAML syntax |
+| `end-of-file-fixer` | Files end with a newline |
+| `trailing-whitespace` | No trailing spaces |
+
+If a hook fails the commit is blocked. Fix the reported issues and `git commit` again.
+
+**Run hooks manually at any time:**
+
+```bash
+pre-commit run --all-files   # check everything
+pre-commit run cargo-fmt     # check one hook by id
+```
+
 ## New to Stellar or Soroban?
 
 Before diving in, read [docs/stellar-concepts.md](docs/stellar-concepts.md) for a beginner-friendly explanation of ledger timestamps, storage TTL, `require_auth`, and the WASM deployment model — concepts that come up throughout the codebase.
