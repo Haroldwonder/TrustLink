@@ -62,20 +62,43 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "string": "TAGGED_CLAIM"
+                  "string": "KYC"
+                },
+                {
+                  "u64": 1003600
                 },
                 "void",
-                "void",
+                "void"
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "function_name": "create_attestation",
+              "args": [
                 {
-                  "vec": [
-                    {
-                      "string": "tag1"
-                    },
-                    {
-                      "string": "tag2"
-                    }
-                  ]
-                }
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                },
+                {
+                  "string": "AML"
+                },
+                {
+                  "u64": 1004600
+                },
+                "void",
+                "void"
               ]
             }
           },
@@ -88,7 +111,7 @@
   "ledger": {
     "protocol_version": 21,
     "sequence_number": 0,
-    "timestamp": 0,
+    "timestamp": 1000000,
     "network_id": "0000000000000000000000000000000000000000000000000000000000000000",
     "base_reserve": 0,
     "min_persistent_entry_ttl": 4096,
@@ -105,7 +128,7 @@
                   "symbol": "Attestation"
                 },
                 {
-                  "string": "3fe5dca7b2dcf6ffd03534790de40156"
+                  "string": "e791f200e19bb87558ad3eec7299e965"
                 }
               ]
             },
@@ -125,7 +148,7 @@
                       "symbol": "Attestation"
                     },
                     {
-                      "string": "3fe5dca7b2dcf6ffd03534790de40156"
+                      "string": "e791f200e19bb87558ad3eec7299e965"
                     }
                   ]
                 },
@@ -145,21 +168,23 @@
                         "symbol": "claim_type"
                       },
                       "val": {
-                        "string": "TAGGED_CLAIM"
+                        "string": "KYC"
                       }
                     },
                     {
                       "key": {
                         "symbol": "expiration"
                       },
-                      "val": "void"
+                      "val": {
+                        "u64": 1003600
+                      }
                     },
                     {
                       "key": {
                         "symbol": "id"
                       },
                       "val": {
-                        "string": "3fe5dca7b2dcf6ffd03534790de40156"
+                        "string": "e791f200e19bb87558ad3eec7299e965"
                       }
                     },
                     {
@@ -216,23 +241,162 @@
                       "key": {
                         "symbol": "tags"
                       },
-                      "val": {
-                        "vec": [
-                          {
-                            "string": "tag1"
-                          },
-                          {
-                            "string": "tag2"
-                          }
-                        ]
-                      }
+                      "val": "void"
                     },
                     {
                       "key": {
                         "symbol": "timestamp"
                       },
                       "val": {
-                        "u64": 0
+                        "u64": 1000000
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "valid_from"
+                      },
+                      "val": "void"
+                    }
+                  ]
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          518400
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+            "key": {
+              "vec": [
+                {
+                  "symbol": "Attestation"
+                },
+                {
+                  "string": "fc0ab1cfbbb3030c752c57aba02fcd9d"
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "Attestation"
+                    },
+                    {
+                      "string": "fc0ab1cfbbb3030c752c57aba02fcd9d"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "map": [
+                    {
+                      "key": {
+                        "symbol": "bridged"
+                      },
+                      "val": {
+                        "bool": false
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "claim_type"
+                      },
+                      "val": {
+                        "string": "AML"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "expiration"
+                      },
+                      "val": {
+                        "u64": 1004600
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "id"
+                      },
+                      "val": {
+                        "string": "fc0ab1cfbbb3030c752c57aba02fcd9d"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "imported"
+                      },
+                      "val": {
+                        "bool": false
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "issuer"
+                      },
+                      "val": {
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "metadata"
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
+                        "symbol": "revoked"
+                      },
+                      "val": {
+                        "bool": false
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "source_chain"
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
+                        "symbol": "source_tx"
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
+                        "symbol": "subject"
+                      },
+                      "val": {
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "tags"
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
+                        "symbol": "timestamp"
+                      },
+                      "val": {
+                        "u64": 1000001
                       }
                     },
                     {
@@ -333,7 +497,10 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "3fe5dca7b2dcf6ffd03534790de40156"
+                      "string": "e791f200e19bb87558ad3eec7299e965"
+                    },
+                    {
+                      "string": "fc0ab1cfbbb3030c752c57aba02fcd9d"
                     }
                   ]
                 }
@@ -382,7 +549,10 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "3fe5dca7b2dcf6ffd03534790de40156"
+                      "string": "e791f200e19bb87558ad3eec7299e965"
+                    },
+                    {
+                      "string": "fc0ab1cfbbb3030c752c57aba02fcd9d"
                     }
                   ]
                 }
@@ -610,6 +780,39 @@
       ],
       [
         {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+            "key": {
+              "ledger_key_nonce": {
+                "nonce": 4837995959683129791
+              }
+            },
+            "durability": "temporary"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+                "key": {
+                  "ledger_key_nonce": {
+                    "nonce": 4837995959683129791
+                  }
+                },
+                "durability": "temporary",
+                "val": "void"
+              }
+            },
+            "ext": "v0"
+          },
+          6311999
+        ]
+      ],
+      [
+        {
           "contract_code": {
             "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
           }
@@ -822,20 +1025,13 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "string": "TAGGED_CLAIM"
+                  "string": "KYC"
+                },
+                {
+                  "u64": 1003600
                 },
                 "void",
-                "void",
-                {
-                  "vec": [
-                    {
-                      "string": "tag1"
-                    },
-                    {
-                      "string": "tag2"
-                    }
-                  ]
-                }
+                "void"
               ]
             }
           }
@@ -861,16 +1057,16 @@
             "data": {
               "vec": [
                 {
-                  "string": "3fe5dca7b2dcf6ffd03534790de40156"
+                  "string": "e791f200e19bb87558ad3eec7299e965"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "TAGGED_CLAIM"
+                  "string": "KYC"
                 },
                 {
-                  "u64": 0
+                  "u64": 1000000
                 },
                 "void"
               ]
@@ -896,7 +1092,7 @@
               }
             ],
             "data": {
-              "string": "3fe5dca7b2dcf6ffd03534790de40156"
+              "string": "e791f200e19bb87558ad3eec7299e965"
             }
           }
         }
@@ -918,11 +1114,63 @@
                 "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
               },
               {
-                "symbol": "get_attestation"
+                "symbol": "create_attestation"
               }
             ],
             "data": {
-              "string": "3fe5dca7b2dcf6ffd03534790de40156"
+              "vec": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                },
+                {
+                  "string": "AML"
+                },
+                {
+                  "u64": 1004600
+                },
+                "void",
+                "void"
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "created"
+              },
+              {
+                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+              }
+            ],
+            "data": {
+              "vec": [
+                {
+                  "string": "fc0ab1cfbbb3030c752c57aba02fcd9d"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                },
+                {
+                  "string": "AML"
+                },
+                {
+                  "u64": 1000001
+                },
+                "void"
+              ]
             }
           }
         }
@@ -941,119 +1189,69 @@
                 "symbol": "fn_return"
               },
               {
-                "symbol": "get_attestation"
+                "symbol": "create_attestation"
               }
             ],
             "data": {
-              "map": [
+              "string": "fc0ab1cfbbb3030c752c57aba02fcd9d"
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": null,
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "fn_call"
+              },
+              {
+                "bytes": "0000000000000000000000000000000000000000000000000000000000000001"
+              },
+              {
+                "symbol": "get_expiring_attestations"
+              }
+            ],
+            "data": {
+              "vec": [
                 {
-                  "key": {
-                    "symbol": "bridged"
-                  },
-                  "val": {
-                    "bool": false
-                  }
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "key": {
-                    "symbol": "claim_type"
-                  },
-                  "val": {
-                    "string": "TAGGED_CLAIM"
-                  }
-                },
+                  "u64": 3600
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    },
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
+        "type_": "diagnostic",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "fn_return"
+              },
+              {
+                "symbol": "get_expiring_attestations"
+              }
+            ],
+            "data": {
+              "vec": [
                 {
-                  "key": {
-                    "symbol": "expiration"
-                  },
-                  "val": "void"
-                },
-                {
-                  "key": {
-                    "symbol": "id"
-                  },
-                  "val": {
-                    "string": "3fe5dca7b2dcf6ffd03534790de40156"
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "imported"
-                  },
-                  "val": {
-                    "bool": false
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "issuer"
-                  },
-                  "val": {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "metadata"
-                  },
-                  "val": "void"
-                },
-                {
-                  "key": {
-                    "symbol": "revoked"
-                  },
-                  "val": {
-                    "bool": false
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "source_chain"
-                  },
-                  "val": "void"
-                },
-                {
-                  "key": {
-                    "symbol": "source_tx"
-                  },
-                  "val": "void"
-                },
-                {
-                  "key": {
-                    "symbol": "subject"
-                  },
-                  "val": {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "tags"
-                  },
-                  "val": {
-                    "vec": [
-                      {
-                        "string": "tag1"
-                      },
-                      {
-                        "string": "tag2"
-                      }
-                    ]
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "timestamp"
-                  },
-                  "val": {
-                    "u64": 0
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "valid_from"
-                  },
-                  "val": "void"
+                  "string": "e791f200e19bb87558ad3eec7299e965"
                 }
               ]
             }

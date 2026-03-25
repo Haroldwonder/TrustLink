@@ -42,6 +42,40 @@ pub struct TtlConfig {
     pub ttl_days: u32,
 }
 
+/// Activity metrics for a registered issuer.
+///
+/// Updated atomically alongside every `create_attestation` and
+/// `revoke_attestation` call, so the counters are always consistent with
+/// on-chain state.
+///
+/// ## Trustworthiness signals
+///
+/// - A high `total_revoked / total_issued` ratio may indicate an issuer that
+///   frequently issues incorrect or fraudulent attestations.
+/// - `registered_at` lets consumers weight newer issuers differently from
+///   long-standing ones.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IssuerStats {
+    /// Total number of attestations ever created by this issuer (includes
+    /// batch, bridge, and multi-sig activations).
+    pub total_issued: u64,
+    /// Total number of attestations revoked by this issuer.
+    pub total_revoked: u64,
+    /// Ledger timestamp at which the issuer was first registered.
+    pub registered_at: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractConfig {
+    pub ttl_config: TtlConfig,
+    pub fee_config: FeeConfig,
+    pub contract_name: String,
+    pub contract_version: String,
+    pub contract_description: String,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Attestation {
@@ -113,6 +147,7 @@ pub struct MultiSigProposal {
 pub enum Error {
     AlreadyInitialized = 1,
     NotInitialized = 2,
+    /// Caller lacks required permissions. Includes rejection when `issuer` equals `subject` in `create_attestation`.
     Unauthorized = 3,
     NotFound = 4,
     DuplicateAttestation = 5,

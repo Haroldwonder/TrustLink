@@ -37,7 +37,7 @@ fn setup(env: &Env) -> (Address, Address, TrustLinkContractClient<'_>) {
     let admin = Address::generate(env);
     let issuer = Address::generate(env);
     client.initialize(&admin, &None);
-    client.register_issuer(&admin, &issuer);
+    client.register_issuer(&admin, &issuer, &None);
     (admin, issuer, client)
 }
 
@@ -87,7 +87,7 @@ fn test_register_issuer_emits_event() {
     let timestamp = 1234567890u64;
     env.ledger().set_timestamp(timestamp);
 
-    client.initialize(&admin);
+    client.initialize(&admin, &None);
     client.register_issuer(&admin, &issuer);
 
     let events = env.events().all();
@@ -262,6 +262,35 @@ fn test_create_attestation_rejects_without_fee_payment() {
     assert!(result.is_err());
     assert_eq!(token_client.balance(&collector), 0);
     assert_eq!(client.get_subject_attestations(&subject, &0, &10).len(), 0);
+}
+
+#[test]
+fn test_create_attestation_rejects_self_attestation() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, issuer, client) = setup(&env);
+    let collector = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let fee_token = register_test_token(&env, &admin);
+    let token_client = TokenClient::new(&env, &fee_token);
+    let asset_admin = StellarAssetClient::new(&env, &fee_token);
+
+    asset_admin.mint(&issuer, &100);
+    client.set_fee(&admin, &25, &collector, &Some(fee_token.clone()));
+
+    let result = client.try_create_attestation(
+        &issuer,
+        &issuer,
+        &claim_type,
+        &None,
+        &None,
+        &None,
+    );
+    assert_eq!(result, Err(Ok(types::Error::Unauthorized)));
+    assert_eq!(token_client.balance(&issuer), 100);
+    assert_eq!(token_client.balance(&collector), 0);
+    assert_eq!(client.get_subject_attestations(&issuer, &0, &10).len(), 0);
 }
 
 #[test]
@@ -750,9 +779,9 @@ fn setup_multisig(
     let issuer2 = Address::generate(env);
     let issuer3 = Address::generate(env);
     client.initialize(&admin, &None);
-    client.register_issuer(&admin, &issuer1);
-    client.register_issuer(&admin, &issuer2);
-    client.register_issuer(&admin, &issuer3);
+    client.register_issuer(&admin, &issuer1, &None);
+    client.register_issuer(&admin, &issuer2, &None);
+    client.register_issuer(&admin, &issuer3, &None);
     (issuer1, issuer2, issuer3, admin, client)
 }
 
@@ -818,7 +847,7 @@ fn test_multisig_non_required_signer_rejected() {
 
     let (issuer1, issuer2, issuer3, admin, client) = setup_multisig(&env);
     let outsider = Address::generate(&env);
-    client.register_issuer(&admin, &outsider);
+    client.register_issuer(&admin, &outsider, &None);
 
     let subject = Address::generate(&env);
     let claim_type = String::from_str(&env, "ACCREDITED_INVESTOR");
