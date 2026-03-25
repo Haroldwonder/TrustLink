@@ -663,6 +663,35 @@ Tests cover:
 - **Insurance**: Verify policyholder identity
 - **Stellar Anchors**: End-to-end anchor KYC attestation flow example in [examples/anchor-integration/README.md](examples/anchor-integration/README.md)
 - **Soroban Tokens**: KYC-restricted token transfer example in [examples/kyc-token/README.md](examples/kyc-token/README.md)
+- **DAO Governance**: Voter eligibility-gated voting example in [examples/governance/README.md](examples/governance/README.md)
+
+## v0.1.0 Release Checklist
+
+```bash
+# 1) Run all tests
+cargo test
+
+# 2) Build optimized WASM artifact
+cargo build --target wasm32-unknown-unknown --release
+
+# 3) Deploy to testnet and capture contract ID
+soroban contract deploy \
+    --wasm target/wasm32-unknown-unknown/release/trustlink.wasm \
+    --network testnet \
+    --source <IDENTITY>
+
+# 4) Tag release
+git tag -a v0.1.0 -m "TrustLink v0.1.0"
+git push origin v0.1.0
+
+# 5) Publish GitHub release and attach WASM artifact
+gh release create v0.1.0 \
+    target/wasm32-unknown-unknown/release/trustlink.wasm \
+    --title "TrustLink v0.1.0" \
+    --notes-file RELEASE_NOTES_v0.1.0.md
+```
+
+Before creating the GitHub release, update `RELEASE_NOTES_v0.1.0.md` with the deployed testnet contract ID.
 
 ## Deployment
 
