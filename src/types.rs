@@ -70,43 +70,16 @@ pub enum AttestationStatus {
     Pending,
 }
 
-/// Trust tier assigned to a registered issuer.
-///
-/// Consumers can filter attestations by minimum tier using
-/// `has_valid_claim_from_tier`. Tiers are ordered: Bronze < Silver < Gold.
+/// A reusable per-issuer blueprint that captures default values for attestation creation.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum IssuerTier {
-    Bronze,
-    Silver,
-    Gold,
-}
-
-impl IssuerTier {
-    /// Returns a numeric rank so tiers can be compared ordinally.
-    pub fn rank(&self) -> u32 {
-        match self {
-            IssuerTier::Bronze => 1,
-            IssuerTier::Silver => 2,
-            IssuerTier::Gold => 3,
-        }
-    }
-}
-
-/// Registered callback for expiration notifications.
-///
-/// When a subject's attestation enters the notification window
-/// (`expiration - notify_days_before * 86400 <= current_time < expiration`),
-/// TrustLink calls `notify_expiring` on `callback_contract`.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ExpirationHook {
-    /// The subject whose attestations are monitored.
-    pub subject: Address,
-    /// Contract to call when an attestation is near expiry.
-    pub callback_contract: Address,
-    /// How many days before expiration to trigger the notification.
-    pub notify_days_before: u32,
+pub struct AttestationTemplate {
+    /// Non-empty claim type identifier (e.g. "KYC", "AML").
+    pub claim_type: String,
+    /// Optional default expiration window in days from attestation creation time.
+    pub default_expiration_days: Option<u32>,
+    /// Optional default metadata string (max 256 bytes).
+    pub metadata_template: Option<String>,
 }
 
 /// A multi-sig attestation proposal that becomes active once `threshold` issuers have co-signed.
@@ -164,6 +137,8 @@ pub enum Error {
     ProposalFinalized = 19,
     /// The proposal has expired without reaching threshold.
     ProposalExpired = 20,
+    /// claim_type field is empty.
+    InvalidClaimType = 21,
 }
 
 /// A cryptographic proof that an attestation existed at a specific ledger sequence.

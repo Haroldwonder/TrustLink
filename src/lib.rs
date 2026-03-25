@@ -13,7 +13,7 @@ use soroban_sdk::{contract, contractimpl, token::TokenClient, Address, Bytes, En
 use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::{
-    Attestation, AttestationProof, AttestationStatus, ClaimTypeInfo, ContractMetadata, Error,
+    Attestation, AttestationStatus, AttestationTemplate, ClaimTypeInfo, ContractMetadata, Error,
     FeeConfig, IssuerMetadata, MultiSigProposal, TtlConfig, MULTISIG_PROPOSAL_TTL_SECS,
 };
 use crate::validation::Validation;
@@ -1043,33 +1043,98 @@ impl TrustLinkContract {
         Storage::get_multisig_proposal(&env, &proposal_id)
     }
 
-    pub fn get_attestation_proof(
+    pub fn create_template(
         env: Env,
-        attestation_id: String,
-    ) -> Result<AttestationProof, Error> {
-        let attestation = Storage::get_attestation(&env, &attestation_id)?;
-        let ledger = env.ledger();
+        issuer: Address,
+        template_id: String,
+        template: AttestationTemplate,
+    ) -> Result<(), Error> {
+        issuer.require_auth();
+        Validation::require_issuer(&env, &issuer)?;
 
-        // Capture current ledger context.
-        let ledger_sequence = ledger.sequence();
-        let ledger_timestamp = ledger.timestamp();
+        if template.claim_type.len() == 0 {
+            return Err(Error::InvalidClaimType);
+        }
 
-        // Derive a ledger hash from the sequence number.
-        // On Stellar, the actual ledger hash is available off-chain via Horizon.
-        // Here we produce a deterministic, verifiable commitment by hashing the
-        // ledger sequence together with the contract address so the value is
-        // unique per ledger and per contract deployment.
-        let mut payload = soroban_sdk::Bytes::new(&env);
-        payload.extend_from_array(&ledger_sequence.to_be_bytes());
-        payload.extend_from_array(&ledger_timestamp.to_be_bytes());
-        let ledger_hash = Attestation::hash_payload(&env, &payload);
+        validate_metadata(&template.metadata_template)?;
 
-        Ok(AttestationProof {
-            attestation,
-            ledger_sequence,
-            ledger_timestamp,
-            ledger_hash,
-        })
+        Storage::set_template(&env, &issuer, &template_id, &template);
+        Storage::add_to_template_registry(&env, &issuer, &template_id);
+        Events::template_created(&env, &issuer, &template_id);
+        Ok(())
+    }
+
+    pub fn create_attestation_from_template(
+        env: Env,
+        issuer: Address,
+        template_id: String,
+        subject: Address,
+        expiration_override: Option<u64>,
+        metadata_override: Option<String>,
+    ) -> Result<String, Error> {
+        issuer.require_auth();
+        Validation::require_issuer(&env, &issuer)?;
+
+        let template = Storage::get_template(&env, &issuer, &template_id).ok_or(Error::NotFound)?;
+
+        validate_metadata(&metadata_override)?;
+        validate_native_expiration(&env, expiration_override)?;
+
+        let timestamp = env.ledger().timestamp();
+
+        let expiration = if let Some(ts) = expiration_override {
+            Some(ts)
+        } else if let Some(n) = template.default_expiration_days {
+            Some(timestamp + (n as u64 * 86_400))
+        } else {
+            None
+        };
+
+        let metadata = if metadata_override.is_some() {
+            metadata_override
+        } else {
+            template.metadata_template
+        };
+
+        let attestation_id =
+            Attestation::generate_id(&env, &issuer, &subject, &template.claim_type, timestamp);
+
+        if Storage::has_attestation(&env, &attestation_id) {
+            return Err(Error::DuplicateAttestation);
+        }
+
+        let attestation = Attestation {
+            id: attestation_id.clone(),
+            issuer,
+            subject,
+            claim_type: template.claim_type,
+            timestamp,
+            expiration,
+            revoked: false,
+            metadata,
+            valid_from: None,
+            imported: false,
+            bridged: false,
+            source_chain: None,
+            source_tx: None,
+            tags: None,
+        };
+
+        store_attestation(&env, &attestation);
+        Events::attestation_created(&env, &attestation);
+        Ok(attestation_id)
+    }
+
+    pub fn get_template(
+        env: Env,
+        issuer: Address,
+        template_id: String,
+    ) -> Result<AttestationTemplate, Error> {
+        Storage::get_template(&env, &issuer, &template_id).ok_or(Error::NotFound)
+    }
+
+    pub fn list_templates(env: Env, issuer: Address) -> Vec<String> {
+        Storage::get_template_registry(&env, &issuer)
     }
 
     pub fn get_version(env: Env) -> Result<String, Error> {        Storage::get_version(&env).ok_or(Error::NotInitialized)

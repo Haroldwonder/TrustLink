@@ -158,16 +158,11 @@ impl Events {
         );
     }
 
-    /// Emitted when a subject's attestation enters the expiration notification window.
-    pub fn expiration_hook_triggered(
-        env: &Env,
-        subject: &Address,
-        attestation_id: &String,
-        expiration: u64,
-    ) {
+    /// Emitted when a new attestation template is created by an issuer.
+    pub fn template_created(env: &Env, issuer: &Address, template_id: &String) {
         env.events().publish(
-            (symbol_short!("exp_hook"), subject.clone()),
-            (attestation_id.clone(), expiration),
+            (symbol_short!("tmpl_crt"), issuer.clone()),
+            template_id.clone(),
         );
     }
 }
