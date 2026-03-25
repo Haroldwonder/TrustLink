@@ -661,6 +661,7 @@ Tests cover:
 - **Governance**: Validate voter eligibility
 - **Marketplaces**: Confirm seller reputation
 - **Insurance**: Verify policyholder identity
+- **Stellar Anchors**: End-to-end anchor KYC attestation flow example in [examples/anchor-integration/README.md](examples/anchor-integration/README.md)
 
 ## Deployment
 

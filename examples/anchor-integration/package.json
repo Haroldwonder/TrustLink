@@ -1,0 +1,13 @@
+{
+  "name": "trustlink-anchor-integration-example",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Runnable Stellar Anchor + TrustLink integration flow example",
+  "type": "module",
+  "scripts": {
+    "start": "node flow.mjs"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^13.3.0"
+  }
+}
