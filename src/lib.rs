@@ -69,6 +69,46 @@ fn validate_tags(tags: &Option<Vec<String>>) -> Result<(), Error> {
     Ok(())
 }
 
+fn validate_jurisdiction(env: &Env, jurisdiction: &Option<String>) -> Result<(), Error> {
+    if let Some(code) = jurisdiction {
+        if code.len() != 2 {
+            return Err(Error::InvalidJurisdiction);
+        }
+
+        let valid_codes = [
+            "AF", "AX", "AL", "DZ", "AS", "AD", "AO", "AI", "AQ", "AG", "AR", "AM", "AW", "AU", "AT", "AZ",
+            "BS", "BH", "BD", "BB", "BY", "BE", "BZ", "BJ", "BM", "BT", "BO", "BQ", "BA", "BW", "BV", "BR",
+            "IO", "BN", "BG", "BF", "BI", "CV", "KH", "CM", "CA", "KY", "CF", "TD", "CL", "CN", "CX", "CC",
+            "CO", "KM", "CG", "CD", "CK", "CR", "CI", "HR", "CU", "CW", "CY", "CZ", "DK", "DJ", "DM", "DO",
+            "EC", "EG", "SV", "GQ", "ER", "EE", "SZ", "ET", "FK", "FO", "FJ", "FI", "FR", "GF", "PF", "TF",
+            "GA", "GM", "GE", "DE", "GH", "GI", "GR", "GL", "GD", "GP", "GU", "GT", "GG", "GN", "GW", "GY",
+            "HT", "HM", "VA", "HN", "HK", "HU", "IS", "IN", "ID", "IR", "IQ", "IE", "IM", "IL", "IT", "JM",
+            "JP", "JE", "JO", "KZ", "KE", "KI", "KP", "KR", "KW", "KG", "LA", "LV", "LB", "LS", "LR", "LY",
+            "LI", "LT", "LU", "MO", "MK", "MG", "MW", "MY", "MV", "ML", "MT", "MH", "MQ", "MR", "MU", "YT",
+            "MX", "FM", "MD", "MC", "MN", "ME", "MS", "MA", "MZ", "MM", "NA", "NR", "NP", "NL", "NC", "NZ",
+            "NI", "NE", "NG", "NU", "NF", "MP", "NO", "OM", "PK", "PW", "PS", "PA", "PG", "PY", "PE", "PH",
+            "PN", "PL", "PT", "PR", "QA", "RE", "RO", "RU", "RW", "BL", "SH", "KN", "LC", "MF", "PM", "VC",
+            "WS", "SM", "ST", "SA", "SN", "RS", "SC", "SL", "SG", "SX", "SK", "SI", "SB", "SO", "ZA", "GS",
+            "SS", "ES", "LK", "SD", "SR", "SJ", "SE", "CH", "SY", "TW", "TJ", "TZ", "TH", "TL", "TG", "TK",
+            "TO", "TT", "TN", "TR", "TM", "TC", "TV", "UG", "UA", "AE", "GB", "US", "UM", "UY", "UZ", "VU",
+            "VE", "VN", "VG", "VI", "WF", "EH", "YE", "ZM", "ZW",
+        ];
+
+        let mut valid = false;
+        for iso in valid_codes.iter() {
+            if code == &String::from_str(env, iso) {
+                valid = true;
+                break;
+            }
+        }
+
+        if !valid {
+            return Err(Error::InvalidJurisdiction);
+        }
+    }
+    Ok(())
+}
+
 fn validate_native_expiration(env: &Env, expiration: Option<u64>) -> Result<(), Error> {
     if let Some(value) = expiration {
         if value <= env.ledger().timestamp() {
@@ -355,39 +395,37 @@ impl TrustLinkContract {
         Storage::is_paused(&env)
     }
 
-    /// Creates a native attestation from a registered issuer about a subject.
-    ///
-    /// `issuer` and `subject` must be different addresses; self-attestation is
-    /// rejected with [`Error::Unauthorized`] to prevent self-certification.
-    pub fn create_attestation(
-        env: Env,
+    /// Internal helper to create an attestation, optionally with jurisdiction.
+    fn create_attestation_internal(
+        env: &Env,
         issuer: Address,
         subject: Address,
         claim_type: String,
         expiration: Option<u64>,
         metadata: Option<String>,
+        jurisdiction: Option<String>,
         tags: Option<Vec<String>>,
     ) -> Result<String, Error> {
         issuer.require_auth();
-        Validation::require_not_paused(&env)?;
-        Validation::require_issuer(&env, &issuer)?;
+        Validation::require_not_paused(env)?;
+        Validation::require_issuer(env, &issuer)?;
         validate_metadata(&metadata)?;
+        validate_jurisdiction(env, &jurisdiction)?;
         validate_tags(&tags)?;
-        validate_native_expiration(&env, expiration)?;
+        validate_native_expiration(env, expiration)?;
 
         if issuer == subject {
             return Err(Error::Unauthorized);
         }
 
         let timestamp = env.ledger().timestamp();
-        let attestation_id =
-            Attestation::generate_id(&env, &issuer, &subject, &claim_type, timestamp);
+        let attestation_id = Attestation::generate_id(env, &issuer, &subject, &claim_type, timestamp);
 
-        if Storage::has_attestation(&env, &attestation_id) {
+        if Storage::has_attestation(env, &attestation_id) {
             return Err(Error::DuplicateAttestation);
         }
 
-        charge_attestation_fee(&env, &issuer)?;
+        charge_attestation_fee(env, &issuer)?;
 
         let attestation = Attestation {
             id: attestation_id.clone(),
@@ -398,6 +436,7 @@ impl TrustLinkContract {
             expiration,
             revoked: false,
             metadata,
+            jurisdiction,
             valid_from: None,
             imported: false,
             bridged: false,
@@ -408,11 +447,11 @@ impl TrustLinkContract {
             deleted: false,
         };
 
-        store_attestation(&env, &attestation);
-        Storage::increment_total_attestations(&env, 1);
-        Events::attestation_created(&env, &attestation);
+        store_attestation(env, &attestation);
+        Storage::increment_total_attestations(env, 1);
+        Events::attestation_created(env, &attestation);
         Storage::append_audit_entry(
-            &env,
+            env,
             &attestation_id,
             &AuditEntry {
                 action: AuditAction::Created,
@@ -422,6 +461,49 @@ impl TrustLinkContract {
             },
         );
         Ok(attestation_id)
+    }
+
+    pub fn create_attestation(
+        env: Env,
+        issuer: Address,
+        subject: Address,
+        claim_type: String,
+        expiration: Option<u64>,
+        metadata: Option<String>,
+        tags: Option<Vec<String>>,
+    ) -> Result<String, Error> {
+        Self::create_attestation_internal(
+            &env,
+            issuer,
+            subject,
+            claim_type,
+            expiration,
+            metadata,
+            None,
+            tags,
+        )
+    }
+
+    pub fn create_attestation_jurisdiction(
+        env: Env,
+        issuer: Address,
+        subject: Address,
+        claim_type: String,
+        expiration: Option<u64>,
+        metadata: Option<String>,
+        jurisdiction: Option<String>,
+        tags: Option<Vec<String>>,
+    ) -> Result<String, Error> {
+        Self::create_attestation_internal(
+            &env,
+            issuer,
+            subject,
+            claim_type,
+            expiration,
+            metadata,
+            jurisdiction,
+            tags,
+        )
     }
 
     pub fn import_attestation(
@@ -454,6 +536,7 @@ impl TrustLinkContract {
             expiration,
             revoked: false,
             metadata: None,
+            jurisdiction: None,
             valid_from: None,
             imported: true,
             bridged: false,
@@ -515,6 +598,7 @@ impl TrustLinkContract {
             expiration: None,
             revoked: false,
             metadata: None,
+            jurisdiction: None,
             valid_from: None,
             imported: false,
             bridged: true,
@@ -572,6 +656,7 @@ impl TrustLinkContract {
                 expiration,
                 revoked: false,
                 metadata: None,
+                jurisdiction: None,
                 valid_from: None,
                 imported: false,
                 bridged: false,
@@ -967,6 +1052,30 @@ impl TrustLinkContract {
         result
     }
 
+    pub fn get_attestations_by_jurisdiction(
+        env: Env,
+        subject: Address,
+        jurisdiction: String,
+    ) -> Vec<String> {
+        let attestation_ids = Storage::get_subject_attestations(&env, &subject);
+        let mut result = Vec::new(&env);
+
+        for id in attestation_ids.iter() {
+            if let Ok(attestation) = Storage::get_attestation(&env, &id) {
+                if attestation.deleted {
+                    continue;
+                }
+                if let Some(att_jurisdiction) = attestation.jurisdiction {
+                    if att_jurisdiction == jurisdiction {
+                        result.push_back(id.clone());
+                    }
+                }
+            }
+        }
+
+        result
+    }
+
     pub fn get_issuer_attestations(
         env: Env,
         issuer: Address,
@@ -1220,6 +1329,7 @@ impl TrustLinkContract {
                 expiration: None,
                 revoked: false,
                 metadata: None,
+                jurisdiction: None,
                 valid_from: None,
                 imported: false,
                 bridged: false,

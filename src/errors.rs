@@ -41,4 +41,6 @@ pub enum Error {
     AlreadyEndorsed = 23,
     /// The contract is paused; write operations are temporarily disabled.
     ContractPaused = 24,
+    /// The jurisdiction code provided is not a valid ISO 3166-1 alpha-2 value.
+    InvalidJurisdiction = 25,
 }

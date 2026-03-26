@@ -204,6 +204,59 @@ fn test_create_attestation_sets_imported_false() {
 }
 
 #[test]
+fn test_create_attestation_with_jurisdiction_storable_and_queryable() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let jurisdiction = Some(String::from_str(&env, "US"));
+
+    let id = client.create_attestation_jurisdiction(
+        &issuer,
+        &subject,
+        &claim_type,
+        &None,
+        &None,
+        &jurisdiction,
+        &None,
+    );
+
+    let attestation = client.get_attestation(&id);
+    assert_eq!(attestation.jurisdiction, jurisdiction);
+
+    let api_results = client.get_attestations_by_jurisdiction(&subject, &String::from_str(&env, "US"));
+    assert_eq!(api_results.len(), 1);
+    assert_eq!(api_results.get(0).unwrap(), id);
+
+    let wrong_results = client.get_attestations_by_jurisdiction(&subject, &String::from_str(&env, "CA"));
+    assert!(wrong_results.is_empty());
+}
+
+#[test]
+fn test_create_attestation_with_invalid_jurisdiction_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    let result = client.try_create_attestation_jurisdiction(
+        &issuer,
+        &subject,
+        &claim_type,
+        &None,
+        &None,
+        &Some(String::from_str(&env, "USA")),
+        &None,
+    );
+
+    assert_eq!(result, Err(Ok(types::Error::InvalidJurisdiction)));
+}
+
+#[test]
 fn test_admin_can_update_fee_and_collector() {
     let env = Env::default();
     env.mock_all_auths();
