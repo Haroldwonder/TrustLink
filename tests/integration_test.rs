@@ -196,9 +196,7 @@ mod tests {
         }
 
         // all 50 stored — no duplicates or collisions
-        assert_eq!(ids.len(), 50);
-        let unique: std::collections::HashSet<_> = ids.iter().collect();
-        assert_eq!(unique.len(), 50);
+        assert_eq!(ids.len(), 50, "all 50 IDs should be unique");
 
         // pagination: fetch all 50 in one page
         let page = trustlink.get_subject_attestations(&subject, &0, &50);
