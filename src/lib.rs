@@ -16,7 +16,7 @@ use crate::storage::Storage;
 use crate::types::{
     Attestation, AttestationStatus, AuditAction, AuditEntry, ClaimTypeInfo, ContractConfig,
     ContractMetadata, Endorsement, Error, FeeConfig, GlobalStats, HealthStatus, IssuerMetadata,
-    IssuerStats, IssuerTier, MultiSigProposal, TtlConfig, MULTISIG_PROPOSAL_TTL_SECS,
+    IssuerStats, IssuerTier, MultiSigProposal, RateLimitConfig, TtlConfig, MULTISIG_PROPOSAL_TTL_SECS,
 };
 use crate::validation::Validation;
 
@@ -103,6 +103,24 @@ fn validate_fee_config(fee: i128, fee_token: &Option<Address>) -> Result<(), Err
 
     if fee > 0 && fee_token.is_none() {
         return Err(Error::FeeTokenRequired);
+    }
+
+    Ok(())
+}
+
+fn check_rate_limit(env: &Env, issuer: &Address) -> Result<(), Error> {
+    if let Some(config) = Storage::get_rate_limit_config(env) {
+        if config.min_issuance_interval == 0 {
+            return Ok(());
+        }
+
+        let current_time = env.ledger().timestamp();
+        if let Some(last_issuance) = Storage::get_last_issuance_time(env, issuer) {
+            let elapsed = current_time.saturating_sub(last_issuance);
+            if elapsed < config.min_issuance_interval {
+                return Err(Error::RateLimited);
+            }
+        }
     }
 
     Ok(())
@@ -322,6 +340,36 @@ impl TrustLinkContract {
         Ok(())
     }
 
+    /// Configure the minimum issuance interval (rate limit) for attestation creation.
+    ///
+    /// When `min_issuance_interval` is 0 (default), rate limiting is disabled.
+    /// When > 0, issuers must wait at least that many seconds between attestation creations.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — caller is not the admin.
+    pub fn set_rate_limit(
+        env: Env,
+        admin: Address,
+        min_issuance_interval: u64,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        Validation::require_admin(&env, &admin)?;
+
+        Storage::set_rate_limit_config(
+            &env,
+            &RateLimitConfig {
+                min_issuance_interval,
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Retrieve the current rate limit configuration, or `None` if not set.
+    pub fn get_rate_limit(env: Env) -> Option<RateLimitConfig> {
+        Storage::get_rate_limit_config(&env)
+    }
+
     /// Pause the contract, disabling all attestation write operations.
     ///
     /// Read-only functions (`has_valid_claim`, `get_attestation`, etc.) remain
@@ -374,6 +422,7 @@ impl TrustLinkContract {
         validate_metadata(&metadata)?;
         validate_tags(&tags)?;
         validate_native_expiration(&env, expiration)?;
+        check_rate_limit(&env, &issuer)?;
 
         if issuer == subject {
             return Err(Error::Unauthorized);
@@ -391,7 +440,7 @@ impl TrustLinkContract {
 
         let attestation = Attestation {
             id: attestation_id.clone(),
-            issuer,
+            issuer: issuer.clone(),
             subject,
             claim_type,
             timestamp,
@@ -410,6 +459,7 @@ impl TrustLinkContract {
 
         store_attestation(&env, &attestation);
         Storage::increment_total_attestations(&env, 1);
+        Storage::set_last_issuance_time(&env, &issuer, timestamp);
         Events::attestation_created(&env, &attestation);
         Storage::append_audit_entry(
             &env,
@@ -551,6 +601,7 @@ impl TrustLinkContract {
         issuer.require_auth();
         Validation::require_issuer(&env, &issuer)?;
         validate_native_expiration(&env, expiration)?;
+        check_rate_limit(&env, &issuer)?;
 
         let timestamp = env.ledger().timestamp();
         let mut ids = Vec::new(&env);
@@ -598,6 +649,7 @@ impl TrustLinkContract {
         }
 
         Storage::increment_total_attestations(&env, ids.len() as u64);
+        Storage::set_last_issuance_time(&env, &issuer, timestamp);
         Ok(ids)
     }
 

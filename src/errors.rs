@@ -41,4 +41,6 @@ pub enum Error {
     AlreadyEndorsed = 23,
     /// The contract is paused; write operations are temporarily disabled.
     ContractPaused = 24,
+    /// Issuer is creating attestations too rapidly; rate limit exceeded.
+    RateLimited = 25,
 }

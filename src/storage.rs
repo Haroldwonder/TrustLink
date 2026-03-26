@@ -30,7 +30,8 @@
 
 use crate::types::{
     Attestation, AuditEntry, ClaimTypeInfo, Endorsement, Error, ExpirationHook, FeeConfig,
-    GlobalStats, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, TtlConfig,
+    GlobalStats, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, RateLimitConfig,
+    TtlConfig,
 };
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
@@ -77,6 +78,10 @@ pub enum StorageKey {
     AuditLog(String),
     /// Global pause flag — when present and true, write operations are disabled.
     Paused,
+    /// Rate limit configuration (min_issuance_interval in seconds).
+    RateLimitConfig,
+    /// Last issuance timestamp for an issuer, keyed by issuer address.
+    LastIssuanceTime(Address),
 }
 
 const DAY_IN_LEDGERS: u32 = 17280;
@@ -517,6 +522,37 @@ impl Storage {
         let ttl = get_ttl_lifetime(env);
         env.storage().instance().set(&StorageKey::Paused, &paused);
         env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    /// Retrieve the rate limit configuration, or `None` if not set (disabled by default).
+    pub fn get_rate_limit_config(env: &Env) -> Option<RateLimitConfig> {
+        env.storage()
+            .instance()
+            .get(&StorageKey::RateLimitConfig)
+    }
+
+    /// Persist the rate limit configuration and refresh the instance TTL.
+    pub fn set_rate_limit_config(env: &Env, config: &RateLimitConfig) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage()
+            .instance()
+            .set(&StorageKey::RateLimitConfig, config);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    /// Retrieve the last issuance timestamp for `issuer`, or `None` if never issued.
+    pub fn get_last_issuance_time(env: &Env, issuer: &Address) -> Option<u64> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::LastIssuanceTime(issuer.clone()))
+    }
+
+    /// Update the last issuance timestamp for `issuer` and refresh its TTL.
+    pub fn set_last_issuance_time(env: &Env, issuer: &Address, timestamp: u64) {
+        let key = StorageKey::LastIssuanceTime(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, &timestamp);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 }
 

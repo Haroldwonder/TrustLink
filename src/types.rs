@@ -89,6 +89,12 @@ pub struct TtlConfig {
     pub ttl_days: u32,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RateLimitConfig {
+    pub min_issuance_interval: u64,
+}
+
 /// Global contract statistics for dashboards and analytics.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
