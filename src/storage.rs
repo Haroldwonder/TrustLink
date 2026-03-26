@@ -29,8 +29,8 @@
 //! - `GlobalStats` — running counters for total attestations, revocations, and issuers.
 
 use crate::types::{
-    Attestation, AuditEntry, ClaimTypeInfo, Endorsement, Error, ExpirationHook, FeeConfig,
-    GlobalStats, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, TtlConfig,
+    Attestation, AttestationRequest, AuditEntry, ClaimTypeInfo, Endorsement, Error, ExpirationHook,
+    FeeConfig, GlobalStats, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, TtlConfig,
 };
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
@@ -77,6 +77,10 @@ pub enum StorageKey {
     AuditLog(String),
     /// Global pause flag — when present and true, write operations are disabled.
     Paused,
+    /// An attestation request submitted by a subject, keyed by request ID.
+    AttestationRequest(String),
+    /// Ordered list of pending request IDs for an issuer address.
+    IssuerRequests(Address),
 }
 
 const DAY_IN_LEDGERS: u32 = 17280;
@@ -518,6 +522,43 @@ impl Storage {
         let ttl = get_ttl_lifetime(env);
         env.storage().instance().set(&StorageKey::Paused, &paused);
         env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    /// Persist an attestation request and refresh its TTL.
+    pub fn set_attestation_request(env: &Env, request: &AttestationRequest) {
+        let key = StorageKey::AttestationRequest(request.id.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, request);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    /// Retrieve an attestation request by ID.
+    ///
+    /// # Errors
+    /// - [`Error::NotFound`] — no request with that ID exists.
+    pub fn get_attestation_request(env: &Env, id: &String) -> Result<AttestationRequest, Error> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::AttestationRequest(id.clone()))
+            .ok_or(Error::NotFound)
+    }
+
+    /// Return the ordered list of request IDs for `issuer`, or an empty [`Vec`] if none.
+    pub fn get_issuer_requests(env: &Env, issuer: &Address) -> Vec<String> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::IssuerRequests(issuer.clone()))
+            .unwrap_or(Vec::new(env))
+    }
+
+    /// Append `request_id` to `issuer`'s request index and refresh TTL.
+    pub fn add_issuer_request(env: &Env, issuer: &Address, request_id: &String) {
+        let key = StorageKey::IssuerRequests(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut requests = Self::get_issuer_requests(env, issuer);
+        requests.push_back(request_id.clone());
+        env.storage().persistent().set(&key, &requests);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 }
 

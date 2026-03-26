@@ -11,6 +11,35 @@ pub use crate::errors::Error;
 /// Default lifetime for a multi-sig proposal: 7 days in seconds.
 pub const MULTISIG_PROPOSAL_TTL_SECS: u64 = 7 * 24 * 60 * 60;
 
+/// Default lifetime for an attestation request: 7 days in seconds.
+pub const ATTESTATION_REQUEST_TTL_SECS: u64 = 7 * 24 * 60 * 60;
+
+/// Status of an attestation request.
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum RequestStatus {
+    Pending = 0,
+    Fulfilled = 1,
+    Rejected = 2,
+}
+
+/// A pull-based attestation request submitted by a subject to a registered issuer.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AttestationRequest {
+    /// Unique deterministic ID (hash of subject | issuer | claim_type | timestamp).
+    pub id: String,
+    pub subject: Address,
+    pub issuer: Address,
+    pub claim_type: String,
+    pub timestamp: u64,
+    /// Unix timestamp after which the request expires if not acted on.
+    pub expires_at: u64,
+    pub status: RequestStatus,
+    /// Rejection reason set by the issuer, if rejected.
+    pub rejection_reason: Option<String>,
+}
+
 /// Trust tier assigned to a registered issuer.
 #[contracttype]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -258,6 +287,25 @@ impl Attestation {
             }
         }
         AttestationStatus::Valid
+    }
+}
+
+impl AttestationRequest {
+    /// Deterministic ID: SHA-256 over XDR of `"req:" | subject | issuer | claim_type | timestamp`.
+    pub fn generate_id(
+        env: &Env,
+        subject: &Address,
+        issuer: &Address,
+        claim_type: &String,
+        timestamp: u64,
+    ) -> String {
+        let mut payload = Bytes::new(env);
+        payload.append(&Bytes::from_slice(env, b"req:"));
+        payload.append(&subject.clone().to_xdr(env));
+        payload.append(&issuer.clone().to_xdr(env));
+        payload.append(&claim_type.clone().to_xdr(env));
+        payload.append(&timestamp.to_xdr(env));
+        Attestation::hash_payload(env, &payload)
     }
 }
 
