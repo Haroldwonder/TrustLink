@@ -597,6 +597,43 @@ impl LendingContract {
 }
 ```
 
+## Storage Exhaustion Protection
+
+TrustLink enforces configurable limits to prevent malicious issuers from exhausting on-chain storage.
+
+| Limit | Default | Description |
+|---|---|---|
+| `max_attestations_per_issuer` | 10,000 | Max attestations a single issuer may create |
+| `max_attestations_per_subject` | 100 | Max attestations a single subject may hold |
+
+Attempting to create an attestation beyond either limit returns `Error::LimitExceeded` (code `#10`).
+
+The admin can view and adjust limits at any time:
+
+```rust
+// Read current limits
+let limits = contract.get_limits();
+
+// Adjust limits (admin only)
+contract.set_limits(
+    &admin,
+    &5_000,  // max per issuer
+    &50,     // max per subject
+);
+```
+
+```bash
+# CLI — read limits
+soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_limits
+
+# CLI — update limits (admin)
+soroban contract invoke --id <CONTRACT_ID> --network testnet --source ADMIN_SECRET \
+  -- set_limits \
+  --admin ADMIN_PUBLIC_KEY \
+  --max_attestations_per_issuer 5000 \
+  --max_attestations_per_subject 50
+```
+
 ## Error Handling
 
 TrustLink defines clear error types:
@@ -608,6 +645,7 @@ TrustLink defines clear error types:
 - `DuplicateAttestation`: Attestation with same hash already exists
 - `AlreadyRevoked`: Attestation already revoked
 - `Expired`: Attestation has expired
+- `LimitExceeded`: Issuer or subject attestation count has reached the configured limit
 - `InvalidThreshold`: Multi-sig threshold is 0 or exceeds signer count
 - `NotRequiredSigner`: Cosigner is not in the proposal's required-signers list
 - `AlreadySigned`: Issuer has already co-signed the proposal
