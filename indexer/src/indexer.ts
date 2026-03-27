@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { rpc as SorobanRpc, scValToNative } from "@stellar/stellar-sdk";
+import { pubsub, ATTESTATION_CREATED } from "./graphql";
 
 const CONTRACT_ID = process.env.CONTRACT_ID!;
 const RPC_URL = process.env.RPC_URL ?? "https://soroban-testnet.stellar.org";
@@ -116,7 +117,7 @@ async function handleEvent(
     };
   }
 
-  await db.attestation.upsert({
+  const attestation = await db.attestation.upsert({
     where: { id },
     update: { subject, ...extra },
     create: {
@@ -128,6 +129,17 @@ async function handleEvent(
       imported: topicStr === "imported",
       bridged: topicStr === "bridged",
       ...extra,
+    },
+  });
+
+  // Publish to GraphQL subscriptions
+  pubsub.publish(ATTESTATION_CREATED, {
+    onAttestationCreated: {
+      ...attestation,
+      timestamp: String(attestation.timestamp),
+      expiration: attestation.expiration != null ? String(attestation.expiration) : null,
+      createdAt: attestation.createdAt.toISOString(),
+      updatedAt: attestation.updatedAt.toISOString(),
     },
   });
 }

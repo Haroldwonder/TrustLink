@@ -89,6 +89,12 @@ pub struct TtlConfig {
     pub ttl_days: u32,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RateLimitConfig {
+    pub min_issuance_interval: u64,
+}
+
 /// Global contract statistics for dashboards and analytics.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -151,6 +157,7 @@ pub enum AuditAction {
     Revoked,
     Renewed,
     Updated,
+    Transferred,
 }
 
 /// A single immutable entry in an attestation's audit log.
@@ -172,20 +179,14 @@ pub struct Endorsement {
     pub timestamp: u64,
 }
 
-/// A multi-sig attestation proposal that becomes active once `threshold` issuers have co-signed.
+/// Configurable storage limits to prevent exhaustion attacks.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct MultiSigProposal {
-    pub id: String,
-    pub proposer: Address,
-    pub subject: Address,
-    pub claim_type: String,
-    pub required_signers: Vec<Address>,
-    pub threshold: u32,
-    pub signers: Vec<Address>,
-    pub created_at: u64,
-    pub expires_at: u64,
-    pub finalized: bool,
+pub struct StorageLimits {
+    /// Maximum number of attestations a single issuer may create. Default: 10,000.
+    pub max_attestations_per_issuer: u32,
+    /// Maximum number of attestations a single subject may hold. Default: 100.
+    pub max_attestations_per_subject: u32,
 }
 
 impl Attestation {
