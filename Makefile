@@ -63,6 +63,7 @@ endif
 .PHONY: build test optimize clean install fmt clippy \
         deploy invoke \
         testnet mainnet local \
+        bindings check-bindings \
         help
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -71,12 +72,14 @@ endif
 help:
 	@echo "TrustLink Smart Contract - Makefile Commands"
 	@echo "============================================="
-	@echo "make build     - Build the contract in debug mode"
-	@echo "make test      - Run all unit tests"
-	@echo "make optimize  - Build optimized release version"
-	@echo "make clean     - Clean build artifacts"
-	@echo "make install   - Install required dependencies"
-	@echo "make local-deploy - Deploy and initialize contract on local Stellar network"
+	@echo "make build          - Build the contract in debug mode"
+	@echo "make test           - Run all unit tests"
+	@echo "make optimize       - Build optimized release version"
+	@echo "make clean          - Clean build artifacts"
+	@echo "make install        - Install required dependencies"
+	@echo "make local-deploy   - Deploy and initialize contract on local Stellar network"
+	@echo "make bindings       - Generate TypeScript bindings from compiled WASM"
+	@echo "make check-bindings - Fail if committed bindings are out of date"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Build & test
@@ -120,3 +123,19 @@ clippy:
 local-deploy: build
 	@echo "Deploying TrustLink contract to local Stellar network..."
 	./scripts/setup_local.sh
+
+## Generate TypeScript bindings from the compiled WASM
+bindings: build
+	@echo "Generating TypeScript bindings..."
+	stellar contract bindings typescript \
+		--wasm $(WASM) \
+		--contract-id 0000000000000000000000000000000000000000000000000000000000000001 \
+		--network testnet \
+		--output-dir bindings/typescript
+	@echo "Bindings written to bindings/typescript/"
+
+## Fail if committed bindings are out of date with the current WASM
+check-bindings: bindings
+	@echo "Checking bindings are up to date..."
+	git diff --exit-code bindings/typescript/ || \
+		(echo "ERROR: TypeScript bindings are out of date. Run 'make bindings' and commit the result." && exit 1)

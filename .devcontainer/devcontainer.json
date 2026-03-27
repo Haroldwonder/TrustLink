@@ -1,8 +1,9 @@
 {
-  "name": "TrustLink Dev",
-  "image": "mcr.microsoft.com/devcontainers/rust:1-1-bullseye",
-  "features": {
-    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
+  "name": "TrustLink — Rust + Soroban",
+  "image": "mcr.microsoft.com/devcontainers/rust:1-bullseye",
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "remoteEnv": {
+    "SOROBAN_NETWORK": "testnet"
   },
   "postCreateCommand": "rustup target add wasm32-unknown-unknown && cargo install --locked soroban-cli",
   "postStartCommand": "bash -lc 'docker compose up -d stellar || docker-compose up -d stellar'",

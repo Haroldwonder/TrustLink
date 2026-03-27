@@ -184,14 +184,8 @@ mod tests {
         let mut ids = std::vec![];
         for i in 0u32..50 {
             let claim_type = String::from_str(&env, &std::format!("CLAIM_{i}"));
-            let id = trustlink.create_attestation(
-                &issuer,
-                &subject,
-                &claim_type,
-                &None,
-                &None,
-                &None,
-            );
+            let id =
+                trustlink.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
             ids.push(id);
         }
 
@@ -253,3 +247,4 @@ mod tests {
         assert!(approved.is_ok());
     }
 }
+    

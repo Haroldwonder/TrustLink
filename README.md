@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/afurious/TrustLink/actions/workflows/ci.yml/badge.svg)](https://github.com/afurious/TrustLink/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/afurious/TrustLink/branch/main/graph/badge.svg)](https://codecov.io/gh/afurious/TrustLink)
+[![Security Audit](https://img.shields.io/badge/Security%20Audit-In%20Progress-yellow)](./AUDIT_SCOPE.md)
 
 TrustLink is a Soroban smart contract that provides a reusable trust layer for the Stellar blockchain. It enables trusted issuers, bridge contracts, and administrators to create, import, manage, and revoke attestations about wallet addresses, allowing other contracts and applications to verify claims before executing financial operations.
 
@@ -22,7 +23,46 @@ TrustLink solves the problem of decentralized identity verification and trust es
 - **Deterministic IDs**: Attestations have unique, reproducible identifiers
 - **Event Emission**: All state changes emit events for off-chain indexing
 - **Query Interface**: Easy verification of claims for other contracts
-- **Pagination**: Efficient listing of attestations per subject or issuer
+- **Pagination & Filtering**: Efficient listing and date-range searching of attestations
+
+## Security
+
+TrustLink is designed with security as a first-class concern. Before mainnet deployment with real funds, the contract undergoes comprehensive external security audits.
+
+### Audit Status
+
+- **Current Status:** Security audit in progress
+- **Audit Scope:** [AUDIT_SCOPE.md](./AUDIT_SCOPE.md)
+- **Firm Selection:** [AUDIT_FIRM_SELECTION.md](./AUDIT_FIRM_SELECTION.md)
+- **Security Review:** [docs/security-review.md](./docs/security-review.md)
+- **Security Model:** [docs/security.md](./docs/security.md)
+
+### Pre-Audit Findings
+
+Three security findings were identified in the pre-audit review and must be resolved before mainnet deployment:
+
+1. **FINDING-001 [MEDIUM]:** `initialize()` state read before auth
+2. **FINDING-002 [HIGH]:** `revoke_attestation()` missing `require_issuer` check
+3. **FINDING-003 [HIGH]:** `update_expiration()` missing `require_issuer` check
+
+See [docs/security-review.md](./docs/security-review.md) for details and remediation.
+
+### Security Documentation
+
+- **Trust Hierarchy:** [docs/security.md](./docs/security.md) - Admin, issuer, and subject roles
+- **Threat Model:** [docs/security.md](./docs/security.md) - Known limitations and mitigations
+- **GDPR Compliance:** [docs/compliance.md](./docs/compliance.md) - Right to erasure and data minimization
+- **Monitoring:** [docs/monitoring.md](./docs/monitoring.md) - Event streaming and alerting
+
+### Reporting Security Issues
+
+If you discover a security vulnerability, please email security@trustlink.io with:
+- Description of the vulnerability
+- Steps to reproduce
+- Potential impact
+- Suggested fix (if any)
+
+Please do not disclose security issues publicly until they have been addressed.
 
 ## Architecture
 
@@ -349,6 +389,32 @@ if fully_verified {
 
 **Relationship to `has_any_claim`:** `has_any_claim` uses OR-logic (at least one match), while `has_all_claims` uses AND-logic (every claim must match). Use `has_all_claims` when a workflow requires a complete set of credentials, such as high-value lending that demands both KYC and AML clearance.
 
+### Transfer Attestations (Admin Only)
+
+Admin can transfer ownership of an attestation to a new registered issuer. This is useful when an issuer account is deactivated/compromised, allowing orphaned attestations to be re-assigned to a successor issuer.
+
+```rust
+// Register the new issuer first
+contract.register_issuer(&admin, &new_issuer);
+
+// Transfer attestation ownership
+contract.transfer_attestation(&admin, &attestation_id, &new_issuer);
+```
+
+**Effects:**
+- Updates `issuer` field in attestation record
+- Removes ID from old issuer's attestation index
+- Adds ID to new issuer's attestation index
+- Updates `total_issued` stats for both issuers
+- Emits `attestation_transferred` event: `["att_xfer", old_issuer] (attestation_id, new_issuer)`
+- Appends `Transferred` audit entry: `actor=admin, details=new_issuer_address`
+
+**Validations:**
+- Caller must be admin
+- `attestation_id` must exist
+- `new_issuer` must be registered
+- Idempotent if `old_issuer == new_issuer`
+
 ### Revoke Attestations
 
 ```rust
@@ -485,6 +551,11 @@ let valid  = contract.get_valid_claim_count(&user_address);          // only non
 // List user's attestations (paginated)
 let attestations = contract.get_subject_attestations(&user_address, &0, &10);
 
+// Search attestations by date range (paginated)
+let from_ts = 1_700_000_000;
+let to_ts = 1_701_000_000;
+let attestations = contract.get_attestations_in_range(&user_address, &from_ts, &to_ts, &0, &10);
+
 // List issuer's attestations
 let issued = contract.get_issuer_attestations(&issuer_address, &0, &10);
 ```
@@ -557,6 +628,43 @@ impl LendingContract {
 }
 ```
 
+## Storage Exhaustion Protection
+
+TrustLink enforces configurable limits to prevent malicious issuers from exhausting on-chain storage.
+
+| Limit | Default | Description |
+|---|---|---|
+| `max_attestations_per_issuer` | 10,000 | Max attestations a single issuer may create |
+| `max_attestations_per_subject` | 100 | Max attestations a single subject may hold |
+
+Attempting to create an attestation beyond either limit returns `Error::LimitExceeded` (code `#10`).
+
+The admin can view and adjust limits at any time:
+
+```rust
+// Read current limits
+let limits = contract.get_limits();
+
+// Adjust limits (admin only)
+contract.set_limits(
+    &admin,
+    &5_000,  // max per issuer
+    &50,     // max per subject
+);
+```
+
+```bash
+# CLI — read limits
+soroban contract invoke --id <CONTRACT_ID> --network testnet -- get_limits
+
+# CLI — update limits (admin)
+soroban contract invoke --id <CONTRACT_ID> --network testnet --source ADMIN_SECRET \
+  -- set_limits \
+  --admin ADMIN_PUBLIC_KEY \
+  --max_attestations_per_issuer 5000 \
+  --max_attestations_per_subject 50
+```
+
 ## Error Handling
 
 TrustLink defines clear error types:
@@ -568,6 +676,7 @@ TrustLink defines clear error types:
 - `DuplicateAttestation`: Attestation with same hash already exists
 - `AlreadyRevoked`: Attestation already revoked
 - `Expired`: Attestation has expired
+- `LimitExceeded`: Issuer or subject attestation count has reached the configured limit
 - `InvalidThreshold`: Multi-sig threshold is 0 or exceeds signer count
 - `NotRequiredSigner`: Cosigner is not in the proposal's required-signers list
 - `AlreadySigned`: Issuer has already co-signed the proposal
@@ -724,33 +833,33 @@ For the pre-mainnet line-by-line authorization audit, see
 - **Soroban Tokens**: KYC-restricted token transfer example in [examples/kyc-token/README.md](examples/kyc-token/README.md)
 - **DAO Governance**: Voter eligibility-gated voting example in [examples/governance/README.md](examples/governance/README.md)
 
-## v0.1.0 Release Checklist
+## Release Process
+
+TrustLink uses **automated release management** with semantic versioning and conventional commits.
+
+**How it works:**
+
+1. Merge commits to `main` with conventional commit messages (`feat:`, `fix:`, etc.)
+2. Release Please automatically creates a Release PR with:
+   - Updated version in `Cargo.toml`
+   - Generated `CHANGELOG.md`
+3. Merge the Release PR
+4. GitHub Release is created automatically with WASM artifacts attached
+
+**For details, see [RELEASE.md](RELEASE.md) and [CONTRIBUTING.md — Commit Message Conventions](CONTRIBUTING.md#commit-message-conventions).**
+
+**Quick reference:**
 
 ```bash
-# 1) Run all tests
-cargo test
+# Commit with conventional format
+git commit -m "feat(storage): add dual indexing for subject and issuer"
 
-# 2) Build optimized WASM artifact
-cargo build --target wasm32-unknown-unknown --release
+# Push to main (or merge PR)
+git push origin main
 
-# 3) Deploy to testnet and capture contract ID
-soroban contract deploy \
-    --wasm target/wasm32-unknown-unknown/release/trustlink.wasm \
-    --network testnet \
-    --source <IDENTITY>
-
-# 4) Tag release
-git tag -a v0.1.0 -m "TrustLink v0.1.0"
-git push origin v0.1.0
-
-# 5) Publish GitHub release and attach WASM artifact
-gh release create v0.1.0 \
-    target/wasm32-unknown-unknown/release/trustlink.wasm \
-    --title "TrustLink v0.1.0" \
-    --notes-file RELEASE_NOTES_v0.1.0.md
+# Release Please creates a Release PR automatically
+# Review, merge, and GitHub Release is published with WASM artifacts
 ```
-
-Before creating the GitHub release, update `RELEASE_NOTES_v0.1.0.md` with the deployed testnet contract ID.
 
 ## Deployment
 

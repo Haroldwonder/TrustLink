@@ -1,0 +1,46 @@
+"""
+TrustLink Attestation GraphQL API
+"""
+
+enum Status {
+  ACTIVE
+  REVOKED
+}
+
+type Attestation {
+  id: String!
+  issuer: String!
+  subject: String!
+  claimType: String!
+  timestamp: String!
+  expiration: String
+  isRevoked: Boolean!
+  metadata: String
+  imported: Boolean!
+  bridged: Boolean!
+  sourceChain: String
+  sourceTx: String
+  createdAt: String!
+  updatedAt: String!
+}
+
+type IssuerStats {
+  issuer: String!
+  total: Int!
+  active: Int!
+  revoked: Int!
+  claimTypes: [String!]!
+}
+
+type Query {
+  """Query attestations with optional filters"""
+  attestations(subject: String, claimType: String, status: Status): [Attestation!]!
+
+  """Get statistics for a specific issuer"""
+  issuerStats(issuer: String!): IssuerStats!
+}
+
+type Subscription {
+  """Subscribe to new attestation creation events, optionally filtered by subject"""
+  onAttestationCreated(subject: String): Attestation!
+}
