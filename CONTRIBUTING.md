@@ -150,6 +150,134 @@ make clippy     # or: cargo clippy --all-targets -- -D warnings
 
 Run both before every commit.
 
+## Commit Message Conventions
+
+This project uses **Conventional Commits** to enable automated versioning and changelog generation. Every commit message must follow this format:
+
+```
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+```
+
+### Type
+
+**Required.** Must be one of:
+
+| Type | Purpose | Semver Impact |
+|------|---------|---------------|
+| `feat` | A new feature | Minor (0.x.0) |
+| `fix` | A bug fix | Patch (0.0.x) |
+| `docs` | Documentation only | None |
+| `test` | Tests only | None |
+| `refactor` | Code refactoring (no feature/fix) | None |
+| `perf` | Performance improvement | Patch (0.0.x) |
+| `chore` | Build, CI, dependencies | None |
+
+### Scope
+
+**Optional.** Narrow the change to a specific area:
+
+- `storage` — storage layer changes
+- `validation` — authorization/validation logic
+- `events` — event emission
+- `indexer` — off-chain indexer
+- `sdk` — TypeScript SDK
+- `ci` — CI/CD workflows
+- `docs` — documentation
+
+Examples: `feat(storage)`, `fix(validation)`, `docs(indexer)`
+
+### Subject
+
+**Required.** Short description (50 chars max):
+
+- Start with lowercase
+- Use imperative mood ("add" not "adds" or "added")
+- No period at the end
+- Be specific: ✅ "add fee collection to attestation creation" vs ❌ "update code"
+
+### Body
+
+**Optional.** Explain *why* the change was made (not *what* — that's in the subject):
+
+```
+feat(storage): add dual indexing for subject and issuer lookups
+
+The previous single index on subject made issuer-based queries O(n).
+This adds a parallel index on issuer to enable fast lookups in both
+directions. Queries now complete in O(log n) time.
+```
+
+### Footer
+
+**Optional.** Reference issues or breaking changes:
+
+```
+Closes #42
+Closes #99
+
+BREAKING CHANGE: removed the `get_all_attestations` function
+```
+
+### Examples
+
+**Good commits:**
+
+```
+feat(storage): add dual indexing for subject and issuer lookups
+```
+
+```
+fix(validation): reject attestations with valid_from in the past
+
+Previously, valid_from was only checked against the current time.
+Now we also reject any valid_from that is before the current ledger
+timestamp, preventing backdated attestations.
+
+Closes #123
+```
+
+```
+docs: update deployment guide with testnet contract IDs
+```
+
+```
+test(events): add test for audit log append-only property
+```
+
+```
+refactor: extract fee calculation into separate function
+```
+
+**Bad commits:**
+
+```
+❌ Updated stuff
+❌ Fix bug
+❌ feat: Add new feature.
+❌ FEAT: ADD FEATURE
+❌ feat(storage): added dual indexing
+```
+
+### Automated Release Process
+
+When you merge commits to `main`:
+
+1. **Release Please** reads your commit messages
+2. Determines the next version (major.minor.patch) based on commit types
+3. Creates a Release PR that:
+   - Updates `Cargo.toml` version
+   - Generates `CHANGELOG.md` from commits
+   - Groups commits by type (Features, Bug Fixes, etc.)
+4. When the Release PR is merged:
+   - A GitHub Release is created with the tag
+   - WASM artifacts are built and attached automatically
+
+**Example:** If you merge `feat: ...` and `fix: ...` commits, the next release will be a **minor version bump** (0.1.0 → 0.2.0).
+
 ## PR Process
 
 1. **Branch** off `main` with a descriptive name:
@@ -160,21 +288,14 @@ Run both before every commit.
    git checkout -b fix/your-bugfix
    ```
 
-2. **Commit** with clear messages following the format:
-
-   ```
-   <type>: short description
-
-   Optional longer explanation.
-   ```
-
-   Common types: `feat`, `fix`, `docs`, `test`, `refactor`.
+2. **Commit** with clear messages following [Conventional Commits](#commit-message-conventions).
 
 3. **Before pushing**, make sure:
 
    - [ ] `cargo test` passes
    - [ ] `cargo fmt -- --check` is clean
    - [ ] `cargo clippy --all-targets -- -D warnings` is clean
+   - [ ] Commit messages follow Conventional Commits format
 
 4. **Open a PR** against `main`. Include:
 
@@ -182,7 +303,11 @@ Run both before every commit.
    - Any relevant issue numbers (`Closes #123`)
    - Notes for reviewers if the change is non-obvious
 
-5. **Review**: at least one approval is required before merging. Address all review comments; force-push to the same branch to update the PR.
+5. **Commit validation**: The PR title must follow Conventional Commits format. This is checked automatically by CI.
+
+6. **Review**: at least one approval is required before merging. Address all review comments; force-push to the same branch to update the PR.
+
+7. **Merge**: Use "Squash and merge" or "Create a merge commit" (not "Rebase and merge") to preserve commit history for changelog generation.
 
 ## Security & Dependency Management
 

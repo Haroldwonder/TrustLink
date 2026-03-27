@@ -764,33 +764,33 @@ For the pre-mainnet line-by-line authorization audit, see
 - **Soroban Tokens**: KYC-restricted token transfer example in [examples/kyc-token/README.md](examples/kyc-token/README.md)
 - **DAO Governance**: Voter eligibility-gated voting example in [examples/governance/README.md](examples/governance/README.md)
 
-## v0.1.0 Release Checklist
+## Release Process
+
+TrustLink uses **automated release management** with semantic versioning and conventional commits.
+
+**How it works:**
+
+1. Merge commits to `main` with conventional commit messages (`feat:`, `fix:`, etc.)
+2. Release Please automatically creates a Release PR with:
+   - Updated version in `Cargo.toml`
+   - Generated `CHANGELOG.md`
+3. Merge the Release PR
+4. GitHub Release is created automatically with WASM artifacts attached
+
+**For details, see [RELEASE.md](RELEASE.md) and [CONTRIBUTING.md — Commit Message Conventions](CONTRIBUTING.md#commit-message-conventions).**
+
+**Quick reference:**
 
 ```bash
-# 1) Run all tests
-cargo test
+# Commit with conventional format
+git commit -m "feat(storage): add dual indexing for subject and issuer"
 
-# 2) Build optimized WASM artifact
-cargo build --target wasm32-unknown-unknown --release
+# Push to main (or merge PR)
+git push origin main
 
-# 3) Deploy to testnet and capture contract ID
-soroban contract deploy \
-    --wasm target/wasm32-unknown-unknown/release/trustlink.wasm \
-    --network testnet \
-    --source <IDENTITY>
-
-# 4) Tag release
-git tag -a v0.1.0 -m "TrustLink v0.1.0"
-git push origin v0.1.0
-
-# 5) Publish GitHub release and attach WASM artifact
-gh release create v0.1.0 \
-    target/wasm32-unknown-unknown/release/trustlink.wasm \
-    --title "TrustLink v0.1.0" \
-    --notes-file RELEASE_NOTES_v0.1.0.md
+# Release Please creates a Release PR automatically
+# Review, merge, and GitHub Release is published with WASM artifacts
 ```
-
-Before creating the GitHub release, update `RELEASE_NOTES_v0.1.0.md` with the deployed testnet contract ID.
 
 ## Deployment
 
