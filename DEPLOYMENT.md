@@ -1,5 +1,55 @@
 # TrustLink Deployment Guide
 
+## Testnet Deployment (Current)
+
+| Field            | Value                                                          |
+|------------------|----------------------------------------------------------------|
+| Network          | Stellar Testnet                                                |
+| Contract ID      | `CAK7PYYSWWQH6ML3ZPO4OB2EIONODOEESE3MIV3YGFDMHEU4EUOBUJQN`  |
+| Admin Address    | `GAZVF7TR4TVVSQDRK3BFSJ45B346GXDJIN2UWFHQKR7VIC4YK22DURP3`  |
+| Deploy Tx        | `8f71db61279bde4667f216ad7e5d3a6c34155ccf7ac13862d8b7b11327acd68d` |
+| Init Tx          | `c52d9687ac81205ddece7bef9736b0a882c80aadc08505ebd2b1431ba8177add` |
+| WASM Hash        | `241d5e76ed3425335ad0220d2d73d8622fc71da9add7bee47eac35227cc5d4ff` |
+| Explorer         | https://stellar.expert/explorer/testnet/contract/CAK7PYYSWWQH6ML3ZPO4OB2EIONODOEESE3MIV3YGFDMHEU4EUOBUJQN |
+
+### Verified
+```
+$ stellar contract invoke --id CAK7PYYSWWQH6ML3ZPO4OB2EIONODOEESE3MIV3YGFDMHEU4EUOBUJQN \
+    --source deployer --network testnet -- get_admin
+"GAZVF7TR4TVVSQDRK3BFSJ45B346GXDJIN2UWFHQKR7VIC4YK22DURP3"
+```
+
+## Deployment Verification Script
+
+`scripts/verify_deployment.sh` runs an end-to-end check against a deployed contract:
+
+1. Verifies `get_admin` returns the expected admin address
+2. Registers a temporary test issuer
+3. Creates a test attestation (`VERIFY_TEST` claim type)
+4. Asserts `has_valid_claim` returns `true`
+5. Revokes the attestation
+6. Asserts `has_valid_claim` returns `false`
+7. Cleans up temporary test identities
+
+### Usage
+
+```bash
+./scripts/verify_deployment.sh \
+  --contract CAK7PYYSWWQH6ML3ZPO4OB2EIONODOEESE3MIV3YGFDMHEU4EUOBUJQN \
+  --source deployer \
+  --network testnet
+```
+
+Against mainnet:
+```bash
+./scripts/verify_deployment.sh \
+  --contract <MAINNET_CONTRACT_ID> \
+  --source <ADMIN_KEY_ALIAS> \
+  --network mainnet
+```
+
+Exits with code `0` on success, non-zero on any failure. All steps are logged to stdout.
+
 ## Prerequisites
 
 Before deploying TrustLink, ensure you have:

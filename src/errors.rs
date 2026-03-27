@@ -41,4 +41,12 @@ pub enum Error {
     AlreadyEndorsed = 23,
     /// The contract is paused; write operations are temporarily disabled.
     ContractPaused = 24,
+    /// An attestation request has already been fulfilled or rejected.
+    RequestAlreadyProcessed = 25,
+    /// The attestation request has expired without being acted on.
+    RequestExpired = 26,
+    /// A duplicate request already exists for this subject/issuer/claim_type combination.
+    DuplicateRequest = 27,
+    /// The claim type string is empty, too long, or contains invalid characters.
+    InvalidClaimType = 28,
 }

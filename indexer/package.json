@@ -3,19 +3,26 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node -e \"require('fs').copyFileSync('src/schema.graphql','dist/schema.graphql')\"",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy"
   },
   "dependencies": {
+    "@apollo/server": "^5.5.0",
+    "@graphql-tools/schema": "^10.0.31",
     "@prisma/client": "^5.14.0",
     "@stellar/stellar-sdk": "^14.0.0",
-    "fastify": "^4.28.1"
+    "fastify": "^4.28.1",
+    "graphql": "^16.13.2",
+    "graphql-subscriptions": "^3.0.0",
+    "graphql-ws": "^6.0.7",
+    "ws": "^8.20.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
+    "@types/ws": "^8.18.1",
     "prisma": "^5.14.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.4.5"

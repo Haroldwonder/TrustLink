@@ -91,6 +91,18 @@ impl Events {
         );
     }
 
+    pub fn deletion_requested(
+    env: &Env,
+    subject: &Address,
+    attestation_id: &String,
+    timestamp: u64,
+) {
+    env.events().publish(
+        (symbol_short!("del_req"), subject.clone()),
+        (attestation_id.clone(), timestamp),
+    );
+}
+
     pub fn attestation_expired(env: &Env, attestation_id: &String, subject: &Address) {
         env.events().publish(
             (symbol_short!("expired"), subject.clone()),
@@ -214,4 +226,51 @@ impl Events {
             (attestation_id.clone(), timestamp),
         );
     }
+
+    /// Emitted when a subject submits an attestation request to an issuer.
+    pub fn attestation_requested(
+        env: &Env,
+        request_id: &String,
+        subject: &Address,
+        issuer: &Address,
+        claim_type: &String,
+        expires_at: u64,
+    ) {
+        env.events().publish(
+            (symbol_short!("req"), issuer.clone()),
+            (
+                request_id.clone(),
+                subject.clone(),
+                claim_type.clone(),
+                expires_at,
+            ),
+        );
+    }
+
+    /// Emitted when an issuer fulfills an attestation request.
+    pub fn request_fulfilled(
+        env: &Env,
+        request_id: &String,
+        issuer: &Address,
+        attestation_id: &String,
+    ) {
+        env.events().publish(
+            (symbol_short!("req_ok"), issuer.clone()),
+            (request_id.clone(), attestation_id.clone()),
+        );
+    }
+
+    /// Emitted when an issuer rejects an attestation request.
+    pub fn request_rejected(
+        env: &Env,
+        request_id: &String,
+        issuer: &Address,
+        reason: &Option<String>,
+    ) {
+        env.events().publish(
+            (symbol_short!("req_no"), issuer.clone()),
+            (request_id.clone(), reason.clone()),
+        );
+    }
 }
+

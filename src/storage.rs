@@ -29,10 +29,11 @@
 //! - `GlobalStats` — running counters for total attestations, revocations, and issuers.
 
 use crate::types::{
-    Attestation, AuditEntry, ClaimTypeInfo, Endorsement, Error, ExpirationHook, FeeConfig,
-    GlobalStats, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, TtlConfig,
+    Attestation, AttestationRequest, AuditEntry, ClaimTypeInfo, Endorsement, Error, ExpirationHook,
+    FeeConfig, GlobalStats, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, TtlConfig,
 };
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
+use crate::types::{Attestation, ClaimTypeInfo, Error, IssuerMetadata, StorageLimits};
 
 /// Keys used to address data in contract storage.
 #[contracttype]
@@ -61,6 +62,8 @@ pub enum StorageKey {
     ClaimType(String),
     /// Ordered list of registered claim type identifiers.
     ClaimTypeList,
+    /// Configurable storage limits (admin-settable).
+    Limits,
     /// A multi-sig attestation proposal keyed by its ID.
     MultiSigProposal(String),
     /// Ordered list of endorsements for an attestation, keyed by attestation ID.
@@ -77,12 +80,17 @@ pub enum StorageKey {
     AuditLog(String),
     /// Global pause flag — when present and true, write operations are disabled.
     Paused,
+    /// An attestation request submitted by a subject, keyed by request ID.
+    AttestationRequest(String),
+    /// Ordered list of pending request IDs for an issuer address.
+    IssuerRequests(Address),
 }
 
 const DAY_IN_LEDGERS: u32 = 17280;
 const DEFAULT_TTL_DAYS: u32 = 30;
 const DEFAULT_INSTANCE_LIFETIME: u32 = DAY_IN_LEDGERS * DEFAULT_TTL_DAYS;
 // Only extend TTL on read if remaining TTL drops below this threshold (7 days)
+#[allow(dead_code)]
 const MIN_TTL_THRESHOLD: u32 = 7 * DAY_IN_LEDGERS;
 
 /// Get the TTL in ledgers for the configured number of days.
@@ -290,6 +298,21 @@ impl Storage {
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 
+    /// Remove `attestation_id` from `issuer`'s attestation index.
+    pub fn remove_issuer_attestation(env: &Env, issuer: &Address, attestation_id: &String) {
+        let key = StorageKey::IssuerAttestations(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        let existing = Self::get_issuer_attestations(env, issuer);
+        let mut updated = Vec::new(env);
+        for id in existing.iter() {
+            if &id != attestation_id {
+                updated.push_back(id);
+            }
+        }
+        env.storage().persistent().set(&key, &updated);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
     /// Persist `metadata` for `issuer` and refresh its TTL.
     pub fn set_issuer_metadata(env: &Env, issuer: &Address, metadata: &IssuerMetadata) {
         let key = StorageKey::IssuerMetadata(issuer.clone());
@@ -342,61 +365,20 @@ impl Storage {
             .unwrap_or(Vec::new(env))
     }
 
-    /// Persist a [`MultiSigProposal`] and refresh its TTL.
-    pub fn set_multisig_proposal(env: &Env, proposal: &MultiSigProposal) {
-        let key = StorageKey::MultiSigProposal(proposal.id.clone());
-        let ttl = get_ttl_lifetime(env);
-        env.storage().persistent().set(&key, proposal);
-        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    /// Persist storage limits in instance storage.
+    pub fn set_limits(env: &Env, limits: &StorageLimits) {
+        env.storage().instance().set(&StorageKey::Limits, limits);
+        env.storage().instance().extend_ttl(INSTANCE_LIFETIME, INSTANCE_LIFETIME);
     }
 
-    /// Retrieve a [`MultiSigProposal`] by ID.
-    ///
-    /// # Errors
-    /// - [`Error::NotFound`] — no proposal with that ID exists.
-    pub fn get_multisig_proposal(env: &Env, id: &String) -> Result<MultiSigProposal, Error> {
-        env.storage()
-            .persistent()
-            .get(&StorageKey::MultiSigProposal(id.clone()))
-            .ok_or(Error::NotFound)
-    }
-
-    /// Return `true` if a proposal with `id` exists.
-    #[allow(dead_code)]
-    pub fn has_multisig_proposal(env: &Env, id: &String) -> bool {
-        env.storage()
-            .persistent()
-            .has(&StorageKey::MultiSigProposal(id.clone()))
-    }
-
-    /// Return the ordered list of endorsements for `attestation_id`, or an empty
-    /// [`Vec`] if none exist.
-    pub fn get_endorsements(env: &Env, attestation_id: &String) -> Vec<Endorsement> {
-        env.storage()
-            .persistent()
-            .get(&StorageKey::Endorsements(attestation_id.clone()))
-            .unwrap_or(Vec::new(env))
-    }
-
-    /// Append `endorsement` to the endorsement list for its attestation and refresh TTL.
-    pub fn add_endorsement(env: &Env, endorsement: &Endorsement) {
-        let key = StorageKey::Endorsements(endorsement.attestation_id.clone());
-        let ttl = get_ttl_lifetime(env);
-        let mut endorsements = Self::get_endorsements(env, &endorsement.attestation_id);
-        endorsements.push_back(endorsement.clone());
-        env.storage().persistent().set(&key, &endorsements);
-        env.storage().persistent().extend_ttl(&key, ttl, ttl);
-    }
-
-    /// Retrieve the global contract statistics, returning zeroed defaults if not yet set.
-    pub fn get_global_stats(env: &Env) -> GlobalStats {
+    /// Retrieve storage limits, returning defaults if never set.
+    pub fn get_limits(env: &Env) -> StorageLimits {
         env.storage()
             .instance()
-            .get(&StorageKey::GlobalStats)
-            .unwrap_or(GlobalStats {
-                total_attestations: 0,
-                total_revocations: 0,
-                total_issuers: 0,
+            .get(&StorageKey::Limits)
+            .unwrap_or(StorageLimits {
+                max_attestations_per_issuer: 10_000,
+                max_attestations_per_subject: 100,
             })
     }
 
@@ -517,6 +499,43 @@ impl Storage {
         let ttl = get_ttl_lifetime(env);
         env.storage().instance().set(&StorageKey::Paused, &paused);
         env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    /// Persist an attestation request and refresh its TTL.
+    pub fn set_attestation_request(env: &Env, request: &AttestationRequest) {
+        let key = StorageKey::AttestationRequest(request.id.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, request);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    /// Retrieve an attestation request by ID.
+    ///
+    /// # Errors
+    /// - [`Error::NotFound`] — no request with that ID exists.
+    pub fn get_attestation_request(env: &Env, id: &String) -> Result<AttestationRequest, Error> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::AttestationRequest(id.clone()))
+            .ok_or(Error::NotFound)
+    }
+
+    /// Return the ordered list of request IDs for `issuer`, or an empty [`Vec`] if none.
+    pub fn get_issuer_requests(env: &Env, issuer: &Address) -> Vec<String> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::IssuerRequests(issuer.clone()))
+            .unwrap_or(Vec::new(env))
+    }
+
+    /// Append `request_id` to `issuer`'s request index and refresh TTL.
+    pub fn add_issuer_request(env: &Env, issuer: &Address, request_id: &String) {
+        let key = StorageKey::IssuerRequests(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut requests = Self::get_issuer_requests(env, issuer);
+        requests.push_back(request_id.clone());
+        env.storage().persistent().set(&key, &requests);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 }
 

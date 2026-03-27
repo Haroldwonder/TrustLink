@@ -1,4 +1,6 @@
 #![no_std]
+// Forbid panic-prone patterns in production code; tests are exempt.
+#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
 
 mod errors;
 mod events;
@@ -14,9 +16,10 @@ use soroban_sdk::{contract, contractimpl, token::TokenClient, Address, Env, Stri
 use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::{
-    Attestation, AttestationStatus, AuditAction, AuditEntry, ClaimTypeInfo, ContractConfig,
-    ContractMetadata, Endorsement, Error, FeeConfig, GlobalStats, HealthStatus, IssuerMetadata,
-    IssuerStats, IssuerTier, MultiSigProposal, TtlConfig, MULTISIG_PROPOSAL_TTL_SECS,
+    Attestation, AttestationRequest, AttestationStatus, AuditAction, AuditEntry, ClaimTypeInfo,
+    ContractConfig, ContractMetadata, Endorsement, Error, FeeConfig, GlobalStats, HealthStatus,
+    IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, RequestStatus, TtlConfig,
+    ATTESTATION_REQUEST_TTL_SECS, MULTISIG_PROPOSAL_TTL_SECS,
 };
 use crate::validation::Validation;
 
@@ -46,6 +49,24 @@ fn validate_metadata(metadata: &Option<String>) -> Result<(), Error> {
     Ok(())
 }
 
+/// Claim type must be non-empty and at most 64 characters.
+/// Only alphanumeric characters, underscores, and hyphens are allowed.
+fn validate_claim_type(claim_type: &String) -> Result<(), Error> {
+    let len = claim_type.len();
+    if len == 0 || len > 64 {
+        return Err(Error::InvalidClaimType);
+    }
+    // Copy into a fixed-size stack buffer and validate each byte.
+    let mut buf = [0u8; 64];
+    claim_type.copy_into_slice(&mut buf[..len as usize]);
+    for &byte in &buf[..len as usize] {
+        if !matches!(byte, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-') {
+            return Err(Error::InvalidClaimType);
+        }
+    }
+    Ok(())
+}
+
 fn validate_reason(reason: &Option<String>) -> Result<(), Error> {
     if let Some(r) = reason {
         if r.len() > 128 {
@@ -64,6 +85,46 @@ fn validate_tags(tags: &Option<Vec<String>>) -> Result<(), Error> {
             if tag.len() > 32 {
                 return Err(Error::TagTooLong);
             }
+        }
+    }
+    Ok(())
+}
+
+fn validate_jurisdiction(env: &Env, jurisdiction: &Option<String>) -> Result<(), Error> {
+    if let Some(code) = jurisdiction {
+        if code.len() != 2 {
+            return Err(Error::InvalidJurisdiction);
+        }
+
+        let valid_codes = [
+            "AF", "AX", "AL", "DZ", "AS", "AD", "AO", "AI", "AQ", "AG", "AR", "AM", "AW", "AU", "AT", "AZ",
+            "BS", "BH", "BD", "BB", "BY", "BE", "BZ", "BJ", "BM", "BT", "BO", "BQ", "BA", "BW", "BV", "BR",
+            "IO", "BN", "BG", "BF", "BI", "CV", "KH", "CM", "CA", "KY", "CF", "TD", "CL", "CN", "CX", "CC",
+            "CO", "KM", "CG", "CD", "CK", "CR", "CI", "HR", "CU", "CW", "CY", "CZ", "DK", "DJ", "DM", "DO",
+            "EC", "EG", "SV", "GQ", "ER", "EE", "SZ", "ET", "FK", "FO", "FJ", "FI", "FR", "GF", "PF", "TF",
+            "GA", "GM", "GE", "DE", "GH", "GI", "GR", "GL", "GD", "GP", "GU", "GT", "GG", "GN", "GW", "GY",
+            "HT", "HM", "VA", "HN", "HK", "HU", "IS", "IN", "ID", "IR", "IQ", "IE", "IM", "IL", "IT", "JM",
+            "JP", "JE", "JO", "KZ", "KE", "KI", "KP", "KR", "KW", "KG", "LA", "LV", "LB", "LS", "LR", "LY",
+            "LI", "LT", "LU", "MO", "MK", "MG", "MW", "MY", "MV", "ML", "MT", "MH", "MQ", "MR", "MU", "YT",
+            "MX", "FM", "MD", "MC", "MN", "ME", "MS", "MA", "MZ", "MM", "NA", "NR", "NP", "NL", "NC", "NZ",
+            "NI", "NE", "NG", "NU", "NF", "MP", "NO", "OM", "PK", "PW", "PS", "PA", "PG", "PY", "PE", "PH",
+            "PN", "PL", "PT", "PR", "QA", "RE", "RO", "RU", "RW", "BL", "SH", "KN", "LC", "MF", "PM", "VC",
+            "WS", "SM", "ST", "SA", "SN", "RS", "SC", "SL", "SG", "SX", "SK", "SI", "SB", "SO", "ZA", "GS",
+            "SS", "ES", "LK", "SD", "SR", "SJ", "SE", "CH", "SY", "TW", "TJ", "TZ", "TH", "TL", "TG", "TK",
+            "TO", "TT", "TN", "TR", "TM", "TC", "TV", "UG", "UA", "AE", "GB", "US", "UM", "UY", "UZ", "VU",
+            "VE", "VN", "VG", "VI", "WF", "EH", "YE", "ZM", "ZW",
+        ];
+
+        let mut valid = false;
+        for iso in valid_codes.iter() {
+            if code == &String::from_str(env, iso) {
+                valid = true;
+                break;
+            }
+        }
+
+        if !valid {
+            return Err(Error::InvalidJurisdiction);
         }
     }
     Ok(())
@@ -103,6 +164,24 @@ fn validate_fee_config(fee: i128, fee_token: &Option<Address>) -> Result<(), Err
 
     if fee > 0 && fee_token.is_none() {
         return Err(Error::FeeTokenRequired);
+    }
+
+    Ok(())
+}
+
+fn check_rate_limit(env: &Env, issuer: &Address) -> Result<(), Error> {
+    if let Some(config) = Storage::get_rate_limit_config(env) {
+        if config.min_issuance_interval == 0 {
+            return Ok(());
+        }
+
+        let current_time = env.ledger().timestamp();
+        if let Some(last_issuance) = Storage::get_last_issuance_time(env, issuer) {
+            let elapsed = current_time.saturating_sub(last_issuance);
+            if elapsed < config.min_issuance_interval {
+                return Err(Error::RateLimited);
+            }
+        }
     }
 
     Ok(())
@@ -322,6 +401,36 @@ impl TrustLinkContract {
         Ok(())
     }
 
+    /// Configure the minimum issuance interval (rate limit) for attestation creation.
+    ///
+    /// When `min_issuance_interval` is 0 (default), rate limiting is disabled.
+    /// When > 0, issuers must wait at least that many seconds between attestation creations.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — caller is not the admin.
+    pub fn set_rate_limit(
+        env: Env,
+        admin: Address,
+        min_issuance_interval: u64,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        Validation::require_admin(&env, &admin)?;
+
+        Storage::set_rate_limit_config(
+            &env,
+            &RateLimitConfig {
+                min_issuance_interval,
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Retrieve the current rate limit configuration, or `None` if not set.
+    pub fn get_rate_limit(env: Env) -> Option<RateLimitConfig> {
+        Storage::get_rate_limit_config(&env)
+    }
+
     /// Pause the contract, disabling all attestation write operations.
     ///
     /// Read-only functions (`has_valid_claim`, `get_attestation`, etc.) remain
@@ -355,49 +464,49 @@ impl TrustLinkContract {
         Storage::is_paused(&env)
     }
 
-    /// Creates a native attestation from a registered issuer about a subject.
-    ///
-    /// `issuer` and `subject` must be different addresses; self-attestation is
-    /// rejected with [`Error::Unauthorized`] to prevent self-certification.
-    pub fn create_attestation(
-        env: Env,
+    /// Internal helper to create an attestation, optionally with jurisdiction.
+    fn create_attestation_internal(
+        env: &Env,
         issuer: Address,
         subject: Address,
         claim_type: String,
         expiration: Option<u64>,
         metadata: Option<String>,
+        jurisdiction: Option<String>,
         tags: Option<Vec<String>>,
     ) -> Result<String, Error> {
         issuer.require_auth();
         Validation::require_not_paused(&env)?;
         Validation::require_issuer(&env, &issuer)?;
+        validate_claim_type(&claim_type)?;
         validate_metadata(&metadata)?;
+        validate_jurisdiction(env, &jurisdiction)?;
         validate_tags(&tags)?;
-        validate_native_expiration(&env, expiration)?;
+        validate_native_expiration(env, expiration)?;
 
         if issuer == subject {
             return Err(Error::Unauthorized);
         }
 
         let timestamp = env.ledger().timestamp();
-        let attestation_id =
-            Attestation::generate_id(&env, &issuer, &subject, &claim_type, timestamp);
+        let attestation_id = Attestation::generate_id(env, &issuer, &subject, &claim_type, timestamp);
 
-        if Storage::has_attestation(&env, &attestation_id) {
+        if Storage::has_attestation(env, &attestation_id) {
             return Err(Error::DuplicateAttestation);
         }
 
-        charge_attestation_fee(&env, &issuer)?;
+        charge_attestation_fee(env, &issuer)?;
 
         let attestation = Attestation {
             id: attestation_id.clone(),
-            issuer,
+            issuer: issuer.clone(),
             subject,
             claim_type,
             timestamp,
             expiration,
             revoked: false,
             metadata,
+            jurisdiction,
             valid_from: None,
             imported: false,
             bridged: false,
@@ -408,11 +517,11 @@ impl TrustLinkContract {
             deleted: false,
         };
 
-        store_attestation(&env, &attestation);
-        Storage::increment_total_attestations(&env, 1);
-        Events::attestation_created(&env, &attestation);
+        store_attestation(env, &attestation);
+        Storage::increment_total_attestations(env, 1);
+        Events::attestation_created(env, &attestation);
         Storage::append_audit_entry(
-            &env,
+            env,
             &attestation_id,
             &AuditEntry {
                 action: AuditAction::Created,
@@ -422,6 +531,49 @@ impl TrustLinkContract {
             },
         );
         Ok(attestation_id)
+    }
+
+    pub fn create_attestation(
+        env: Env,
+        issuer: Address,
+        subject: Address,
+        claim_type: String,
+        expiration: Option<u64>,
+        metadata: Option<String>,
+        tags: Option<Vec<String>>,
+    ) -> Result<String, Error> {
+        Self::create_attestation_internal(
+            &env,
+            issuer,
+            subject,
+            claim_type,
+            expiration,
+            metadata,
+            None,
+            tags,
+        )
+    }
+
+    pub fn create_attestation_jurisdiction(
+        env: Env,
+        issuer: Address,
+        subject: Address,
+        claim_type: String,
+        expiration: Option<u64>,
+        metadata: Option<String>,
+        jurisdiction: Option<String>,
+        tags: Option<Vec<String>>,
+    ) -> Result<String, Error> {
+        Self::create_attestation_internal(
+            &env,
+            issuer,
+            subject,
+            claim_type,
+            expiration,
+            metadata,
+            jurisdiction,
+            tags,
+        )
     }
 
     pub fn import_attestation(
@@ -454,6 +606,7 @@ impl TrustLinkContract {
             expiration,
             revoked: false,
             metadata: None,
+            jurisdiction: None,
             valid_from: None,
             imported: true,
             bridged: false,
@@ -515,6 +668,7 @@ impl TrustLinkContract {
             expiration: None,
             revoked: false,
             metadata: None,
+            jurisdiction: None,
             valid_from: None,
             imported: false,
             bridged: true,
@@ -550,10 +704,20 @@ impl TrustLinkContract {
     ) -> Result<Vec<String>, Error> {
         issuer.require_auth();
         Validation::require_issuer(&env, &issuer)?;
+        validate_claim_type(&claim_type)?;
         validate_native_expiration(&env, expiration)?;
+        check_rate_limit(&env, &issuer)?;
 
         let timestamp = env.ledger().timestamp();
-        let mut ids = Vec::new(&env);
+
+        // Enforce issuer-level limit up front for the whole batch
+        let limits = Storage::get_limits(&env);
+        let issuer_count = Storage::get_issuer_attestations(&env, &issuer).len();
+        if issuer_count.saturating_add(subjects.len()) > limits.max_attestations_per_issuer {
+            return Err(Error::LimitExceeded);
+        }
+
+        let mut ids: Vec<String> = Vec::new(&env);
 
         for subject in subjects.iter() {
             let attestation_id =
@@ -561,6 +725,12 @@ impl TrustLinkContract {
 
             if Storage::has_attestation(&env, &attestation_id) {
                 return Err(Error::DuplicateAttestation);
+            }
+
+            // Per-subject limit check
+            let subject_count = Storage::get_subject_attestations(&env, &subject).len();
+            if subject_count >= limits.max_attestations_per_subject {
+                return Err(Error::LimitExceeded);
             }
 
             let attestation = Attestation {
@@ -572,6 +742,7 @@ impl TrustLinkContract {
                 expiration,
                 revoked: false,
                 metadata: None,
+                jurisdiction: None,
                 valid_from: None,
                 imported: false,
                 bridged: false,
@@ -598,6 +769,7 @@ impl TrustLinkContract {
         }
 
         Storage::increment_total_attestations(&env, ids.len() as u64);
+        Storage::set_last_issuance_time(&env, &issuer, timestamp);
         Ok(ids)
     }
 
@@ -967,6 +1139,30 @@ impl TrustLinkContract {
         result
     }
 
+    pub fn get_attestations_by_jurisdiction(
+        env: Env,
+        subject: Address,
+        jurisdiction: String,
+    ) -> Vec<String> {
+        let attestation_ids = Storage::get_subject_attestations(&env, &subject);
+        let mut result = Vec::new(&env);
+
+        for id in attestation_ids.iter() {
+            if let Ok(attestation) = Storage::get_attestation(&env, &id) {
+                if attestation.deleted {
+                    continue;
+                }
+                if let Some(att_jurisdiction) = attestation.jurisdiction {
+                    if att_jurisdiction == jurisdiction {
+                        result.push_back(id.clone());
+                    }
+                }
+            }
+        }
+
+        result
+    }
+
     pub fn get_issuer_attestations(
         env: Env,
         issuer: Address,
@@ -1074,6 +1270,7 @@ impl TrustLinkContract {
     ) -> Result<(), Error> {
         admin.require_auth();
         Validation::require_admin(&env, &admin)?;
+        validate_claim_type(&claim_type)?;
 
         let info = ClaimTypeInfo {
             claim_type: claim_type.clone(),
@@ -1220,6 +1417,7 @@ impl TrustLinkContract {
                 expiration: None,
                 revoked: false,
                 metadata: None,
+                jurisdiction: None,
                 valid_from: None,
                 imported: false,
                 bridged: false,
@@ -1295,16 +1493,48 @@ impl TrustLinkContract {
         Ok(())
     }
 
-    /// Return all endorsements for the given attestation.
-    pub fn get_endorsements(env: Env, attestation_id: String) -> Vec<Endorsement> {
-        Storage::get_endorsements(&env, &attestation_id)
+    /// Configure storage exhaustion limits (admin only).
+    ///
+    /// Sets the maximum number of attestations allowed per issuer and per subject.
+    /// Limits are stored in instance storage and take effect immediately for all
+    /// subsequent `create_attestation` calls.
+    ///
+    /// # Parameters
+    /// - `admin` — current administrator address (must authorize).
+    /// - `max_attestations_per_issuer` — max attestations a single issuer may create.
+    /// - `max_attestations_per_subject` — max attestations a single subject may hold.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] — contract has not been initialized.
+    /// - [`Error::Unauthorized`] — `admin` is not the registered administrator.
+    pub fn set_limits(
+        env: Env,
+        admin: Address,
+        max_attestations_per_issuer: u32,
+        max_attestations_per_subject: u32,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        Validation::require_admin(&env, &admin)?;
+
+        Storage::set_limits(&env, &StorageLimits {
+            max_attestations_per_issuer,
+            max_attestations_per_subject,
+        });
+        Ok(())
     }
 
-    /// Return the number of endorsements for the given attestation.
-    pub fn get_endorsement_count(env: Env, attestation_id: String) -> u32 {
-        Storage::get_endorsements(&env, &attestation_id).len()
+    /// Return the current storage limits.
+    ///
+    /// Returns the admin-configured limits, or the defaults
+    /// (10,000 per issuer / 100 per subject) if never explicitly set.
+    pub fn get_limits(env: Env) -> StorageLimits {
+        Storage::get_limits(&env)
     }
 
+    /// Return the semver version string set at initialization (e.g. `"1.0.0"`).
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] — contract has not been initialized.
     pub fn get_version(env: Env) -> Result<String, Error> {
         Storage::get_version(&env).ok_or(Error::NotInitialized)
     }
@@ -1365,4 +1595,219 @@ impl TrustLinkContract {
             ),
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Pull-based attestation requests
+    // -------------------------------------------------------------------------
+
+    /// Submit an attestation request from `subject` to a registered `issuer`.
+    ///
+    /// The request is stored on-chain and expires after
+    /// [`ATTESTATION_REQUEST_TTL_SECS`] seconds if not acted on.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] — contract not initialized.
+    /// - [`Error::ContractPaused`] — contract is paused.
+    /// - [`Error::Unauthorized`] — `issuer` is not a registered issuer.
+    /// - [`Error::DuplicateRequest`] — an identical pending request already exists.
+    pub fn request_attestation(
+        env: Env,
+        subject: Address,
+        issuer: Address,
+        claim_type: String,
+    ) -> Result<String, Error> {
+        subject.require_auth();
+        Validation::require_not_paused(&env)?;
+        Validation::require_issuer(&env, &issuer)?;
+        validate_claim_type(&claim_type)?;
+
+        let timestamp = env.ledger().timestamp();
+        let id = AttestationRequest::generate_id(&env, &subject, &issuer, &claim_type, timestamp);
+
+        // Reject if a pending request with the same ID already exists.
+        if let Ok(existing) = Storage::get_attestation_request(&env, &id) {
+            if existing.status == RequestStatus::Pending {
+                return Err(Error::DuplicateRequest);
+            }
+        }
+
+        let expires_at = timestamp + ATTESTATION_REQUEST_TTL_SECS;
+        let request = AttestationRequest {
+            id: id.clone(),
+            subject,
+            issuer: issuer.clone(),
+            claim_type,
+            timestamp,
+            expires_at,
+            status: RequestStatus::Pending,
+            rejection_reason: None,
+        };
+
+        Storage::set_attestation_request(&env, &request);
+        Storage::add_issuer_request(&env, &issuer, &id);
+
+        Events::attestation_requested(
+            &env,
+            &request.id,
+            &request.subject,
+            &request.issuer,
+            &request.claim_type,
+            expires_at,
+        );
+
+        Ok(id)
+    }
+
+    /// Fulfill a pending attestation request, creating a standard attestation.
+    ///
+    /// # Errors
+    /// - [`Error::NotFound`] — request does not exist.
+    /// - [`Error::Unauthorized`] — caller is not the request's target issuer.
+    /// - [`Error::RequestAlreadyProcessed`] — request was already fulfilled or rejected.
+    /// - [`Error::RequestExpired`] — request expired before being acted on.
+    pub fn fulfill_request(
+        env: Env,
+        issuer: Address,
+        request_id: String,
+        expiration: Option<u64>,
+    ) -> Result<String, Error> {
+        issuer.require_auth();
+        Validation::require_not_paused(&env)?;
+
+        let mut request = Storage::get_attestation_request(&env, &request_id)?;
+
+        if request.issuer != issuer {
+            return Err(Error::Unauthorized);
+        }
+        if request.status != RequestStatus::Pending {
+            return Err(Error::RequestAlreadyProcessed);
+        }
+        if env.ledger().timestamp() >= request.expires_at {
+            return Err(Error::RequestExpired);
+        }
+
+        validate_native_expiration(&env, expiration)?;
+        charge_attestation_fee(&env, &issuer)?;
+
+        let timestamp = env.ledger().timestamp();
+        let attestation_id = Attestation::generate_id(
+            &env,
+            &issuer,
+            &request.subject,
+            &request.claim_type,
+            timestamp,
+        );
+
+        let attestation = Attestation {
+            id: attestation_id.clone(),
+            issuer: issuer.clone(),
+            subject: request.subject.clone(),
+            claim_type: request.claim_type.clone(),
+            timestamp,
+            expiration,
+            revoked: false,
+            metadata: None,
+            valid_from: None,
+            imported: false,
+            bridged: false,
+            source_chain: None,
+            source_tx: None,
+            tags: None,
+            revocation_reason: None,
+            deleted: false,
+        };
+
+        store_attestation(&env, &attestation);
+        Storage::increment_total_attestations(&env, 1);
+
+        let audit_entry = AuditEntry {
+            action: AuditAction::Created,
+            actor: issuer.clone(),
+            timestamp,
+            details: None,
+        };
+        Storage::append_audit_entry(&env, &attestation_id, &audit_entry);
+
+        Events::attestation_created(&env, &attestation);
+
+        // Mark request fulfilled.
+        request.status = RequestStatus::Fulfilled;
+        Storage::set_attestation_request(&env, &request);
+
+        Events::request_fulfilled(&env, &request_id, &issuer, &attestation_id);
+
+        Ok(attestation_id)
+    }
+
+    /// Reject a pending attestation request.
+    ///
+    /// # Errors
+    /// - [`Error::NotFound`] — request does not exist.
+    /// - [`Error::Unauthorized`] — caller is not the request's target issuer.
+    /// - [`Error::RequestAlreadyProcessed`] — request was already fulfilled or rejected.
+    /// - [`Error::ReasonTooLong`] — rejection reason exceeds 128 characters.
+    pub fn reject_request(
+        env: Env,
+        issuer: Address,
+        request_id: String,
+        reason: Option<String>,
+    ) -> Result<(), Error> {
+        issuer.require_auth();
+
+        let mut request = Storage::get_attestation_request(&env, &request_id)?;
+
+        if request.issuer != issuer {
+            return Err(Error::Unauthorized);
+        }
+        if request.status != RequestStatus::Pending {
+            return Err(Error::RequestAlreadyProcessed);
+        }
+
+        validate_reason(&reason)?;
+
+        request.status = RequestStatus::Rejected;
+        request.rejection_reason = reason.clone();
+        Storage::set_attestation_request(&env, &request);
+
+        Events::request_rejected(&env, &request_id, &issuer, &reason);
+
+        Ok(())
+    }
+
+    /// Return a paginated list of pending request IDs for `issuer`.
+    ///
+    /// Expired or processed requests are filtered out of the results.
+    pub fn get_pending_requests(
+        env: Env,
+        issuer: Address,
+        start: u32,
+        limit: u32,
+    ) -> Vec<String> {
+        let now = env.ledger().timestamp();
+        let all_ids = Storage::get_issuer_requests(&env, &issuer);
+
+        // Collect only IDs whose request is still pending and not expired.
+        let mut pending = Vec::new(&env);
+        for id in all_ids.iter() {
+            if let Ok(req) = Storage::get_attestation_request(&env, &id) {
+                if req.status == RequestStatus::Pending && now < req.expires_at {
+                    pending.push_back(id);
+                }
+            }
+        }
+
+        crate::storage::paginate(&env, pending, start, limit)
+    }
+
+    /// Retrieve a single attestation request by ID.
+    ///
+    /// # Errors
+    /// - [`Error::NotFound`] — no request with that ID exists.
+    pub fn get_attestation_request(
+        env: Env,
+        request_id: String,
+    ) -> Result<AttestationRequest, Error> {
+        Storage::get_attestation_request(&env, &request_id)
+    }
 }
+
