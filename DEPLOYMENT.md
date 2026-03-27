@@ -19,6 +19,37 @@ $ stellar contract invoke --id CAK7PYYSWWQH6ML3ZPO4OB2EIONODOEESE3MIV3YGFDMHEU4E
 "GAZVF7TR4TVVSQDRK3BFSJ45B346GXDJIN2UWFHQKR7VIC4YK22DURP3"
 ```
 
+## Deployment Verification Script
+
+`scripts/verify_deployment.sh` runs an end-to-end check against a deployed contract:
+
+1. Verifies `get_admin` returns the expected admin address
+2. Registers a temporary test issuer
+3. Creates a test attestation (`VERIFY_TEST` claim type)
+4. Asserts `has_valid_claim` returns `true`
+5. Revokes the attestation
+6. Asserts `has_valid_claim` returns `false`
+7. Cleans up temporary test identities
+
+### Usage
+
+```bash
+./scripts/verify_deployment.sh \
+  --contract CAK7PYYSWWQH6ML3ZPO4OB2EIONODOEESE3MIV3YGFDMHEU4EUOBUJQN \
+  --source deployer \
+  --network testnet
+```
+
+Against mainnet:
+```bash
+./scripts/verify_deployment.sh \
+  --contract <MAINNET_CONTRACT_ID> \
+  --source <ADMIN_KEY_ALIAS> \
+  --network mainnet
+```
+
+Exits with code `0` on success, non-zero on any failure. All steps are logged to stdout.
+
 ## Prerequisites
 
 Before deploying TrustLink, ensure you have:
