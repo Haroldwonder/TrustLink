@@ -235,10 +235,7 @@ impl Storage {
     /// - [`Error::NotFound`] — no attestation with that ID exists.
     pub fn get_attestation(env: &Env, id: &String) -> Result<Attestation, Error> {
         let key = StorageKey::Attestation(id.clone());
-        env.storage()
-            .persistent()
-            .get(&key)
-            .ok_or(Error::NotFound)
+        env.storage().persistent().get(&key).ok_or(Error::NotFound)
     }
 
     /// Return the ordered list of attestation IDs for `subject`, or an empty

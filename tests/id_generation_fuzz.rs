@@ -73,10 +73,15 @@ fn to_std_string(_env: &Env, s: &String) -> std::string::String {
 #[test]
 fn test_no_collisions_across_1000_unique_inputs() {
     let env = Env::default();
-    let mut ids: std::collections::HashSet<std::string::String> =
-        std::collections::HashSet::new();
+    let mut ids: std::collections::HashSet<std::string::String> = std::collections::HashSet::new();
 
-    let claim_types = ["KYC_PASSED", "ACCREDITED_INVESTOR", "MERCHANT_VERIFIED", "AML_CLEARED", "SANCTIONS_CHECKED"];
+    let claim_types = [
+        "KYC_PASSED",
+        "ACCREDITED_INVESTOR",
+        "MERCHANT_VERIFIED",
+        "AML_CLEARED",
+        "SANCTIONS_CHECKED",
+    ];
 
     for i in 0u64..1_000 {
         let issuer = Address::generate(&env);
@@ -99,8 +104,7 @@ fn test_no_collisions_across_1000_unique_inputs() {
 fn test_same_timestamp_different_addresses_no_collision() {
     let env = Env::default();
     let ts = 1_700_000_000u64;
-    let mut ids: std::collections::HashSet<std::string::String> =
-        std::collections::HashSet::new();
+    let mut ids: std::collections::HashSet<std::string::String> = std::collections::HashSet::new();
 
     for i in 0u64..200 {
         let issuer = Address::generate(&env);
@@ -187,8 +191,7 @@ fn test_edge_case_swapped_issuer_subject_produces_different_id() {
 #[test]
 fn test_bridge_id_no_collisions_across_200_inputs() {
     let env = Env::default();
-    let mut ids: std::collections::HashSet<std::string::String> =
-        std::collections::HashSet::new();
+    let mut ids: std::collections::HashSet<std::string::String> = std::collections::HashSet::new();
 
     for i in 0u64..200 {
         let bridge = Address::generate(&env);
@@ -239,7 +242,8 @@ fn test_id_output_is_64_char_lowercase_hex() {
     assert_eq!(id.len(), 64, "ID length must be 64");
     let s = to_std_string(&env, &id);
     assert!(
-        s.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+        s.chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
         "ID must be lowercase hex, got: {s}"
     );
 }

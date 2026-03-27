@@ -831,6 +831,52 @@ fn test_get_attestations_by_tag() {
 }
 
 #[test]
+fn test_get_attestations_in_range() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "RANGE_TEST");
+
+    // Create 3 attestations at different timestamps
+    env.ledger().set_timestamp(100);
+    let id1 = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+
+    env.ledger().set_timestamp(200);
+    let id2 = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+
+    env.ledger().set_timestamp(300);
+    let id3 = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+
+    // Test full range
+    let all = client.get_attestations_in_range(&subject, &100, &300, &0, &10);
+    assert_eq!(all.len(), 3);
+    assert_eq!(all.get(0).unwrap().id, id1);
+    assert_eq!(all.get(1).unwrap().id, id2);
+    assert_eq!(all.get(2).unwrap().id, id3);
+
+    // Test sub range
+    let middle = client.get_attestations_in_range(&subject, &150, &250, &0, &10);
+    assert_eq!(middle.len(), 1);
+    assert_eq!(middle.get(0).unwrap().id, id2);
+
+    // Test empty range
+    let empty = client.get_attestations_in_range(&subject, &400, &500, &0, &10);
+    assert_eq!(empty.len(), 0);
+
+    // Test boundaries inclusive
+    let boundary = client.get_attestations_in_range(&subject, &100, &100, &0, &10);
+    assert_eq!(boundary.len(), 1);
+    assert_eq!(boundary.get(0).unwrap().id, id1);
+
+    // Test pagination
+    let paginated = client.get_attestations_in_range(&subject, &100, &300, &1, &1);
+    assert_eq!(paginated.len(), 1);
+    assert_eq!(paginated.get(0).unwrap().id, id2);
+}
+
+#[test]
 fn test_tags_length_limits() {
     let env = Env::default();
     env.mock_all_auths();
