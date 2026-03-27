@@ -944,6 +944,40 @@ impl TrustLinkContract {
         )
     }
 
+    pub fn get_attestations_in_range(
+        env: Env,
+        subject: Address,
+        from_ts: u64,
+        to_ts: u64,
+        start: u32,
+        limit: u32,
+    ) -> Vec<Attestation> {
+        let attestation_ids = Storage::get_subject_attestations(&env, &subject);
+        let mut filtered_ids = Vec::new(&env);
+
+        for id in attestation_ids.iter() {
+            if let Ok(attestation) = Storage::get_attestation(&env, &id) {
+                if !attestation.deleted
+                    && attestation.timestamp >= from_ts
+                    && attestation.timestamp <= to_ts
+                {
+                    filtered_ids.push_back(id);
+                }
+            }
+        }
+
+        let paginated_ids = crate::storage::paginate(&env, filtered_ids, start, limit);
+        let mut result = Vec::new(&env);
+
+        for id in paginated_ids.iter() {
+            if let Ok(attestation) = Storage::get_attestation(&env, &id) {
+                result.push_back(attestation);
+            }
+        }
+
+        result
+    }
+
     pub fn get_attestations_by_tag(env: Env, subject: Address, tag: String) -> Vec<String> {
         let attestation_ids = Storage::get_subject_attestations(&env, &subject);
         let mut result = Vec::new(&env);
@@ -987,7 +1021,9 @@ impl TrustLinkContract {
 
         for attestation_id in Storage::get_subject_attestations(&env, &subject).iter() {
             if let Ok(attestation) = Storage::get_attestation(&env, &attestation_id) {
-                if !attestation.deleted && attestation.get_status(current_time) == AttestationStatus::Valid {
+                if !attestation.deleted
+                    && attestation.get_status(current_time) == AttestationStatus::Valid
+                {
                     let mut already_present = false;
                     for existing in result.iter() {
                         if existing == attestation.claim_type {

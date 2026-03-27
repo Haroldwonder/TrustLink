@@ -43,7 +43,10 @@ fn test_unauth_cannot_register_issuer() {
         client.try_register_issuer(&unauth, &new_issuer),
         Err(Ok(Error::Unauthorized))
     );
-    assert_eq!(client.get_global_stats().total_issuers, stats_before.total_issuers);
+    assert_eq!(
+        client.get_global_stats().total_issuers,
+        stats_before.total_issuers
+    );
 }
 
 #[test]
@@ -58,7 +61,10 @@ fn test_unauth_cannot_remove_issuer() {
         Err(Ok(Error::Unauthorized))
     );
     assert!(client.is_issuer(&issuer));
-    assert_eq!(client.get_global_stats().total_issuers, stats_before.total_issuers);
+    assert_eq!(
+        client.get_global_stats().total_issuers,
+        stats_before.total_issuers
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -77,7 +83,10 @@ fn test_unauth_cannot_create_attestation() {
         client.try_create_attestation(&unauth, &subject, &kyc(&env), &None, &None, &None),
         Err(Ok(Error::Unauthorized))
     );
-    assert_eq!(client.get_global_stats().total_attestations, stats_before.total_attestations);
+    assert_eq!(
+        client.get_global_stats().total_attestations,
+        stats_before.total_attestations
+    );
 }
 
 #[test]
@@ -93,7 +102,10 @@ fn test_admin_cannot_create_attestation_when_not_issuer() {
         client.try_create_attestation(&admin, &subject, &kyc(&env), &None, &None, &None),
         Err(Ok(Error::Unauthorized))
     );
-    assert_eq!(client.get_global_stats().total_attestations, stats_before.total_attestations);
+    assert_eq!(
+        client.get_global_stats().total_attestations,
+        stats_before.total_attestations
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -118,7 +130,10 @@ fn test_issuer_b_cannot_revoke_issuer_a_attestation() {
         Err(Ok(Error::Unauthorized))
     );
     assert!(!client.get_attestation(&attestation_id).revoked);
-    assert_eq!(client.get_global_stats().total_revocations, stats_before.total_revocations);
+    assert_eq!(
+        client.get_global_stats().total_revocations,
+        stats_before.total_revocations
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -137,5 +152,8 @@ fn test_unauth_cannot_import_attestation() {
         client.try_import_attestation(&unauth, &issuer, &subject, &kyc(&env), &1_000_000, &None),
         Err(Ok(Error::Unauthorized))
     );
-    assert_eq!(client.get_global_stats().total_attestations, stats_before.total_attestations);
+    assert_eq!(
+        client.get_global_stats().total_attestations,
+        stats_before.total_attestations
+    );
 }

@@ -208,7 +208,12 @@ impl Events {
     }
 
     /// Emitted when a subject requests deletion of their attestation.
-    pub fn deletion_requested(env: &Env, subject: &Address, attestation_id: &String, timestamp: u64) {
+    pub fn deletion_requested(
+        env: &Env,
+        subject: &Address,
+        attestation_id: &String,
+        timestamp: u64,
+    ) {
         env.events().publish(
             (symbol_short!("del_req"), subject.clone()),
             (attestation_id.clone(), timestamp),

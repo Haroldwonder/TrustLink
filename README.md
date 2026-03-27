@@ -22,7 +22,7 @@ TrustLink solves the problem of decentralized identity verification and trust es
 - **Deterministic IDs**: Attestations have unique, reproducible identifiers
 - **Event Emission**: All state changes emit events for off-chain indexing
 - **Query Interface**: Easy verification of claims for other contracts
-- **Pagination**: Efficient listing of attestations per subject or issuer
+- **Pagination & Filtering**: Efficient listing and date-range searching of attestations
 
 ## Architecture
 
@@ -484,6 +484,11 @@ let valid  = contract.get_valid_claim_count(&user_address);          // only non
 
 // List user's attestations (paginated)
 let attestations = contract.get_subject_attestations(&user_address, &0, &10);
+
+// Search attestations by date range (paginated)
+let from_ts = 1_700_000_000;
+let to_ts = 1_701_000_000;
+let attestations = contract.get_attestations_in_range(&user_address, &from_ts, &to_ts, &0, &10);
 
 // List issuer's attestations
 let issued = contract.get_issuer_attestations(&issuer_address, &0, &10);
