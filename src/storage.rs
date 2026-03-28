@@ -274,6 +274,24 @@ impl Storage {
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 
+    /// Remove `attestation_id` from `issuer`'s attestation index.
+    ///
+    /// Note: this does not delete the attestation record; it only removes the ID
+    /// from the issuer's listing index so pagination results shrink.
+    pub fn remove_issuer_attestation(env: &Env, issuer: &Address, attestation_id: &String) {
+        let key = StorageKey::IssuerAttestations(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        let existing = Self::get_issuer_attestations(env, issuer);
+        let mut updated = Vec::new(env);
+        for id in existing.iter() {
+            if &id != attestation_id {
+                updated.push_back(id);
+            }
+        }
+        env.storage().persistent().set(&key, &updated);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
     /// Return the ordered list of attestation IDs created by `issuer`, or an
     /// empty [`Vec`] if none exist. TTL is only extended on index modification,
     /// not on read, to reduce compute costs for frequent queries.

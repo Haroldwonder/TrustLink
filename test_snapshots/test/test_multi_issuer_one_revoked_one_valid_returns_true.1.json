@@ -811,11 +811,7 @@
                 },
                 "durability": "persistent",
                 "val": {
-                  "vec": [
-                    {
-                      "string": "99e5c47c4e42497750a67f368e3ab135eb92d9b13f9932a0829426c55dfd841c"
-                    }
-                  ]
+                  "vec": []
                 }
               }
             },
@@ -1018,9 +1014,6 @@
                 "durability": "persistent",
                 "val": {
                   "vec": [
-                    {
-                      "string": "99e5c47c4e42497750a67f368e3ab135eb92d9b13f9932a0829426c55dfd841c"
-                    },
                     {
                       "string": "7d51ee9026b68021362bf29ec15788efc914d0207d2ab9be68944ea50fd542e1"
                     }

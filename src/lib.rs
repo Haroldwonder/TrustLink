@@ -833,7 +833,6 @@ impl TrustLinkContract {
     ) -> Result<(), Error> {
         issuer.require_auth();
         Validation::require_not_paused(&env)?;
-        Validation::require_issuer(&env, &issuer)?;
         validate_reason(&reason)?;
         let mut attestation = Storage::get_attestation(&env, &attestation_id)?;
 
@@ -848,6 +847,13 @@ impl TrustLinkContract {
         attestation.revoked = true;
         attestation.revocation_reason = reason.clone();
         Storage::set_attestation(&env, &attestation);
+
+        // Prune revoked attestation ID from both indexes so pagination reflects
+        // only non-revoked entries, while preserving immutable attestation
+        // history in storage.
+        Storage::remove_subject_attestation(&env, &attestation.subject, &attestation_id);
+        Storage::remove_issuer_attestation(&env, &issuer, &attestation_id);
+
         Events::attestation_revoked(&env, &attestation_id, &issuer, &reason);
         Storage::append_audit_entry(
             &env,
@@ -870,7 +876,6 @@ impl TrustLinkContract {
         reason: Option<String>,
     ) -> Result<u32, Error> {
         issuer.require_auth();
-        Validation::require_issuer(&env, &issuer)?;
         validate_reason(&reason)?;
 
         let mut count = 0;
@@ -888,6 +893,12 @@ impl TrustLinkContract {
             attestation.revoked = true;
             attestation.revocation_reason = reason.clone();
             Storage::set_attestation(&env, &attestation);
+
+            // Prune revoked attestation ID from both indexes so pagination
+            // counts shrink after revocation.
+            Storage::remove_subject_attestation(&env, &attestation.subject, &attestation_id);
+            Storage::remove_issuer_attestation(&env, &issuer, &attestation_id);
+
             Events::attestation_revoked(&env, &attestation_id, &issuer, &reason);
             Storage::append_audit_entry(
                 &env,

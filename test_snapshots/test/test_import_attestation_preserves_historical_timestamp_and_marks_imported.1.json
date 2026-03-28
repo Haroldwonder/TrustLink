@@ -147,6 +147,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "deleted"
+                      },
+                      "val": {
+                        "bool": false
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "expiration"
                       },
                       "val": {
@@ -1130,6 +1138,14 @@
                   },
                   "val": {
                     "string": "KYC_PASSED"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "deleted"
+                  },
+                  "val": {
+                    "bool": false
                   }
                 },
                 {

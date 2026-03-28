@@ -441,6 +441,34 @@ fn test_has_valid_claim_and_revocation() {
 }
 
 #[test]
+fn test_revoke_removes_ids_from_subject_and_issuer_indexes() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    let id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+
+    // Index pagination counts should reflect the initial state.
+    assert_eq!(client.get_subject_attestations(&subject, &0, &10).len(), 1);
+    assert_eq!(client.get_issuer_attestations(&issuer, &0, &10).len(), 1);
+
+    client.revoke_attestation(&issuer, &id, &None);
+
+    // After revocation, the ID should be removed from both indexes.
+    assert_eq!(client.get_subject_attestations(&subject, &0, &10).len(), 0);
+    assert_eq!(client.get_issuer_attestations(&issuer, &0, &10).len(), 0);
+
+    // The underlying attestation record must still exist (immutable history),
+    // but be marked as revoked.
+    let att = client.get_attestation(&id);
+    assert!(att.revoked);
+    assert!(!att.deleted);
+}
+
+#[test]
 fn test_expired_attestation_status() {
     let env = Env::default();
     env.mock_all_auths();

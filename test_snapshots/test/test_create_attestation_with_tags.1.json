@@ -150,6 +150,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "deleted"
+                      },
+                      "val": {
+                        "bool": false
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "expiration"
                       },
                       "val": "void"
@@ -1141,6 +1149,14 @@
                   },
                   "val": {
                     "string": "TAGGED_CLAIM"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "deleted"
+                  },
+                  "val": {
+                    "bool": false
                   }
                 },
                 {

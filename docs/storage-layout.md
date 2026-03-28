@@ -431,9 +431,11 @@ const adminKey = xdr.LedgerKey.contractData(
 - **TTL eviction.** A key that is not touched for 30 days will be evicted.
   Indexers should snapshot state proactively rather than relying on keys always
   being present.
-- **Subject and issuer indexes are append-only.** `SubjectAttestations` and
-  `IssuerAttestations` grow monotonically; they are never pruned even when
-  attestations are revoked.
+- **Subject and issuer indexes are maintained for pagination.** `SubjectAttestations`
+  and `IssuerAttestations` store ordered attestation IDs used by listing queries.
+  When an attestation is revoked, its ID is removed from both indexes so
+  pagination counts shrink; the attestation record itself remains in storage
+  (with `revoked = true`) until TTL eviction.
 - **`ClaimTypeList` is insertion-ordered.** The order reflects the sequence in
   which `register_claim_type` was first called for each type.
 - **Status is computed, not stored.** `AttestationStatus` (`Valid`, `Expired`,
