@@ -157,13 +157,20 @@ fn validate_import_timestamps(
     Ok(())
 }
 
-fn validate_fee_config(fee: i128, fee_token: &Option<Address>) -> Result<(), Error> {
+fn validate_fee_config(env: &Env, fee: i128, fee_token: &Option<Address>) -> Result<(), Error> {
     if fee < 0 {
         return Err(Error::InvalidFee);
     }
 
     if fee > 0 && fee_token.is_none() {
         return Err(Error::FeeTokenRequired);
+    }
+
+    // Validate that fee_token is a real token contract by attempting a balance call
+    if let Some(token_addr) = fee_token {
+        let token = TokenClient::new(&env, token_addr);
+        // Dry-run balance call to verify it's a token contract
+        let _ = token.balance(&env.current_contract_address());
     }
 
     Ok(())
@@ -478,7 +485,7 @@ impl TrustLinkContract {
     ) -> Result<(), Error> {
         admin.require_auth();
         Validation::require_admin(&env, &admin)?;
-        validate_fee_config(fee, &fee_token)?;
+        validate_fee_config(&env, fee, &fee_token)?;
 
         // Prevent admin from setting themselves as fee_collector
         if admin == collector {
@@ -1237,7 +1244,7 @@ impl TrustLinkContract {
     ) -> Vec<String> {
         crate::storage::paginate(
             &env,
-            Storage::get_subject_attestations(&env, &subject),
+            &Storage::get_subject_attestations(&env, &subject),
             start,
             limit,
         )
@@ -1332,7 +1339,7 @@ impl TrustLinkContract {
     ) -> Vec<String> {
         crate::storage::paginate(
             &env,
-            Storage::get_issuer_attestations(&env, &issuer),
+            &Storage::get_issuer_attestations(&env, &issuer),
             start,
             limit,
         )
@@ -1449,7 +1456,7 @@ impl TrustLinkContract {
     }
 
     pub fn list_claim_types(env: Env, start: u32, limit: u32) -> Vec<String> {
-        crate::storage::paginate(&env, Storage::get_claim_type_list(&env), start, limit)
+        crate::storage::paginate(&env, &Storage::get_claim_type_list(&env), start, limit)
     }
 
     /// Create a multi-sig attestation proposal.

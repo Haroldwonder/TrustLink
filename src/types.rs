@@ -189,6 +189,56 @@ pub enum AuditAction {
     Transferred,
 }
 
+/// A single immutable entry in an attestation's audit log.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuditEntry {
+    pub action: AuditAction,
+    pub actor: Address,
+    pub timestamp: u64,
+    pub details: Option<String>,
+}
+
+/// A social-proof endorsement of an existing attestation by a registered issuer.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Endorsement {
+    pub attestation_id: String,
+    pub endorser: Address,
+    pub timestamp: u64,
+}
+
+/// Configurable storage limits to prevent exhaustion attacks.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StorageLimits {
+    /// Maximum number of attestations a single issuer may create. Default: 10,000.
+    pub max_attestations_per_issuer: u32,
+    /// Maximum number of attestations a single subject may hold. Default: 100.
+    pub max_attestations_per_subject: u32,
+}
+
+impl Default for StorageLimits {
+    fn default() -> Self {
+        Self {
+            max_attestations_per_issuer: 10_000,
+            max_attestations_per_subject: 100,
+        }
+    }
+}
+
+/// Delegation from an issuer to a sub-issuer for specific claim types.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Delegation {
+    /// Issuer delegating authority.
+    pub delegator: Address,
+    /// Sub-issuer receiving delegation.
+    pub delegate: Address,
+    /// Specific claim type this delegation covers.
+    pub claim_type: String,
+    /// Optional expiration timestamp for this delegation.
+    pub expiration: Option<u64>,
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Error {
