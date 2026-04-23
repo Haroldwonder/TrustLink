@@ -1723,6 +1723,26 @@ impl TrustLinkContract {
         }
     }
 
+    pub fn pause(env: Env, admin: Address) -> Result<(), Error> {
+        admin.require_auth();
+        Validation::require_admin(&env, &admin)?;
+        Storage::set_paused(&env, true);
+        Events::contract_paused(&env, &admin);
+        Ok(())
+    }
+
+    pub fn unpause(env: Env, admin: Address) -> Result<(), Error> {
+        admin.require_auth();
+        Validation::require_admin(&env, &admin)?;
+        Storage::set_paused(&env, false);
+        Events::contract_unpaused(&env, &admin);
+        Ok(())
+    }
+
+    pub fn is_paused(env: Env) -> bool {
+        Storage::is_paused(&env)
+    }
+
     pub fn get_contract_metadata(env: Env) -> Result<ContractMetadata, Error> {
         let version = Storage::get_version(&env).ok_or(Error::NotInitialized)?;
         Ok(ContractMetadata {

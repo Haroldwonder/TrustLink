@@ -777,4 +777,19 @@ mod tests {
         let result = paginate(&env, input, 3, 5);
         assert_eq!(result.len(), 0);
     }
+
+    /// Return `true` if the contract is currently paused.
+    pub fn is_paused(env: &Env) -> bool {
+        env.storage()
+            .instance()
+            .get::<StorageKey, bool>(&StorageKey::Paused)
+            .unwrap_or(false)
+    }
+
+    /// Set the paused state of the contract.
+    pub fn set_paused(env: &Env, paused: bool) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::Paused, &paused);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
 }
