@@ -55,11 +55,13 @@ Exits with code `0` on success, non-zero on any failure. All steps are logged to
 Before deploying TrustLink, ensure you have:
 
 1. **Rust** (1.70 or later)
+
    ```bash
    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
    ```
 
 2. **Soroban CLI**
+
    ```bash
    cargo install --locked soroban-cli
    ```
@@ -72,11 +74,13 @@ Before deploying TrustLink, ensure you have:
 ## Building
 
 ### Development Build
+
 ```bash
 cargo build --target wasm32-unknown-unknown --release
 ```
 
 ### Optimized Build
+
 ```bash
 cargo build --target wasm32-unknown-unknown --release
 soroban contract optimize \
@@ -86,16 +90,19 @@ soroban contract optimize \
 ## Testing
 
 ### Run All Tests
+
 ```bash
 cargo test
 ```
 
 ### Run Specific Test
+
 ```bash
 cargo test test_create_attestation
 ```
 
 ### Run with Output
+
 ```bash
 cargo test -- --nocapture
 ```
@@ -231,6 +238,30 @@ soroban events \
   --start-ledger LEDGER_NUMBER
 ```
 
+### Health Check
+
+The `health_check` function returns a lightweight status snapshot without requiring authentication – ideal for uptime probes and monitoring dashboards.
+
+```bash
+soroban contract invoke \
+  --id $CONTRACT_ID \
+  --network testnet \
+  -- health_check
+```
+
+Example response:
+
+```json
+{
+  "initialized": true,
+  "admin_set": true,
+  "issuer_count": 3,
+  "total_attestations": 142
+}
+```
+
+Integrate this into automated monitoring by polling periodically and alerting when `initialized` is `false` or `issuer_count` drops to zero unexpectedly.
+
 ### Query Contract State
 
 ```bash
@@ -253,6 +284,7 @@ soroban contract invoke \
 ### Build Errors
 
 If you encounter build errors:
+
 ```bash
 cargo clean
 cargo update
@@ -262,6 +294,7 @@ cargo build --target wasm32-unknown-unknown --release
 ### Test Failures
 
 Run tests with verbose output:
+
 ```bash
 cargo test -- --nocapture --test-threads=1
 ```
@@ -269,6 +302,7 @@ cargo test -- --nocapture --test-threads=1
 ### Deployment Issues
 
 Check network connectivity:
+
 ```bash
 soroban network ls
 soroban config identity ls
@@ -288,6 +322,7 @@ TrustLink supports in-place WASM upgrades via Soroban's built-in upgrade mechani
 ### Step-by-Step Upgrade Process
 
 **1. Build and optimize the new contract version**
+
 ```bash
 cargo build --target wasm32-unknown-unknown --release
 stellar contract optimize \
@@ -295,6 +330,7 @@ stellar contract optimize \
 ```
 
 **2. Upload the new WASM to the network**
+
 ```bash
 stellar contract upload \
   --source ADMIN_SECRET_KEY \
@@ -304,6 +340,7 @@ stellar contract upload \
 ```
 
 **3. Invoke the upgrade function**
+
 ```bash
 stellar contract invoke \
   --id $CONTRACT_ID \
@@ -317,6 +354,7 @@ stellar contract invoke \
 **4. (If applicable) Run migration**
 
 If the new contract version includes a `migrate` function for storage schema changes, call it immediately after upgrading:
+
 ```bash
 stellar contract invoke \
   --id $CONTRACT_ID \
@@ -326,6 +364,7 @@ stellar contract invoke \
 ```
 
 **5. Verify the upgrade**
+
 ```bash
 # Confirm admin and state are intact
 stellar contract invoke \
@@ -342,19 +381,20 @@ stellar contract invoke \
 - Always test the upgrade on testnet before mainnet.
 - Use a multisig or hardware wallet for the admin key on mainnet.
 
-
-
 1. **Key Management**
+
    - Never commit private keys to version control
    - Use environment variables or secure key management systems
    - Rotate keys regularly
 
 2. **Access Control**
+
    - Limit the number of authorized issuers
    - Implement a process for issuer vetting
    - Monitor issuer activity
 
 3. **Monitoring**
+
    - Set up alerts for unusual activity
    - Monitor attestation creation rates
    - Track revocation patterns
@@ -367,6 +407,7 @@ stellar contract invoke \
 ## Support
 
 For issues or questions:
+
 - GitHub Issues: [Your Repository]
 - Documentation: See README.md
 - Community: [Your Discord/Forum]

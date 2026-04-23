@@ -1,6 +1,6 @@
 use soroban_sdk::{symbol_short, Address, Env, String};
 
-use crate::types::Attestation;
+use crate::types::{Attestation, IssuerTier, Address};
 
 pub struct Events;
 
@@ -55,10 +55,15 @@ impl Events {
         );
     }
 
-    pub fn attestation_revoked(env: &Env, attestation_id: &String, issuer: &Address) {
+    pub fn attestation_revoked(
+        env: &Env,
+        attestation_id: &String,
+        issuer: &Address,
+        reason: &Option<String>,
+    ) {
         env.events().publish(
             (symbol_short!("revoked"), issuer.clone()),
-            attestation_id.clone(),
+            (attestation_id.clone(), reason.clone()),
         );
     }
 
@@ -86,6 +91,18 @@ impl Events {
         );
     }
 
+    pub fn deletion_requested(
+    env: &Env,
+    subject: &Address,
+    attestation_id: &String,
+    timestamp: u64,
+) {
+    env.events().publish(
+        (symbol_short!("del_req"), subject.clone()),
+        (attestation_id.clone(), timestamp),
+    );
+}
+
     pub fn attestation_expired(env: &Env, attestation_id: &String, subject: &Address) {
         env.events().publish(
             (symbol_short!("expired"), subject.clone()),
@@ -98,6 +115,12 @@ impl Events {
             (symbol_short!("iss_reg"), issuer.clone()),
             (admin.clone(), timestamp),
         );
+    }
+
+    /// Emitted when an issuer's tier is set or updated by the admin.
+    pub fn issuer_tier_updated(env: &Env, issuer: &Address, tier: &IssuerTier) {
+        env.events()
+            .publish((symbol_short!("iss_tier"), issuer.clone()), *tier);
     }
 
     pub fn issuer_removed(env: &Env, issuer: &Address, admin: &Address, timestamp: u64) {
@@ -142,6 +165,30 @@ impl Events {
         );
     }
 
+    /// Emitted when admin rights are transferred to a new address.
+    pub fn admin_transferred(env: &Env, old_admin: &Address, new_admin: &Address) {
+        env.events().publish(
+            (symbol_short!("adm_xfer"),),
+            (old_admin.clone(), new_admin.clone()),
+        );
+    }
+
+    /// Emitted when an admin adds a new admin to the council.
+    pub fn admin_added(env: &Env, by_admin: &Address, new_admin: &Address, timestamp: u64) {
+        env.events().publish(
+            (symbol_short!("adm_add"), by_admin.clone()),
+            (new_admin.clone(), timestamp),
+        );
+    }
+
+    /// Emitted when an admin removes an admin from the council.
+    pub fn admin_removed(env: &Env, by_admin: &Address, removed_admin: &Address, timestamp: u64) {
+        env.events().publish(
+            (symbol_short!("adm_rem"), by_admin.clone()),
+            (removed_admin.clone(), timestamp),
+        );
+    }
+
     /// Emitted when a multi-sig proposal reaches threshold and the attestation is activated.
     pub fn multisig_activated(env: &Env, proposal_id: &String, attestation_id: &String) {
         env.events().publish(
@@ -150,15 +197,123 @@ impl Events {
         );
     }
 
-    /// Emitted when the contract is paused by an admin.
-    pub fn contract_paused(env: &Env, admin: &Address) {
-        env.events()
-            .publish((symbol_short!("paused"), admin.clone()), ());
+    /// Emitted when a registered issuer endorses an existing attestation.
+    pub fn attestation_endorsed(
+        env: &Env,
+        attestation_id: &String,
+        endorser: &Address,
+        timestamp: u64,
+    ) {
+        env.events().publish(
+            (symbol_short!("endorsed"), endorser.clone()),
+            (attestation_id.clone(), timestamp),
+        );
     }
 
-    /// Emitted when the contract is unpaused by an admin.
-    pub fn contract_unpaused(env: &Env, admin: &Address) {
+    /// Emitted when an expiration hook is triggered for a subject's attestation.
+    pub fn expiration_hook_triggered(
+        env: &Env,
+        subject: &Address,
+        attestation_id: &String,
+        expiration: u64,
+    ) {
+        env.events().publish(
+            (symbol_short!("exp_hook"), subject.clone()),
+            (attestation_id.clone(), expiration),
+        );
+    }
+
+    /// Emitted when the admin pauses the contract.
+    pub fn contract_paused(env: &Env, admin: &Address, timestamp: u64) {
         env.events()
-            .publish((symbol_short!("unpaused"), admin.clone()), ());
+            .publish((symbol_short!("paused"),), (admin.clone(), timestamp));
+    }
+
+    /// Emitted when the admin unpauses the contract.
+    pub fn contract_unpaused(env: &Env, admin: &Address, timestamp: u64) {
+        env.events()
+            .publish((symbol_short!("unpaused"),), (admin.clone(), timestamp));
+    }
+
+    /// Emitted when a subject requests 94 of their attestation.
+    pub fn deletion_requested(env: &Env, subject: &Address, attestation_id: &String, timestamp: u64) {
+        env.events().publish(
+            (symbol_short!("del_req"), subject.clone()),
+            (attestation_id.clone(), timestamp),
+        );
+    }
+
+    /// Emitted when a subject submits an attestation request to an issuer.
+    pub fn attestation_requested(
+        env: &Env,
+        request_id: &String,
+        subject: &Address,
+        issuer: &Address,
+        claim_type: &String,
+        expires_at: u64,
+    ) {
+        env.events().publish(
+            (symbol_short!("req"), issuer.clone()),
+            (
+                request_id.clone(),
+                subject.clone(),
+                claim_type.clone(),
+                expires_at,
+            ),
+        );
+    }
+
+    /// Emitted when an issuer fulfills an attestation request.
+    pub fn request_fulfilled(
+        env: &Env,
+        request_id: &String,
+        issuer: &Address,
+        attestation_id: &String,
+    ) {
+        env.events().publish(
+            (symbol_short!("req_ok"), issuer.clone()),
+            (request_id.clone(), attestation_id.clone()),
+        );
+    }
+
+    /// Emitted when an issuer rejects an attestation request.
+    pub fn request_rejected(
+        env: &Env,
+        request_id: &String,
+        issuer: &Address,
+        reason: &Option<String>,
+    ) {
+        env.events().publish(
+            (symbol_short!("req_no"), issuer.clone()),
+            (request_id.clone(), reason.clone()),
+        );
+    }
+
+    /// Emitted when issuer creates delegation to sub-issuer for claim_type.
+    pub fn delegation_created(
+        env: &Env,
+        delegator: &Address,
+        delegate: &Address,
+        claim_type: &String,
+        expiration: Option<u64>,
+    ) {
+        env.events().publish(
+            (symbol_short!("del_created"), delegator.clone()),
+            (delegate.clone(), claim_type.clone(), expiration),
+        );
+    }
+
+    /// Emitted when issuer revokes delegation.
+    pub fn delegation_revoked(
+        env: &Env,
+        delegator: &Address,
+        delegate: &Address,
+        claim_type: &String,
+    ) {
+        env.events().publish(
+            (symbol_short!("del_revoked"), delegator.clone()),
+            (delegate.clone(), claim_type.clone()),
+        );
     }
 }
+

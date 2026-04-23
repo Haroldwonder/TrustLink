@@ -1,9 +1,85 @@
-//! Shared data types and error definitions for TrustLink.
+//! Shared data types for TrustLink.
+//!
+//! Defines [`Attestation`], [`AttestationStatus`], and supporting structs used
+//! throughout the contract. All types are annotated with `#[contracttype]` for
+//! Soroban ABI compatibility. Error definitions live in [`crate::errors`].
 
-use soroban_sdk::{contracterror, contracttype, xdr::ToXdr, Address, Bytes, Env, String, Vec};
+use soroban_sdk::{contracttype, xdr::ToXdr, Address, Bytes, Env, String, Vec};
+
+pub use crate::errors::Error;
 
 /// Default lifetime for a multi-sig proposal: 7 days in seconds.
 pub const MULTISIG_PROPOSAL_TTL_SECS: u64 = 7 * 24 * 60 * 60;
+
+/// Default lifetime for an attestation request: 7 days in seconds.
+pub const ATTESTATION_REQUEST_TTL_SECS: u64 = 7 * 24 * 60 * 60;
+
+/// Status of an attestation request.
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum RequestStatus {
+    Pending = 0,
+    Fulfilled = 1,
+    Rejected = 2,
+}
+
+/// A pull-based attestation request submitted by a subject to a registered issuer.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AttestationRequest {
+    /// Unique deterministic ID (hash of subject | issuer | claim_type | timestamp).
+    pub id: String,
+    pub subject: Address,
+    pub issuer: Address,
+    pub claim_type: String,
+    pub timestamp: u64,
+    /// Unix timestamp after which the request expires if not acted on.
+    pub expires_at: u64,
+    pub status: RequestStatus,
+    /// Rejection reason set by the issuer, if rejected.
+    pub rejection_reason: Option<String>,
+}
+
+/// Trust tier assigned to a registered issuer.
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum IssuerTier {
+    Basic = 0,
+    Verified = 1,
+    Premium = 2,
+}
+
+impl IssuerTier {
+    pub fn rank(self) -> u32 {
+        self as u32
+    }
+}
+
+/// Per-issuer statistics.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IssuerStats {
+    pub total_issued: u64,
+}
+
+/// A registered expiration notification hook for a subject.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExpirationHook {
+    pub callback_contract: Address,
+    pub notify_days_before: u32,
+}
+
+/// Full contract configuration snapshot returned by `get_config`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractConfig {
+    pub ttl_config: TtlConfig,
+    pub fee_config: FeeConfig,
+    pub contract_name: String,
+    pub contract_version: String,
+    pub contract_description: String,
+}
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -44,6 +120,33 @@ pub struct TtlConfig {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RateLimitConfig {
+    pub min_issuance_interval: u64,
+}
+
+/// Global contract statistics for dashboards and analytics.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GlobalStats {
+    pub total_attestations: u64,
+    pub total_revocations: u64,
+    pub total_issuers: u64,
+}
+
+/// Lightweight health status returned by `health_check`.
+///
+/// No authentication required — designed for monitoring dashboards and uptime probes.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HealthStatus {
+    pub initialized: bool,
+    pub admin_set: bool,
+    pub issuer_count: u64,
+    pub total_attestations: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Attestation {
     pub id: String,
     pub issuer: Address,
@@ -53,12 +156,17 @@ pub struct Attestation {
     pub expiration: Option<u64>,
     pub revoked: bool,
     pub metadata: Option<String>,
+    pub jurisdiction: Option<String>,
     pub valid_from: Option<u64>,
     pub imported: bool,
     pub bridged: bool,
     pub source_chain: Option<String>,
     pub source_tx: Option<String>,
     pub tags: Option<Vec<String>>,
+    pub revocation_reason: Option<String>,
+    /// True when the subject has requested GDPR deletion of this attestation.
+    /// Deleted attestations are excluded from all query results.
+    pub deleted: bool,
 }
 
 #[contracttype]
@@ -70,30 +178,15 @@ pub enum AttestationStatus {
     Pending,
 }
 
-/// A multi-sig attestation proposal that becomes active once `threshold` issuers have co-signed.
+/// The action recorded in an audit log entry.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct MultiSigProposal {
-    /// Unique proposal identifier (hash of proposer+subject+claim_type+timestamp).
-    pub id: String,
-    /// The issuer who created the proposal.
-    pub proposer: Address,
-    /// The subject the attestation is about.
-    pub subject: Address,
-    /// The claim type being attested.
-    pub claim_type: String,
-    /// All addresses that must co-sign (includes proposer).
-    pub required_signers: Vec<Address>,
-    /// Number of signers needed to activate the attestation.
-    pub threshold: u32,
-    /// Addresses that have already signed (proposer signs on creation).
-    pub signers: Vec<Address>,
-    /// Ledger timestamp when the proposal was created.
-    pub created_at: u64,
-    /// Ledger timestamp after which the proposal expires if not completed.
-    pub expires_at: u64,
-    /// Whether the proposal has been finalized into an active attestation.
-    pub finalized: bool,
+pub enum AuditAction {
+    Created,
+    Revoked,
+    Renewed,
+    Updated,
+    Transferred,
 }
 
 #[contracterror]
@@ -128,20 +221,28 @@ pub enum Error {
     ContractPaused = 21,
 }
 
+#[contracttype]
+pub type AdminCouncil = Vec<Address>;
+
 impl Attestation {
+    /// Hashes an arbitrary byte payload and returns a 32-character lowercase hex string.
+    ///
+    /// Algorithm: SHA-256 over the XDR-encoded payload, digest truncated to the first 16 bytes,
+    /// hex-encoded to a 32-character lowercase string.
     pub fn hash_payload(env: &Env, payload: &Bytes) -> String {
         let hash = env.crypto().sha256(payload).to_array();
         const HEX: &[u8; 16] = b"0123456789abcdef";
-
-        let mut hex = [0u8; 32];
-        for i in 0..16 {
+        let mut hex = [0u8; 64];
+        for i in 0..32 {
             hex[i * 2] = HEX[(hash[i] >> 4) as usize];
             hex[i * 2 + 1] = HEX[(hash[i] & 0x0f) as usize];
         }
-
         String::from_bytes(env, &hex)
     }
 
+    /// Generates a deterministic attestation ID from the given inputs.
+    ///
+    /// XDR field order: `issuer | subject | claim_type | timestamp`
     pub fn generate_id(
         env: &Env,
         issuer: &Address,
@@ -157,6 +258,9 @@ impl Attestation {
         Self::hash_payload(env, &payload)
     }
 
+    /// Generates a deterministic bridge attestation ID from the given inputs.
+    ///
+    /// XDR field order: `bridge | subject | claim_type | source_chain | source_tx | timestamp`
     pub fn generate_bridge_id(
         env: &Env,
         bridge: &Address,
@@ -182,23 +286,38 @@ impl Attestation {
                 return AttestationStatus::Pending;
             }
         }
-
         if self.revoked {
             return AttestationStatus::Revoked;
         }
-
         if let Some(expiration) = self.expiration {
             if current_time >= expiration {
                 return AttestationStatus::Expired;
             }
         }
-
         AttestationStatus::Valid
     }
 }
 
+impl AttestationRequest {
+    /// Deterministic ID: SHA-256 over XDR of `"req:" | subject | issuer | claim_type | timestamp`.
+    pub fn generate_id(
+        env: &Env,
+        subject: &Address,
+        issuer: &Address,
+        claim_type: &String,
+        timestamp: u64,
+    ) -> String {
+        let mut payload = Bytes::new(env);
+        payload.append(&Bytes::from_slice(env, b"req:"));
+        payload.append(&subject.clone().to_xdr(env));
+        payload.append(&issuer.clone().to_xdr(env));
+        payload.append(&claim_type.clone().to_xdr(env));
+        payload.append(&timestamp.to_xdr(env));
+        Attestation::hash_payload(env, &payload)
+    }
+}
+
 impl MultiSigProposal {
-    /// Generate a deterministic proposal ID from proposer + subject + claim_type + timestamp.
     pub fn generate_id(
         env: &Env,
         proposer: &Address,
@@ -207,7 +326,6 @@ impl MultiSigProposal {
         timestamp: u64,
     ) -> String {
         let mut payload = Bytes::new(env);
-        // Prefix to distinguish from regular attestation IDs.
         payload.append(&Bytes::from_slice(env, b"multisig:"));
         payload.append(&proposer.clone().to_xdr(env));
         payload.append(&subject.clone().to_xdr(env));

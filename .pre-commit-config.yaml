@@ -1,0 +1,32 @@
+exclude: '^(examples/anchor-integration/node_modules/|test_snapshots/)'
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: https://github.com/commitlint-rs/commitlint
+    rev: v0.1.1
+    hooks:
+      - id: commitlint
+        stages: [commit-msg]
+        additional_dependencies: ['@commitlint/config-conventional']
+
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: bash -c 'source "$HOME/.cargo/env" 2>/dev/null; cargo fmt --all -- --check'
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: bash -c 'source "$HOME/.cargo/env" 2>/dev/null; cargo clippy --all-targets --all-features -- -D warnings'
+        language: system
+        types: [rust]
+        pass_filenames: false

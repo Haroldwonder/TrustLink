@@ -121,7 +121,7 @@
                   "symbol": "Attestation"
                 },
                 {
-                  "string": "a7b9700b4486fba87a6e1a4a6511c535"
+                  "string": "a7b9700b4486fba87a6e1a4a6511c535c412534dbc32653eebc5e3839a8fc2ef"
                 }
               ]
             },
@@ -141,7 +141,7 @@
                       "symbol": "Attestation"
                     },
                     {
-                      "string": "a7b9700b4486fba87a6e1a4a6511c535"
+                      "string": "a7b9700b4486fba87a6e1a4a6511c535c412534dbc32653eebc5e3839a8fc2ef"
                     }
                   ]
                 },
@@ -166,6 +166,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "deleted"
+                      },
+                      "val": {
+                        "bool": false
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "expiration"
                       },
                       "val": "void"
@@ -175,7 +183,7 @@
                         "symbol": "id"
                       },
                       "val": {
-                        "string": "a7b9700b4486fba87a6e1a4a6511c535"
+                        "string": "a7b9700b4486fba87a6e1a4a6511c535c412534dbc32653eebc5e3839a8fc2ef"
                       }
                     },
                     {
@@ -197,6 +205,12 @@
                     {
                       "key": {
                         "symbol": "metadata"
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
+                        "symbol": "revocation_reason"
                       },
                       "val": "void"
                     },
@@ -251,6 +265,90 @@
                         "symbol": "valid_from"
                       },
                       "val": "void"
+                    }
+                  ]
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          518400
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+            "key": {
+              "vec": [
+                {
+                  "symbol": "AuditLog"
+                },
+                {
+                  "string": "a7b9700b4486fba87a6e1a4a6511c535c412534dbc32653eebc5e3839a8fc2ef"
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "AuditLog"
+                    },
+                    {
+                      "string": "a7b9700b4486fba87a6e1a4a6511c535c412534dbc32653eebc5e3839a8fc2ef"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "vec": [
+                    {
+                      "map": [
+                        {
+                          "key": {
+                            "symbol": "action"
+                          },
+                          "val": {
+                            "vec": [
+                              {
+                                "symbol": "Created"
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "actor"
+                          },
+                          "val": {
+                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "details"
+                          },
+                          "val": "void"
+                        },
+                        {
+                          "key": {
+                            "symbol": "timestamp"
+                          },
+                          "val": {
+                            "u64": 0
+                          }
+                        }
+                      ]
                     }
                   ]
                 }
@@ -389,7 +487,61 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "a7b9700b4486fba87a6e1a4a6511c535"
+                      "string": "a7b9700b4486fba87a6e1a4a6511c535c412534dbc32653eebc5e3839a8fc2ef"
+                    }
+                  ]
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          518400
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+            "key": {
+              "vec": [
+                {
+                  "symbol": "IssuerStats"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "IssuerStats"
+                    },
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "map": [
+                    {
+                      "key": {
+                        "symbol": "total_issued"
+                      },
+                      "val": {
+                        "u64": 1
+                      }
                     }
                   ]
                 }
@@ -438,7 +590,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "a7b9700b4486fba87a6e1a4a6511c535"
+                      "string": "a7b9700b4486fba87a6e1a4a6511c535c412534dbc32653eebc5e3839a8fc2ef"
                     }
                   ]
                 }
@@ -518,6 +670,43 @@
                                 "symbol": "fee_token"
                               },
                               "val": "void"
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "GlobalStats"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "map": [
+                            {
+                              "key": {
+                                "symbol": "total_attestations"
+                              },
+                              "val": {
+                                "u64": 1
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "total_issuers"
+                              },
+                              "val": {
+                                "u64": 1
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "total_revocations"
+                              },
+                              "val": {
+                                "u64": 0
+                              }
                             }
                           ]
                         }
@@ -998,7 +1187,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "a7b9700b4486fba87a6e1a4a6511c535"
+                  "string": "a7b9700b4486fba87a6e1a4a6511c535c412534dbc32653eebc5e3839a8fc2ef"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
@@ -1035,7 +1224,7 @@
               }
             ],
             "data": {
-              "string": "a7b9700b4486fba87a6e1a4a6511c535"
+              "string": "a7b9700b4486fba87a6e1a4a6511c535c412534dbc32653eebc5e3839a8fc2ef"
             }
           }
         }
@@ -1061,7 +1250,7 @@
               }
             ],
             "data": {
-              "string": "a7b9700b4486fba87a6e1a4a6511c535"
+              "string": "a7b9700b4486fba87a6e1a4a6511c535c412534dbc32653eebc5e3839a8fc2ef"
             }
           }
         }
@@ -1103,6 +1292,14 @@
                 },
                 {
                   "key": {
+                    "symbol": "deleted"
+                  },
+                  "val": {
+                    "bool": false
+                  }
+                },
+                {
+                  "key": {
                     "symbol": "expiration"
                   },
                   "val": "void"
@@ -1112,7 +1309,7 @@
                     "symbol": "id"
                   },
                   "val": {
-                    "string": "a7b9700b4486fba87a6e1a4a6511c535"
+                    "string": "a7b9700b4486fba87a6e1a4a6511c535c412534dbc32653eebc5e3839a8fc2ef"
                   }
                 },
                 {
@@ -1134,6 +1331,12 @@
                 {
                   "key": {
                     "symbol": "metadata"
+                  },
+                  "val": "void"
+                },
+                {
+                  "key": {
+                    "symbol": "revocation_reason"
                   },
                   "val": "void"
                 },

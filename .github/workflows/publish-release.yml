@@ -1,0 +1,72 @@
+name: Publish Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    name: Build WASM and Publish Artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Install Rust toolchain
+        run: rustup show
+
+      - name: Add wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install soroban-cli
+        run: cargo install --locked soroban-cli
+
+      - name: Build WASM
+        run: cargo build --target wasm32-unknown-unknown --release
+
+      - name: Optimize WASM
+        run: |
+          soroban contract optimize \
+            --wasm target/wasm32-unknown-unknown/release/trustlink.wasm \
+            --wasm-out target/wasm32-unknown-unknown/release/trustlink.optimized.wasm
+
+      - name: Verify WASM artifacts
+        run: |
+          ls -lh target/wasm32-unknown-unknown/release/trustlink.wasm
+          ls -lh target/wasm32-unknown-unknown/release/trustlink.optimized.wasm
+          file target/wasm32-unknown-unknown/release/trustlink.wasm
+          file target/wasm32-unknown-unknown/release/trustlink.optimized.wasm
+
+      - name: Upload WASM artifact to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            target/wasm32-unknown-unknown/release/trustlink.wasm
+            target/wasm32-unknown-unknown/release/trustlink.optimized.wasm
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create release summary
+        run: |
+          echo "## Release Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### WASM Binaries" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **trustlink.wasm** (unoptimized)" >> $GITHUB_STEP_SUMMARY
+          echo "  - Size: $(du -h target/wasm32-unknown-unknown/release/trustlink.wasm | cut -f1)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **trustlink.optimized.wasm** (optimized)" >> $GITHUB_STEP_SUMMARY
+          echo "  - Size: $(du -h target/wasm32-unknown-unknown/release/trustlink.optimized.wasm | cut -f1)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Use the optimized WASM for production deployments." >> $GITHUB_STEP_SUMMARY
+          echo "See [DEPLOYMENT.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/DEPLOYMENT.md) for instructions." >> $GITHUB_STEP_SUMMARY
