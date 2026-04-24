@@ -402,11 +402,13 @@ impl TrustLinkContract {
     }
 
     /// Return `true` if `subject` is on `issuer`'s whitelist.
+    #[must_use]
     pub fn is_whitelisted(env: Env, issuer: Address, subject: Address) -> bool {
         Storage::is_subject_whitelisted(&env, &issuer, &subject)
     }
 
     /// Return `true` if whitelist mode is enabled for `issuer`.
+    #[must_use]
     pub fn is_whitelist_enabled(env: Env, issuer: Address) -> bool {
         Storage::is_whitelist_enabled(&env, &issuer)
     }
@@ -430,12 +432,14 @@ impl TrustLinkContract {
     }
 
     /// Return the trust tier of `issuer`, or `None` if not registered.
+    #[must_use]
     pub fn get_issuer_tier(env: Env, issuer: Address) -> Option<IssuerTier> {
         Storage::get_issuer_tier(&env, &issuer)
     }
 
     /// Return `true` if `subject` holds a valid `claim_type` attestation issued
     /// by an issuer whose tier is >= `min_tier`.
+    #[must_use]
     pub fn has_valid_claim_from_tier(
         env: Env,
         subject: Address,
@@ -530,6 +534,7 @@ impl TrustLinkContract {
     }
 
     /// Retrieve the current rate limit configuration, or `None` if not set.
+    #[must_use]
     pub fn get_rate_limit(env: Env) -> Option<RateLimitConfig> {
         Storage::get_rate_limit_config(&env)
     }
@@ -563,6 +568,7 @@ impl TrustLinkContract {
     }
 
     /// Return `true` if the contract is currently paused.
+    #[must_use]
     pub fn is_paused(env: Env) -> bool {
         Storage::is_paused(&env)
     }
@@ -1061,6 +1067,7 @@ impl TrustLinkContract {
         Ok(())
     }
 
+    #[must_use]
     pub fn has_valid_claim(env: Env, subject: Address, claim_type: String) -> bool {
         let attestation_ids = Storage::get_subject_attestations(&env, &subject);
         let current_time = env.ledger().timestamp();
@@ -1096,6 +1103,7 @@ impl TrustLinkContract {
         false
     }
 
+    #[must_use]
     pub fn has_valid_claim_from_issuer(
         env: Env,
         subject: Address,
@@ -1125,6 +1133,7 @@ impl TrustLinkContract {
         false
     }
 
+    #[must_use]
     pub fn has_any_claim(env: Env, subject: Address, claim_types: Vec<String>) -> bool {
         if claim_types.is_empty() {
             return false;
@@ -1149,6 +1158,7 @@ impl TrustLinkContract {
         false
     }
 
+    #[must_use]
     pub fn has_all_claims(env: Env, subject: Address, claim_types: Vec<String>) -> bool {
         if claim_types.is_empty() {
             return true;
@@ -1175,6 +1185,7 @@ impl TrustLinkContract {
         true
     }
 
+    #[must_use]
     pub fn get_attestation(env: Env, attestation_id: String) -> Result<Attestation, Error> {
         Storage::get_attestation(&env, &attestation_id)
     }
@@ -1218,10 +1229,12 @@ impl TrustLinkContract {
     /// The log is append-only and contains one entry per state change
     /// (create, revoke, renew, update). Returns an empty list if the
     /// attestation has no recorded history.
+    #[must_use]
     pub fn get_audit_log(env: Env, attestation_id: String) -> Vec<AuditEntry> {
         Storage::get_audit_log(&env, &attestation_id)
     }
 
+    #[must_use]
     pub fn get_attestation_status(
         env: Env,
         attestation_id: String,
@@ -1236,6 +1249,7 @@ impl TrustLinkContract {
         Ok(status)
     }
 
+    #[must_use]
     pub fn get_subject_attestations(
         env: Env,
         subject: Address,
@@ -1250,6 +1264,7 @@ impl TrustLinkContract {
         )
     }
 
+    #[must_use]
     pub fn get_attestations_in_range(
         env: Env,
         subject: Address,
@@ -1284,6 +1299,7 @@ impl TrustLinkContract {
         result
     }
 
+    #[must_use]
     pub fn get_attestations_by_tag(env: Env, subject: Address, tag: String) -> Vec<String> {
         let attestation_ids = Storage::get_subject_attestations(&env, &subject);
         let mut result = Vec::new(&env);
@@ -1307,6 +1323,7 @@ impl TrustLinkContract {
         result
     }
 
+    #[must_use]
     pub fn get_attestations_by_jurisdiction(
         env: Env,
         subject: Address,
@@ -1331,6 +1348,7 @@ impl TrustLinkContract {
         result
     }
 
+    #[must_use]
     pub fn get_issuer_attestations(
         env: Env,
         issuer: Address,
@@ -1345,6 +1363,7 @@ impl TrustLinkContract {
         )
     }
 
+    #[must_use]
     pub fn get_valid_claims(env: Env, subject: Address) -> Vec<String> {
         let current_time = env.ledger().timestamp();
         let mut result = Vec::new(&env);
@@ -1372,6 +1391,7 @@ impl TrustLinkContract {
         result
     }
 
+    #[must_use]
     pub fn get_attestation_by_type(
         env: Env,
         subject: Address,
@@ -1397,14 +1417,17 @@ impl TrustLinkContract {
         Err(Error::NotFound)
     }
 
+    #[must_use]
     pub fn is_issuer(env: Env, address: Address) -> bool {
         Storage::is_issuer(&env, &address)
     }
 
+    #[must_use]
     pub fn get_issuer_stats(env: Env, issuer: Address) -> IssuerStats {
         Storage::get_issuer_stats(&env, &issuer)
     }
 
+    #[must_use]
     pub fn is_bridge(env: Env, address: Address) -> bool {
         Storage::is_bridge(&env, &address)
     }
@@ -1420,14 +1443,17 @@ impl TrustLinkContract {
         Ok(())
     }
 
+    #[must_use]
     pub fn get_issuer_metadata(env: Env, issuer: Address) -> Option<IssuerMetadata> {
         Storage::get_issuer_metadata(&env, &issuer)
     }
 
+    #[must_use]
     pub fn get_admin(env: Env) -> Result<Address, Error> {
         Storage::get_admin(&env)
     }
 
+    #[must_use]
     pub fn get_fee_config(env: Env) -> Result<FeeConfig, Error> {
         load_fee_config(&env)
     }
@@ -1451,10 +1477,12 @@ impl TrustLinkContract {
         Ok(())
     }
 
+    #[must_use]
     pub fn get_claim_type_description(env: Env, claim_type: String) -> Option<String> {
         Storage::get_claim_type(&env, &claim_type).map(|info| info.description)
     }
 
+    #[must_use]
     pub fn list_claim_types(env: Env, start: u32, limit: u32) -> Vec<String> {
         crate::storage::paginate(&env, &Storage::get_claim_type_list(&env), start, limit)
     }
@@ -1609,6 +1637,7 @@ impl TrustLinkContract {
     }
 
     /// Retrieve a multi-sig proposal by ID.
+    #[must_use]
     pub fn get_multisig_proposal(env: Env, proposal_id: String) -> Result<MultiSigProposal, Error> {
         Storage::get_multisig_proposal(&env, &proposal_id)
     }
@@ -1696,6 +1725,7 @@ impl TrustLinkContract {
     ///
     /// Returns the admin-configured limits, or the defaults
     /// (10,000 per issuer / 100 per subject) if never explicitly set.
+    #[must_use]
     pub fn get_limits(env: Env) -> StorageLimits {
         Storage::get_limits(&env)
     }
@@ -1704,6 +1734,7 @@ impl TrustLinkContract {
     ///
     /// # Errors
     /// - [`Error::NotInitialized`] — contract has not been initialized.
+    #[must_use]
     pub fn get_version(env: Env) -> Result<String, Error> {
         Storage::get_version(&env).ok_or(Error::NotInitialized)
     }
@@ -1711,6 +1742,7 @@ impl TrustLinkContract {
     /// Return global contract statistics.
     ///
     /// No authentication required — safe to call from dashboards and analytics tools.
+    #[must_use]
     pub fn get_global_stats(env: Env) -> GlobalStats {
         Storage::get_global_stats(&env)
     }
@@ -1719,6 +1751,7 @@ impl TrustLinkContract {
     ///
     /// No authentication required. Returns `initialized: false` before
     /// `initialize` has been called.
+    #[must_use]
     pub fn health_check(env: Env) -> HealthStatus {
         let initialized = Storage::has_admin(&env);
         let stats = Storage::get_global_stats(&env);
@@ -1746,10 +1779,12 @@ impl TrustLinkContract {
         Ok(())
     }
 
+    #[must_use]
     pub fn is_paused(env: Env) -> bool {
         Storage::is_paused(&env)
     }
 
+    #[must_use]
     pub fn get_contract_metadata(env: Env) -> Result<ContractMetadata, Error> {
         let version = Storage::get_version(&env).ok_or(Error::NotInitialized)?;
         Ok(ContractMetadata {
@@ -1762,6 +1797,7 @@ impl TrustLinkContract {
         })
     }
 
+    #[must_use]
     pub fn get_config(env: Env) -> ContractConfig {
         let ttl_config = Storage::get_ttl_config(&env).unwrap_or(TtlConfig { ttl_days: 30 });
 
