@@ -100,6 +100,7 @@ pub enum Error {
     Expired = 7,
     InvalidValidFrom = 8,
     InvalidExpiration = 9,
+    SubjectNotWhitelisted = 25,
 }
 
 impl Attestation {

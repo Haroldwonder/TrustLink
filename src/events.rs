@@ -102,4 +102,19 @@ impl Events {
             admin.clone(),
         );
     }
+
+    pub fn whitelist_mode_enabled(env: &Env, issuer: &Address) {
+        env.events().publish(
+            (symbol_short!("wl_on"), issuer.clone()),
+            (),
+        );
+    }
+
+    pub fn whitelist_updated(env: &Env, issuer: &Address, subject: &Address, added: bool) {
+        let sym = if added { symbol_short!("wl_add") } else { symbol_short!("wl_rem") };
+        env.events().publish(
+            (sym, issuer.clone()),
+            subject.clone(),
+        );
+    }
 }

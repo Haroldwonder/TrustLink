@@ -49,6 +49,10 @@ pub enum StorageKey {
     ClaimType(String),
     /// Ordered list of registered claim type identifiers.
     ClaimTypeList,
+    /// Whether whitelist mode is enabled for an issuer.
+    IssuerWhitelistMode(Address),
+    /// Whether a subject is whitelisted for a specific issuer.
+    IssuerWhitelist(Address, Address),
 }
 
 const DAY_IN_LEDGERS: u32 = 17280;
@@ -216,5 +220,41 @@ impl Storage {
             .persistent()
             .get(&StorageKey::ClaimTypeList)
             .unwrap_or(Vec::new(env))
+    }
+
+    /// Enable or disable whitelist mode for an issuer.
+    pub fn set_whitelist_mode(env: &Env, issuer: &Address, enabled: bool) {
+        let key = StorageKey::IssuerWhitelistMode(issuer.clone());
+        env.storage().persistent().set(&key, &enabled);
+        env.storage().persistent().extend_ttl(&key, INSTANCE_LIFETIME, INSTANCE_LIFETIME);
+    }
+
+    /// Return `true` if whitelist mode is enabled for `issuer`.
+    pub fn is_whitelist_mode(env: &Env, issuer: &Address) -> bool {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::IssuerWhitelistMode(issuer.clone()))
+            .unwrap_or(false)
+    }
+
+    /// Add `subject` to `issuer`'s whitelist.
+    pub fn add_to_whitelist(env: &Env, issuer: &Address, subject: &Address) {
+        let key = StorageKey::IssuerWhitelist(issuer.clone(), subject.clone());
+        env.storage().persistent().set(&key, &true);
+        env.storage().persistent().extend_ttl(&key, INSTANCE_LIFETIME, INSTANCE_LIFETIME);
+    }
+
+    /// Remove `subject` from `issuer`'s whitelist.
+    pub fn remove_from_whitelist(env: &Env, issuer: &Address, subject: &Address) {
+        env.storage()
+            .persistent()
+            .remove(&StorageKey::IssuerWhitelist(issuer.clone(), subject.clone()));
+    }
+
+    /// Return `true` if `subject` is on `issuer`'s whitelist.
+    pub fn is_whitelisted(env: &Env, issuer: &Address, subject: &Address) -> bool {
+        env.storage()
+            .persistent()
+            .has(&StorageKey::IssuerWhitelist(issuer.clone(), subject.clone()))
     }
 }
