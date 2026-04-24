@@ -14,7 +14,7 @@ Soroban provides two persistent storage tiers. TrustLink uses both:
 
 | Tier           | Used for                        | TTL behaviour                                      |
 |----------------|---------------------------------|----------------------------------------------------|
-| **Instance**   | `Admin`, `Version`              | Single shared TTL; refreshed to 30 days on every admin write |
+| **Instance**   | `Admin`, `Version`, `FeeConfig` | Single shared TTL; refreshed to 30 days on every admin write |
 | **Persistent** | All other keys (see table below)| Per-key TTL; refreshed to 30 days on every write of that key |
 
 30 days is calculated as `17 280 ledgers/day × 30 = 518 400 ledgers`
@@ -82,7 +82,36 @@ String   // e.g. "1.0.0"
 
 ---
 
-### 3. `Issuer(Address)`
+### 3. `FeeConfig`
+
+| Property      | Value                          |
+|---------------|--------------------------------|
+| Tier          | Instance                       |
+| TTL           | Shared instance TTL, 30 days, refreshed on every `set_fee_config` call |
+| Value type    | `FeeConfig`                    |
+| Written by    | `initialize`, `set_fee`        |
+| Read by       | `get_fee_config`, `create_attestation` |
+
+Stores the global fee policy for native attestation creation. The fee is
+disabled by default by storing `attestation_fee = 0`, `fee_collector = admin`,
+and `fee_token = None` during `initialize`.
+
+When `attestation_fee > 0`, `create_attestation` transfers that amount of the
+configured `fee_token` from the issuer to `fee_collector` before persisting the
+attestation.
+
+**Rust type:**
+```rust
+pub struct FeeConfig {
+    pub attestation_fee: i128,      // amount charged on create_attestation
+    pub fee_collector: Address,     // recipient of collected fees
+    pub fee_token: Option<Address>, // token contract used for collection
+}
+```
+
+---
+
+### 4. `Issuer(Address)`
 
 | Property      | Value                                              |
 |---------------|----------------------------------------------------|
@@ -105,14 +134,35 @@ bool   // always true
 
 ---
 
-### 4. `Attestation(String)`
+### 5. `Bridge(Address)`
+
+| Property      | Value                                              |
+|---------------|----------------------------------------------------|
+| Tier          | Persistent                                         |
+| TTL           | Per-key, 30 days, refreshed on `add_bridge`        |
+| Value type    | `bool` (always `true` when present)                |
+| Written by    | `register_bridge`                                  |
+| Read by       | `is_bridge`, `Validation::require_bridge`          |
+
+One entry exists per trusted bridge contract. The key embeds the bridge
+contract `Address` as a parameter. Presence of the key means the contract is
+allowed to create bridged attestations; absence means it is not.
+
+**Rust type:**
+```rust
+bool   // always true
+```
+
+---
+
+### 6. `Attestation(String)`
 
 | Property      | Value                                                    |
 |---------------|----------------------------------------------------------|
 | Tier          | Persistent                                               |
 | TTL           | Per-key, 30 days, refreshed on every `set_attestation`   |
 | Value type    | `Attestation` struct                                     |
-| Written by    | `create_attestation`, `revoke_attestation`, `renew_attestation`, `update_expiration`, `revoke_attestations_batch` |
+| Written by    | `create_attestation`, `import_attestation`, `bridge_attestation`, `revoke_attestation`, `renew_attestation`, `update_expiration`, `revoke_attestations_batch` |
 | Read by       | `get_attestation`, `get_attestation_status`, `has_valid_claim`, `has_any_claim`, `has_all_claims`, `get_valid_claims`, `get_attestation_by_type` |
 
 The primary attestation record. The key parameter is the 32-character hex
@@ -129,7 +179,12 @@ pub struct Attestation {
     pub timestamp:   u64,             // ledger timestamp at creation (seconds)
     pub expiration:  Option<u64>,     // optional expiry (seconds); None = no expiry
     pub revoked:     bool,            // true once revoke_attestation is called
+    pub metadata:    Option<String>,  // optional issuer-supplied metadata
     pub valid_from:  Option<u64>,     // optional future activation time (seconds)
+    pub imported:    bool,            // true when imported from an external source
+    pub bridged:     bool,            // true when created by a bridge contract
+    pub source_chain: Option<String>, // original chain for bridged attestations
+    pub source_tx:   Option<String>,  // original transaction/reference for bridged attestations
 }
 ```
 
@@ -146,14 +201,14 @@ Priority order: `Pending` > `Revoked` > `Expired` > `Valid`.
 
 ---
 
-### 5. `SubjectAttestations(Address)`
+### 7. `SubjectAttestations(Address)`
 
 | Property      | Value                                                        |
 |---------------|--------------------------------------------------------------|
 | Tier          | Persistent                                                   |
 | TTL           | Per-key, 30 days, refreshed on every `add_subject_attestation` |
 | Value type    | `Vec<String>` — ordered list of attestation IDs             |
-| Written by    | `create_attestation`                                         |
+| Written by    | `create_attestation`, `import_attestation`, `bridge_attestation` |
 | Read by       | `get_subject_attestations`, `has_valid_claim`, `has_any_claim`, `has_all_claims`, `get_valid_claims`, `get_attestation_by_type` |
 
 An append-only index mapping a subject address to all attestation IDs ever
@@ -168,19 +223,21 @@ Vec<String>   // ordered list of 32-char hex attestation IDs
 
 ---
 
-### 6. `IssuerAttestations(Address)`
+### 8. `IssuerAttestations(Address)`
 
 | Property      | Value                                                       |
 |---------------|-------------------------------------------------------------|
 | Tier          | Persistent                                                  |
 | TTL           | Per-key, 30 days, refreshed on every `add_issuer_attestation` |
 | Value type    | `Vec<String>` — ordered list of attestation IDs            |
-| Written by    | `create_attestation`                                        |
+| Written by    | `create_attestation`, `import_attestation`, `bridge_attestation` |
 | Read by       | `get_issuer_attestations`                                   |
 
-An append-only index mapping an issuer address to all attestation IDs that
-issuer has ever created. Used for pagination via `get_issuer_attestations`.
-IDs appear in insertion order.
+An append-only index mapping an attestation creator address to all attestation
+IDs that address has ever created. For native/imported attestations this is the
+issuer address; for bridged attestations this is the bridge contract address.
+Used for pagination via `get_issuer_attestations`. IDs appear in insertion
+order.
 
 **Rust type:**
 ```rust
@@ -189,7 +246,7 @@ Vec<String>   // ordered list of 32-char hex attestation IDs
 
 ---
 
-### 7. `IssuerMetadata(Address)`
+### 9. `IssuerMetadata(Address)`
 
 | Property      | Value                                                    |
 |---------------|----------------------------------------------------------|
@@ -214,7 +271,7 @@ pub struct IssuerMetadata {
 
 ---
 
-### 8. `ClaimType(String)`
+### 10. `ClaimType(String)`
 
 | Property      | Value                                                  |
 |---------------|--------------------------------------------------------|
@@ -239,7 +296,7 @@ pub struct ClaimTypeInfo {
 
 ---
 
-### 9. `ClaimTypeList`
+### 11. `ClaimTypeList`
 
 | Property      | Value                                                      |
 |---------------|------------------------------------------------------------|
@@ -267,7 +324,9 @@ Vec<String>   // ordered list of claim type identifier strings
 |------------------------------|------------|---------------------|------------|---------------------|
 | `Admin`                      | Instance   | `Address`           | 30 days    | Yes (shared)        |
 | `Version`                    | Instance   | `String`            | 30 days    | Yes (shared)        |
+| `FeeConfig`                  | Instance   | `FeeConfig`         | 30 days    | Yes (shared)        |
 | `Issuer(Address)`            | Persistent | `bool`              | 30 days    | Yes (per-key)       |
+| `Bridge(Address)`            | Persistent | `bool`              | 30 days    | Yes (per-key)       |
 | `Attestation(String)`        | Persistent | `Attestation`       | 30 days    | Yes (per-key)       |
 | `SubjectAttestations(Address)`| Persistent | `Vec<String>`      | 30 days    | Yes (per-key)       |
 | `IssuerAttestations(Address)`| Persistent | `Vec<String>`       | 30 days    | Yes (per-key)       |
@@ -372,9 +431,11 @@ const adminKey = xdr.LedgerKey.contractData(
 - **TTL eviction.** A key that is not touched for 30 days will be evicted.
   Indexers should snapshot state proactively rather than relying on keys always
   being present.
-- **Subject and issuer indexes are append-only.** `SubjectAttestations` and
-  `IssuerAttestations` grow monotonically; they are never pruned even when
-  attestations are revoked.
+- **Subject and issuer indexes are maintained for pagination.** `SubjectAttestations`
+  and `IssuerAttestations` store ordered attestation IDs used by listing queries.
+  When an attestation is revoked, its ID is removed from both indexes so
+  pagination counts shrink; the attestation record itself remains in storage
+  (with `revoked = true`) until TTL eviction.
 - **`ClaimTypeList` is insertion-ordered.** The order reflects the sequence in
   which `register_claim_type` was first called for each type.
 - **Status is computed, not stored.** `AttestationStatus` (`Valid`, `Expired`,

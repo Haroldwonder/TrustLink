@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: trustlink
+      POSTGRES_PASSWORD: trustlink
+      POSTGRES_DB: trustlink
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trustlink"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  indexer:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://trustlink:trustlink@db:5432/trustlink
+      CONTRACT_ID: ${CONTRACT_ID}
+      RPC_URL: ${RPC_URL:-https://soroban-testnet.stellar.org}
+      GENESIS_LEDGER: ${GENESIS_LEDGER:-0}
+      PORT: 3000
+    ports:
+      - "3000:3000"
+
+volumes:
+  pgdata:

@@ -1,0 +1,143 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #0f1117;
+  color: #e2e8f0;
+  min-height: 100vh;
+}
+
+#root { display: flex; flex-direction: column; min-height: 100vh; }
+
+/* Layout */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 2rem;
+  background: #1a1d27;
+  border-bottom: 1px solid #2d3148;
+}
+.header h1 { font-size: 1.25rem; font-weight: 700; color: #7c6af7; }
+.header .wallet-info { display: flex; align-items: center; gap: 0.75rem; font-size: 0.85rem; }
+.addr { font-family: monospace; color: #94a3b8; }
+
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 1rem 2rem 0;
+  border-bottom: 1px solid #2d3148;
+  background: #1a1d27;
+}
+.tab {
+  padding: 0.5rem 1.25rem;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  font-size: 0.9rem;
+  transition: color 0.15s;
+}
+.tab:hover { color: #e2e8f0; }
+.tab.active { color: #7c6af7; border-bottom-color: #7c6af7; }
+
+.panel { padding: 2rem; max-width: 860px; }
+.panel h2 { font-size: 1.1rem; margin-bottom: 1.5rem; color: #c4b5fd; }
+
+/* Cards */
+.card {
+  background: #1a1d27;
+  border: 1px solid #2d3148;
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+}
+.card h3 { font-size: 0.95rem; margin-bottom: 1rem; color: #a78bfa; }
+
+/* Forms */
+.field { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.75rem; }
+.field label { font-size: 0.8rem; color: #94a3b8; }
+.field input, .field select, .field textarea {
+  background: #0f1117;
+  border: 1px solid #2d3148;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  color: #e2e8f0;
+  font-size: 0.9rem;
+  width: 100%;
+}
+.field input:focus, .field select:focus, .field textarea:focus {
+  outline: none;
+  border-color: #7c6af7;
+}
+
+/* Buttons */
+.btn {
+  padding: 0.5rem 1.25rem;
+  border: none;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: opacity 0.15s;
+}
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-primary { background: #7c6af7; color: #fff; }
+.btn-primary:hover:not(:disabled) { opacity: 0.85; }
+.btn-danger { background: #ef4444; color: #fff; }
+.btn-danger:hover:not(:disabled) { opacity: 0.85; }
+.btn-outline { background: transparent; border: 1px solid #2d3148; color: #e2e8f0; }
+.btn-outline:hover:not(:disabled) { border-color: #7c6af7; }
+
+/* Status badges */
+.badge {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.badge-valid { background: #14532d; color: #4ade80; }
+.badge-revoked { background: #450a0a; color: #f87171; }
+.badge-expired { background: #431407; color: #fb923c; }
+
+/* Attestation list */
+.att-list { display: flex; flex-direction: column; gap: 0.75rem; }
+.att-item {
+  background: #0f1117;
+  border: 1px solid #2d3148;
+  border-radius: 0.5rem;
+  padding: 0.875rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.att-item .row { display: flex; justify-content: space-between; align-items: center; }
+.att-item .claim { font-weight: 600; font-size: 0.95rem; }
+.att-item .meta { font-size: 0.78rem; color: #64748b; font-family: monospace; }
+
+/* Alerts */
+.alert {
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+}
+.alert-error { background: #450a0a; color: #fca5a5; border: 1px solid #7f1d1d; }
+.alert-success { background: #14532d; color: #86efac; border: 1px solid #166534; }
+.alert-info { background: #1e3a5f; color: #93c5fd; border: 1px solid #1d4ed8; }
+
+.connect-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 1rem;
+  text-align: center;
+}
+.connect-screen h2 { font-size: 1.5rem; color: #c4b5fd; }
+.connect-screen p { color: #64748b; max-width: 360px; }
+
+.empty { color: #64748b; font-size: 0.875rem; padding: 1rem 0; }

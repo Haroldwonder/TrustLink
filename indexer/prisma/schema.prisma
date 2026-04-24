@@ -1,0 +1,34 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Attestation {
+  id          String   @id           // deterministic hash ID from the contract
+  issuer      String
+  subject     String
+  claimType   String
+  timestamp   BigInt
+  expiration  BigInt?
+  isRevoked   Boolean  @default(false)
+  metadata    String?
+  imported    Boolean  @default(false)
+  bridged     Boolean  @default(false)
+  sourceChain String?
+  sourceTx    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([subject])
+  @@index([issuer])
+}
+
+// Singleton row (id=1) tracking the last fully-processed ledger sequence.
+model Checkpoint {
+  id     Int @id @default(1)
+  ledger Int
+}
