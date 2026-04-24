@@ -17,7 +17,7 @@ use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::{
     AdminCouncil, Attestation, AttestationRequest, AttestationStatus, AuditAction, AuditEntry, ClaimTypeInfo,
-    ContractConfig, ContractMetadata, Endorsement, Error, FeeConfig, GlobalStats, HealthStatus,
+    ContractConfig, ContractMetadata, Delegation, Endorsement, Error, FeeConfig, GlobalStats, HealthStatus,
     IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, RateLimitConfig, RequestStatus,
     StorageLimits, TtlConfig, ATTESTATION_REQUEST_TTL_SECS, MULTISIG_PROPOSAL_TTL_SECS,
 };
@@ -1581,6 +1581,131 @@ impl TrustLinkContract {
     /// - [`Error::CannotEndorseOwn`] — endorser is the attestation's issuer.
     /// - [`Error::AlreadyRevoked`] — attestation has been revoked.
     /// - [`Error::AlreadyEndorsed`] — endorser has already endorsed this attestation.
+    /// Delegate authority to create attestations of `claim_type` to `delegate`.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — `issuer` is not a registered issuer.
+    /// - [`Error::CannotDelegateToSelf`] — `issuer == delegate`.
+    pub fn delegate_claim_type(
+        env: Env,
+        issuer: Address,
+        delegate: Address,
+        claim_type: String,
+        expiration: Option<u64>,
+    ) -> Result<(), Error> {
+        issuer.require_auth();
+        Validation::require_issuer(&env, &issuer)?;
+        if issuer == delegate {
+            return Err(Error::CannotDelegateToSelf);
+        }
+        validate_native_expiration(&env, expiration)?;
+        let delegation = Delegation {
+            delegator: issuer.clone(),
+            delegate: delegate.clone(),
+            claim_type: claim_type.clone(),
+            expiration,
+        };
+        Storage::set_delegation(&env, &delegation);
+        Events::delegation_created(&env, &issuer, &delegate, &claim_type, expiration);
+        Ok(())
+    }
+
+    /// Revoke a previously granted delegation.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — `issuer` is not a registered issuer.
+    pub fn revoke_delegation(
+        env: Env,
+        issuer: Address,
+        delegate: Address,
+        claim_type: String,
+    ) -> Result<(), Error> {
+        issuer.require_auth();
+        Validation::require_issuer(&env, &issuer)?;
+        Storage::remove_delegation(&env, &issuer, &delegate, &claim_type);
+        Events::delegation_revoked(&env, &issuer, &delegate, &claim_type);
+        Ok(())
+    }
+
+    /// Create an attestation on behalf of `issuer` using a delegation grant.
+    ///
+    /// # Errors
+    /// - [`Error::DelegationNotFound`] — no delegation exists for this triple.
+    /// - [`Error::DelegationExpired`] — the delegation has passed its expiration.
+    /// - [`Error::Unauthorized`] — `issuer` is not a registered issuer.
+    pub fn create_attestation_as_delegate(
+        env: Env,
+        delegate: Address,
+        issuer: Address,
+        subject: Address,
+        claim_type: String,
+        expiration: Option<u64>,
+        metadata: Option<String>,
+    ) -> Result<String, Error> {
+        delegate.require_auth();
+        Validation::require_issuer(&env, &issuer)?;
+        Validation::require_not_paused(&env)?;
+
+        let delegation = Storage::get_delegation(&env, &issuer, &delegate, &claim_type)
+            .ok_or(Error::DelegationNotFound)?;
+
+        let current_time = env.ledger().timestamp();
+        if let Some(exp) = delegation.expiration {
+            if current_time >= exp {
+                return Err(Error::DelegationExpired);
+            }
+        }
+
+        validate_metadata(&metadata)?;
+        validate_native_expiration(&env, expiration)?;
+
+        if issuer == subject {
+            return Err(Error::Unauthorized);
+        }
+
+        let timestamp = current_time;
+        let attestation_id =
+            Attestation::generate_id(&env, &issuer, &subject, &claim_type, timestamp);
+
+        if Storage::has_attestation(&env, &attestation_id) {
+            return Err(Error::DuplicateAttestation);
+        }
+
+        let attestation = Attestation {
+            id: attestation_id.clone(),
+            issuer: issuer.clone(),
+            subject,
+            claim_type,
+            timestamp,
+            expiration,
+            revoked: false,
+            metadata,
+            jurisdiction: None,
+            valid_from: None,
+            imported: false,
+            bridged: false,
+            source_chain: None,
+            source_tx: None,
+            tags: None,
+            revocation_reason: None,
+            deleted: false,
+        };
+
+        store_attestation(&env, &attestation);
+        Events::attestation_created(&env, &attestation);
+        Storage::append_audit_entry(
+            &env,
+            &attestation_id,
+            &AuditEntry {
+                action: AuditAction::Created,
+                actor: delegate.clone(),
+                timestamp,
+                details: None,
+            },
+        );
+        Ok(attestation_id)
+    }
+
     pub fn endorse_attestation(
         env: Env,
         endorser: Address,
