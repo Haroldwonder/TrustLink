@@ -18,8 +18,8 @@ use crate::storage::Storage;
 use crate::types::{
     AdminCouncil, Attestation, AttestationRequest, AttestationStatus, AuditAction, AuditEntry, ClaimTypeInfo,
     ContractConfig, ContractMetadata, Endorsement, Error, FeeConfig, GlobalStats, HealthStatus,
-    IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, RequestStatus, TtlConfig,
-    ATTESTATION_REQUEST_TTL_SECS, MULTISIG_PROPOSAL_TTL_SECS,
+    IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, RateLimitConfig, RequestStatus,
+    StorageLimits, TtlConfig, ATTESTATION_REQUEST_TTL_SECS, MULTISIG_PROPOSAL_TTL_SECS,
 };
 use crate::validation::Validation;
 
@@ -377,38 +377,6 @@ impl TrustLinkContract {
         Validation::require_issuer(&env, &issuer)?;
         Storage::set_whitelist_enabled(&env, &issuer, enabled);
         Ok(())
-    }
-
-    /// Add `subject` to the calling issuer's whitelist.
-    ///
-    /// # Errors
-    /// - [`Error::Unauthorized`] — `issuer` is not a registered issuer.
-    pub fn add_to_whitelist(env: Env, issuer: Address, subject: Address) -> Result<(), Error> {
-        issuer.require_auth();
-        Validation::require_issuer(&env, &issuer)?;
-        Storage::add_subject_to_whitelist(&env, &issuer, &subject);
-        Ok(())
-    }
-
-    /// Remove `subject` from the calling issuer's whitelist.
-    ///
-    /// # Errors
-    /// - [`Error::Unauthorized`] — `issuer` is not a registered issuer.
-    pub fn remove_from_whitelist(env: Env, issuer: Address, subject: Address) -> Result<(), Error> {
-        issuer.require_auth();
-        Validation::require_issuer(&env, &issuer)?;
-        Storage::remove_subject_from_whitelist(&env, &issuer, &subject);
-        Ok(())
-    }
-
-    /// Return `true` if `subject` is on `issuer`'s whitelist.
-    pub fn is_whitelisted(env: Env, issuer: Address, subject: Address) -> bool {
-        Storage::is_subject_whitelisted(&env, &issuer, &subject)
-    }
-
-    /// Return `true` if whitelist mode is enabled for `issuer`.
-    pub fn is_whitelist_enabled(env: Env, issuer: Address) -> bool {
-        Storage::is_whitelist_enabled(&env, &issuer)
     }
 
     /// Update the trust tier of an already-registered issuer.
@@ -992,55 +960,6 @@ impl TrustLinkContract {
         Ok(())
     }
 
-    pub fn revoke_attestations_batch(
-        env: Env,
-        issuer: Address,
-        attestation_ids: Vec<String>,
-        reason: Option<String>,
-    ) -> Result<u32, Error> {
-        issuer.require_auth();
-        Validation::require_issuer(&env, &issuer)?;
-        validate_reason(&reason)?;
-
-        let mut count = 0;
-        for attestation_id in attestation_ids.iter() {
-            let mut attestation = Storage::get_attestation(&env, &attestation_id)?;
-
-            if attestation.issuer != issuer {
-                return Err(Error::Unauthorized);
-            }
-
-            if attestation.revoked {
-                return Err(Error::AlreadyRevoked);
-            }
-
-            attestation.revoked = true;
-            attestation.revocation_reason = reason.clone();
-            Storage::set_attestation(&env, &attestation);
-
-            // Prune revoked attestation ID from both indexes so pagination
-            // counts shrink after revocation.
-            Storage::remove_subject_attestation(&env, &attestation.subject, &attestation_id);
-            Storage::remove_issuer_attestation(&env, &issuer, &attestation_id);
-
-            Events::attestation_revoked(&env, &attestation_id, &issuer, &reason);
-            Storage::append_audit_entry(
-                &env,
-                &attestation_id,
-                &AuditEntry {
-                    action: AuditAction::Revoked,
-                    actor: issuer.clone(),
-                    timestamp: env.ledger().timestamp(),
-                    details: reason.clone(),
-                },
-            );
-            count += 1;
-        }
-
-        Storage::increment_total_revocations(&env, count as u64);
-        Ok(count)
-    }
-
     pub fn renew_attestation(
         env: Env,
         issuer: Address,
@@ -1108,9 +1027,10 @@ impl TrustLinkContract {
 
         issuer.require_auth();
         Validation::require_issuer(&env, &issuer)?;
+        validate_reason(&reason)?;
 
         if attestation_ids.len() > MAX_BATCH {
-            return Err(Error::BatchTooLarge);
+            return Err(Error::LimitExceeded);
         }
 
         // Validate all attestations first (atomic — no partial writes)
@@ -1129,12 +1049,26 @@ impl TrustLinkContract {
         for id in attestation_ids.iter() {
             let mut attestation = Storage::get_attestation(&env, &id)?;
             attestation.revoked = true;
+            attestation.revocation_reason = reason.clone();
             Storage::set_attestation(&env, &attestation);
+            Storage::remove_subject_attestation(&env, &attestation.subject, &id);
+            Storage::remove_issuer_attestation(&env, &issuer, &id);
             Events::attestation_revoked_with_reason(&env, &id, &issuer, &reason);
+            Storage::append_audit_entry(
+                &env,
+                &id,
+                &AuditEntry {
+                    action: AuditAction::Revoked,
+                    actor: issuer.clone(),
+                    timestamp: env.ledger().timestamp(),
+                    details: reason.clone(),
+                },
+            );
             count += 1;
         }
 
-        false
+        Storage::increment_total_revocations(&env, count as u64);
+        Ok(count)
     }
 
     pub fn has_valid_claim_from_issuer(
@@ -1313,7 +1247,7 @@ impl TrustLinkContract {
             }
         }
 
-        let paginated_ids = crate::storage::paginate(&env, filtered_ids, start, limit);
+        let paginated_ids = crate::storage::paginate(&env, &filtered_ids, start, limit);
         let mut result = Vec::new(&env);
 
         for id in paginated_ids.iter() {
@@ -1771,26 +1705,6 @@ impl TrustLinkContract {
         }
     }
 
-    pub fn pause(env: Env, admin: Address) -> Result<(), Error> {
-        admin.require_auth();
-        Validation::require_admin(&env, &admin)?;
-        Storage::set_paused(&env, true);
-        Events::contract_paused(&env, &admin);
-        Ok(())
-    }
-
-    pub fn unpause(env: Env, admin: Address) -> Result<(), Error> {
-        admin.require_auth();
-        Validation::require_admin(&env, &admin)?;
-        Storage::set_paused(&env, false);
-        Events::contract_unpaused(&env, &admin);
-        Ok(())
-    }
-
-    pub fn is_paused(env: Env) -> bool {
-        Storage::is_paused(&env)
-    }
-
     pub fn get_contract_metadata(env: Env) -> Result<ContractMetadata, Error> {
         let version = Storage::get_version(&env).ok_or(Error::NotInitialized)?;
         Ok(ContractMetadata {
@@ -1876,10 +1790,7 @@ impl TrustLinkContract {
                 action: AuditAction::Transferred,
                 actor: admin.clone(),
                 timestamp,
-                details: Some(format!(
-                    "{}",
-                    new_issuer.to_string()
-                )),
+                details: None,
             },
         );
 

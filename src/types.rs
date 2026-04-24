@@ -239,22 +239,8 @@ pub struct Delegation {
     pub claim_type: String,
     /// Optional expiration timestamp for this delegation.
     pub expiration: Option<u64>,
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum Error {
-    AlreadyInitialized = 1,
-    NotInitialized = 2,
-    Unauthorized = 3,
-    NotFound = 4,
-    DuplicateAttestation = 5,
-    AlreadyRevoked = 6,
-    Expired = 7,
-    InvalidValidFrom = 8,
-    InvalidExpiration = 9,
-    SubjectNotWhitelisted = 25,
 }
 
-#[contracttype]
 pub type AdminCouncil = Vec<Address>;
 
 impl Attestation {
@@ -348,6 +334,22 @@ impl AttestationRequest {
         payload.append(&timestamp.to_xdr(env));
         Attestation::hash_payload(env, &payload)
     }
+}
+
+/// A multi-sig attestation proposal requiring M-of-N issuer signatures.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MultiSigProposal {
+    pub id: String,
+    pub proposer: Address,
+    pub subject: Address,
+    pub claim_type: String,
+    pub required_signers: Vec<Address>,
+    pub threshold: u32,
+    pub signers: Vec<Address>,
+    pub created_at: u64,
+    pub expires_at: u64,
+    pub finalized: bool,
 }
 
 impl MultiSigProposal {
