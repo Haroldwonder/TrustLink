@@ -239,6 +239,8 @@ pub struct Delegation {
     pub claim_type: String,
     /// Optional expiration timestamp for this delegation.
     pub expiration: Option<u64>,
+}
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Error {
