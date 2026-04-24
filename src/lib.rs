@@ -791,6 +791,13 @@ impl TrustLinkContract {
         bridge.require_auth();
         Validation::require_bridge(&env, &bridge)?;
 
+        if source_chain.len() > 32 {
+            return Err(Error::SourceRefTooLong);
+        }
+        if source_tx.len() > 128 {
+            return Err(Error::SourceRefTooLong);
+        }
+
         let timestamp = env.ledger().timestamp();
         let attestation_id = Attestation::generate_bridge_id(
             &env,

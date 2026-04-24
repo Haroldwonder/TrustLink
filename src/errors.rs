@@ -61,4 +61,6 @@ pub enum Error {
     LimitExceeded = 33,
     /// Batch size exceeds the maximum allowed (50).
     BatchTooLarge = 34,
+    /// source_chain exceeds 32 chars or source_tx exceeds 128 chars in bridge_attestation.
+    SourceRefTooLong = 35,
 }
