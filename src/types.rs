@@ -239,19 +239,6 @@ pub struct Delegation {
     pub claim_type: String,
     /// Optional expiration timestamp for this delegation.
     pub expiration: Option<u64>,
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum Error {
-    AlreadyInitialized = 1,
-    NotInitialized = 2,
-    Unauthorized = 3,
-    NotFound = 4,
-    DuplicateAttestation = 5,
-    AlreadyRevoked = 6,
-    Expired = 7,
-    InvalidValidFrom = 8,
-    InvalidExpiration = 9,
-    SubjectNotWhitelisted = 25,
 }
 
 #[contracttype]
