@@ -53,4 +53,8 @@ pub enum Error {
     LastAdminCannotBeRemoved = 29,
     /// Issuer is rate-limited and must wait before creating another attestation.
     RateLimited = 30,
+    InvalidClaimType = 31,
+    InvalidJurisdiction = 32,
+    LimitExceeded = 33,
+    BatchTooLarge = 34,
 }

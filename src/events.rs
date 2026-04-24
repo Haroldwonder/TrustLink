@@ -1,6 +1,6 @@
 use soroban_sdk::{symbol_short, Address, Env, String};
 
-use crate::types::{Attestation, IssuerTier, Address};
+use crate::types::{Attestation, IssuerTier};
 
 pub struct Events;
 
@@ -92,18 +92,6 @@ impl Events {
             (attestation_id.clone(), new_expiration),
         );
     }
-
-    pub fn deletion_requested(
-    env: &Env,
-    subject: &Address,
-    attestation_id: &String,
-    timestamp: u64,
-) {
-    env.events().publish(
-        (symbol_short!("del_req"), subject.clone()),
-        (attestation_id.clone(), timestamp),
-    );
-}
 
     pub fn attestation_expired(env: &Env, attestation_id: &String, subject: &Address) {
         env.events().publish(

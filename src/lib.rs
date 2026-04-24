@@ -18,8 +18,8 @@ use crate::storage::Storage;
 use crate::types::{
     AdminCouncil, Attestation, AttestationRequest, AttestationStatus, AuditAction, AuditEntry, ClaimTypeInfo,
     ContractConfig, ContractMetadata, Endorsement, Error, FeeConfig, GlobalStats, HealthStatus,
-    IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, RequestStatus, TtlConfig,
-    ATTESTATION_REQUEST_TTL_SECS, MULTISIG_PROPOSAL_TTL_SECS,
+    IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, RateLimitConfig, RequestStatus,
+    StorageLimits, TtlConfig, ATTESTATION_REQUEST_TTL_SECS, MULTISIG_PROPOSAL_TTL_SECS,
 };
 use crate::validation::Validation;
 
@@ -1352,9 +1352,11 @@ impl TrustLinkContract {
         env: Env,
         subject: Address,
         jurisdiction: String,
+        start: u32,
+        limit: u32,
     ) -> Vec<String> {
         let attestation_ids = Storage::get_subject_attestations(&env, &subject);
-        let mut result = Vec::new(&env);
+        let mut filtered = Vec::new(&env);
 
         for id in attestation_ids.iter() {
             if let Ok(attestation) = Storage::get_attestation(&env, &id) {
@@ -1363,13 +1365,13 @@ impl TrustLinkContract {
                 }
                 if let Some(att_jurisdiction) = attestation.jurisdiction {
                     if att_jurisdiction == jurisdiction {
-                        result.push_back(id.clone());
+                        filtered.push_back(id.clone());
                     }
                 }
             }
         }
 
-        result
+        crate::storage::paginate(&env, filtered, start, limit)
     }
 
     pub fn get_issuer_attestations(
