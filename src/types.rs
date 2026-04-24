@@ -251,7 +251,7 @@ pub enum Error {
     Expired = 7,
     InvalidValidFrom = 8,
     InvalidExpiration = 9,
-    BatchTooLarge = 10,
+    SubjectNotWhitelisted = 25,
 }
 
 #[contracttype]

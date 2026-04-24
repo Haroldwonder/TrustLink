@@ -504,10 +504,54 @@ impl TrustLinkContract {
         Ok(())
     }
 
-    /// Configure the minimum issuance interval (rate limit) for attestation creation.
+    /// Enable whitelist mode for the calling issuer.
     ///
-    /// When `min_issuance_interval` is 0 (default), rate limiting is disabled.
-    /// When > 0, issuers must wait at least that many seconds between attestation creations.
+    /// When enabled, `create_attestation` will reject subjects not on the
+    /// issuer's whitelist with [`Error::SubjectNotWhitelisted`].
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — caller is not a registered issuer.
+    pub fn enable_whitelist_mode(env: Env, issuer: Address) -> Result<(), Error> {
+        issuer.require_auth();
+        Validation::require_issuer(&env, &issuer)?;
+        Storage::set_whitelist_mode(&env, &issuer, true);
+        Events::whitelist_mode_enabled(&env, &issuer);
+        Ok(())
+    }
+
+    /// Add a subject to the calling issuer's whitelist.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — caller is not a registered issuer.
+    pub fn add_to_whitelist(env: Env, issuer: Address, subject: Address) -> Result<(), Error> {
+        issuer.require_auth();
+        Validation::require_issuer(&env, &issuer)?;
+        Storage::add_to_whitelist(&env, &issuer, &subject);
+        Events::whitelist_updated(&env, &issuer, &subject, true);
+        Ok(())
+    }
+
+    /// Remove a subject from the calling issuer's whitelist.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — caller is not a registered issuer.
+    pub fn remove_from_whitelist(env: Env, issuer: Address, subject: Address) -> Result<(), Error> {
+        issuer.require_auth();
+        Validation::require_issuer(&env, &issuer)?;
+        Storage::remove_from_whitelist(&env, &issuer, &subject);
+        Events::whitelist_updated(&env, &issuer, &subject, false);
+        Ok(())
+    }
+
+    /// Return `true` if `subject` is on `issuer`'s whitelist.
+    pub fn is_whitelisted(env: Env, issuer: Address, subject: Address) -> bool {
+        Storage::is_whitelisted(&env, &issuer, &subject)
+    }
+
+    /// Create a new attestation about a subject address.    ///
+    /// The attestation ID is derived deterministically from `(issuer, subject,
+    /// claim_type, timestamp)`, so the same combination at the same ledger
+    /// timestamp will always produce the same ID.
     ///
     /// # Errors
     /// - [`Error::Unauthorized`] — caller is not the admin.
@@ -606,6 +650,15 @@ impl TrustLinkContract {
         if Storage::has_attestation(env, &attestation_id) {
             return Err(Error::DuplicateAttestation);
         }
+        
+        // Reject subject if issuer has whitelist mode enabled and subject is not listed
+        if Storage::is_whitelist_mode(&env, &issuer)
+            && !Storage::is_whitelisted(&env, &issuer, &subject)
+        {
+            return Err(Error::SubjectNotWhitelisted);
+        }
+
+        // Generate deterministic ID from attestation data
 
         // Validate claim_type length (enforce max 64 characters)
         let claim_type_len = claim_type.len();
