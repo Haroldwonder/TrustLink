@@ -6,6 +6,8 @@ use soroban_sdk::{
     Address, Env, String,
 };
 
+use crate::types::AttestationOrigin;
+
 #[contract]
 struct MockBridgeContract;
 
