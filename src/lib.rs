@@ -1662,6 +1662,16 @@ impl TrustLinkContract {
         Ok(())
     }
 
+    /// Returns all endorsements for the given attestation.
+    pub fn get_endorsements(env: Env, attestation_id: String) -> Vec<Endorsement> {
+        Storage::get_endorsements(&env, &attestation_id)
+    }
+
+    /// Returns the number of endorsements for the given attestation.
+    pub fn get_endorsement_count(env: Env, attestation_id: String) -> u32 {
+        Storage::get_endorsements(&env, &attestation_id).len()
+    }
+
     /// Configure storage exhaustion limits (admin only).
     ///
     /// Sets the maximum number of attestations allowed per issuer and per subject.
