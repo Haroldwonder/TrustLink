@@ -18,8 +18,8 @@ use crate::storage::Storage;
 use crate::types::{
     AdminCouncil, Attestation, AttestationRequest, AttestationStatus, AuditAction, AuditEntry, ClaimTypeInfo,
     ContractConfig, ContractMetadata, Endorsement, Error, FeeConfig, GlobalStats, HealthStatus,
-    IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, RequestStatus, TtlConfig,
-    ATTESTATION_REQUEST_TTL_SECS, MULTISIG_PROPOSAL_TTL_SECS,
+    IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, RateLimitConfig, RequestStatus,
+    StorageLimits, TtlConfig, ATTESTATION_REQUEST_TTL_SECS, MULTISIG_PROPOSAL_TTL_SECS,
 };
 use crate::validation::Validation;
 
@@ -764,6 +764,7 @@ impl TrustLinkContract {
     ) -> Result<String, Error> {
         admin.require_auth();
         Validation::require_admin(&env, &admin)?;
+        Validation::require_not_paused(&env)?;
         Validation::require_issuer(&env, &issuer)?;
         validate_import_timestamps(&env, timestamp, expiration)?;
 
@@ -819,6 +820,7 @@ impl TrustLinkContract {
     ) -> Result<String, Error> {
         bridge.require_auth();
         Validation::require_bridge(&env, &bridge)?;
+        Validation::require_not_paused(&env)?;
 
         let timestamp = env.ledger().timestamp();
         let attestation_id = Attestation::generate_bridge_id(
@@ -879,6 +881,7 @@ impl TrustLinkContract {
     ) -> Result<Vec<String>, Error> {
         issuer.require_auth();
         Validation::require_issuer(&env, &issuer)?;
+        Validation::require_not_paused(&env)?;
         validate_claim_type(&claim_type)?;
         validate_native_expiration(&env, expiration)?;
         check_rate_limit(&env, &issuer)?;
@@ -1049,6 +1052,7 @@ impl TrustLinkContract {
     ) -> Result<(), Error> {
         issuer.require_auth();
         Validation::require_issuer(&env, &issuer)?;
+        Validation::require_not_paused(&env)?;
         validate_native_expiration(&env, new_expiration)?;
 
         let mut attestation = Storage::get_attestation(&env, &attestation_id)?;
@@ -1520,6 +1524,7 @@ impl TrustLinkContract {
     ) -> Result<String, Error> {
         proposer.require_auth();
         Validation::require_issuer(&env, &proposer)?;
+        Validation::require_not_paused(&env)?;
 
         // Validate all required signers are registered issuers.
         for signer in required_signers.iter() {
@@ -1571,6 +1576,7 @@ impl TrustLinkContract {
     pub fn cosign_attestation(env: Env, issuer: Address, proposal_id: String) -> Result<(), Error> {
         issuer.require_auth();
         Validation::require_issuer(&env, &issuer)?;
+        Validation::require_not_paused(&env)?;
 
         let mut proposal = Storage::get_multisig_proposal(&env, &proposal_id)?;
 
@@ -1674,6 +1680,7 @@ impl TrustLinkContract {
     ) -> Result<(), Error> {
         endorser.require_auth();
         Validation::require_issuer(&env, &endorser)?;
+        Validation::require_not_paused(&env)?;
 
         let attestation = Storage::get_attestation(&env, &attestation_id)?;
 
@@ -1770,26 +1777,6 @@ impl TrustLinkContract {
             issuer_count: stats.total_issuers,
             total_attestations: stats.total_attestations,
         }
-    }
-
-    pub fn pause(env: Env, admin: Address) -> Result<(), Error> {
-        admin.require_auth();
-        Validation::require_admin(&env, &admin)?;
-        Storage::set_paused(&env, true);
-        Events::contract_paused(&env, &admin);
-        Ok(())
-    }
-
-    pub fn unpause(env: Env, admin: Address) -> Result<(), Error> {
-        admin.require_auth();
-        Validation::require_admin(&env, &admin)?;
-        Storage::set_paused(&env, false);
-        Events::contract_unpaused(&env, &admin);
-        Ok(())
-    }
-
-    pub fn is_paused(env: Env) -> bool {
-        Storage::is_paused(&env)
     }
 
     pub fn get_contract_metadata(env: Env) -> Result<ContractMetadata, Error> {
