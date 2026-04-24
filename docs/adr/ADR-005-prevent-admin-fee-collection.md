@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2024-04-23
-- **Related Issues**: [#255](https://github.com/Haroldwonder/TrustLink/issues/255)
+- **Related Issues**: [#280](https://github.com/Haroldwonder/TrustLink/issues/280)
 
 ## Context
 
@@ -89,6 +89,6 @@ Tests verify:
 
 ## References
 
-- **Issue #255**: [Security: Prevent admin from setting themselves as fee_collector](https://github.com/Haroldwonder/TrustLink/issues/255)
+- **Issue #280**: [Security: Prevent admin from setting themselves as fee_collector](https://github.com/Haroldwonder/TrustLink/issues/280)
 - **Pattern**: Separation of Concerns + Principle of Least Privilege
 - **Related**: [OpenZeppelin Ownable2Step](https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/access/Ownable2Step.sol)
