@@ -77,6 +77,12 @@ impl LendingContract {
             return Err(Error::KYCRequired);
         }
 
+        // Alternatively, check for an attestation from a specific issuer
+        // let specific_issuer = Address::from_string(&String::from_str(&env, "GBXYZ..."));
+        // if !trustlink.has_valid_claim_from_issuer(&borrower, &claim, &specific_issuer) {
+        //     return Err(Error::KYCRequired);
+        // }
+
         // ... lending logic
         Ok(())
     }
@@ -422,6 +428,102 @@ soroban contract invoke \
   -- initialize \
   --admin YOUR_PUBLIC_KEY
 ```
+
+---
+
+---
+
+## Reentrancy considerations for integrators
+
+### What reentrancy means in Soroban (for Solidity developers)
+
+In Solidity, reentrancy happens when an external call transfers control to a malicious contract that calls back into your contract before your state update completes — the classic DAO hack pattern. Soroban prevents this for the *same* contract: the host will trap and abort the transaction if contract A is called while A already has an active frame. However, **cross-contract calls to different contracts are not protected by this rule**. If your contract reads state, calls TrustLink (or any external contract), and then writes state based on the read value, a malicious contract in that call chain could modify shared state between your read and write.
+
+**The rule: always write state before emitting events or invoking external contracts.**
+
+This is the check-effects-interactions (CEI) pattern applied to Soroban:
+
+1. **Check** — validate inputs and read any state you need.
+2. **Effect** — write all state changes to storage.
+3. **Interact** — only then call external contracts or emit events.
+
+> [!WARNING]
+> **Caller-supplied contract addresses are dangerous.** A common integrator mistake is accepting the TrustLink contract address as a runtime parameter (e.g. `trustlink_id: Address` passed by the transaction caller). A malicious caller can substitute a fake contract that returns `true` for any claim check, bypassing your access control entirely. **Always store the TrustLink contract address in your own contract's instance storage during initialisation and read it from there — never accept it from the caller.**
+
+### Safe usage: calling `has_valid_claim` from an integrating contract
+
+```rust
+#![no_std]
+
+use soroban_sdk::{contract, contractimpl, Address, Env, String};
+
+mod trustlink {
+    soroban_sdk::contractimport!(
+        file = "../trustlink/target/wasm32-unknown-unknown/release/trustlink.wasm"
+    );
+}
+
+#[contract]
+pub struct LendingContract;
+
+#[contractimpl]
+impl LendingContract {
+    /// Store the trusted TrustLink address once at deploy time.
+    /// Never accept it as a per-call parameter.
+    pub fn initialize(env: Env, admin: Address, trustlink_id: Address) {
+        admin.require_auth();
+        // Safety: stored once by admin; callers cannot substitute a fake address.
+        env.storage().instance().set(&"trustlink", &trustlink_id);
+    }
+
+    pub fn request_loan(
+        env: Env,
+        borrower: Address,
+        amount: i128,
+        collateral: i128,
+    ) -> Result<(), Error> {
+        borrower.require_auth();
+
+        // 1. CHECK — read the hardcoded TrustLink address from our own storage.
+        //    This cannot be influenced by the transaction caller.
+        let trustlink_id: Address = env
+            .storage()
+            .instance()
+            .get(&"trustlink")
+            .expect("not initialized");
+
+        let trustlink = trustlink::Client::new(&env, &trustlink_id);
+        let kyc_claim = String::from_str(&env, "KYC_PASSED");
+
+        if !trustlink.has_valid_claim(&borrower, &kyc_claim) {
+            return Err(Error::KYCRequired);
+        }
+
+        // 2. EFFECT — write all state changes before any further external calls.
+        //    If we needed to update a balance or record the loan, do it here,
+        //    before calling any other external contract.
+        env.storage().instance().set(&borrower, &amount);
+
+        // 3. INTERACT — any additional external calls (e.g. token transfers)
+        //    happen last, after state is already committed.
+        Ok(())
+    }
+}
+
+#[contracterror]
+#[derive(Copy, Clone)]
+#[repr(u32)]
+pub enum Error {
+    KYCRequired = 1,
+}
+```
+
+### Further reading
+
+- [Soroban security best practices](https://developers.stellar.org/docs/learn/smart-contract-internals/security)
+- [Soroban authorization model](https://developers.stellar.org/docs/learn/smart-contract-internals/authorization)
+- [Soroban reentrancy internals](https://developers.stellar.org/docs/learn/smart-contract-internals/contract-interactions/reentrancy)
+- Full audit findings: [`docs/reentrancy-audit.md`](./reentrancy-audit.md)
 
 ---
 

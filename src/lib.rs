@@ -1,289 +1,833 @@
 #![no_std]
+// Forbid panic-prone patterns in production code; tests are exempt.
+#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
 
-//! # TrustLink — On-Chain Attestation & Verification Contract
-//!
-//! TrustLink is a Soroban smart contract deployed on the Stellar blockchain that
-//! provides a shared, permissioned registry of cryptographic attestations. It lets
-//! trusted third-party issuers make verifiable claims about wallet addresses, and
-//! lets any other contract or dApp query those claims at runtime.
-//!
-//! ## Architecture overview
-//!
-//! The codebase is split into five modules:
-//!
-//! | Module          | Responsibility                                                  |
-//! |-----------------|-----------------------------------------------------------------|
-//! | `lib`           | Public contract entry points (`#[contractimpl]`)                |
-//! | `types`         | Shared data types, error codes, and `Attestation` logic         |
-//! | `storage`       | All reads/writes to on-chain persistent & instance storage      |
-//! | `validation`    | Authorization guards (`require_admin`, `require_issuer`)        |
-//! | `events`        | Structured event emission helpers                               |
-//!
-//! ## Roles
-//!
-//! - **Admin** — set once at `initialize`. Controls the issuer registry and the
-//!   claim-type registry. There is exactly one admin at any time.
-//! - **Issuer** — an address registered by the admin. Can create, renew, update,
-//!   and revoke attestations. Can also set their own public metadata.
-//! - **Subject** — any wallet address that an issuer has attested about.
-//! - **Verifier** — any contract or off-chain caller that queries TrustLink to
-//!   check whether a subject holds a valid claim.
-//!
-//! ## Attestation lifecycle
-//!
-//! ```text
-//!  create_attestation
-//!       │
-//!       ▼
-//!   [Pending]  ──── valid_from reached ────►  [Valid]
-//!       │                                        │
-//!       │  revoke_attestation              expiration reached
-//!       ▼                                        ▼
-//!   [Revoked]                              [Expired]
-//!                                               │
-//!                                    renew_attestation / update_expiration
-//!                                               ▼
-//!                                           [Valid]
-//! ```
-//!
-//! - **Pending** — `valid_from` is set and has not yet been reached.
-//! - **Valid** — active, not expired, not revoked.
-//! - **Expired** — past the `expiration` timestamp; can be renewed.
-//! - **Revoked** — permanently invalidated; cannot be renewed.
-//!
-//! ## Key contract functions
-//!
-//! ### Initialization & admin
-//! - [`TrustLinkContract::initialize`] — deploy-time setup; sets admin and version.
-//! - [`TrustLinkContract::get_admin`] — returns the current admin address.
-//! - [`TrustLinkContract::get_version`] / [`TrustLinkContract::get_contract_metadata`]
-//!
-//! ### Issuer registry
-//! - [`TrustLinkContract::register_issuer`] / [`TrustLinkContract::remove_issuer`]
-//! - [`TrustLinkContract::is_issuer`]
-//! - [`TrustLinkContract::set_issuer_metadata`] / [`TrustLinkContract::get_issuer_metadata`]
-//!
-//! ### Attestation management (issuer only)
-//! - [`TrustLinkContract::create_attestation`] — creates a new attestation with
-//!   optional `expiration` and `valid_from` timestamps.
-//! - [`TrustLinkContract::revoke_attestation`] — permanently revokes one attestation.
-//! - [`TrustLinkContract::revoke_attestations_batch`] — revokes many in one call.
-//! - [`TrustLinkContract::renew_attestation`] — extends or removes the expiration.
-//! - [`TrustLinkContract::update_expiration`] — adjusts expiration without a full renewal.
-//!
-//! ### Verification (read-only, callable by anyone)
-//! - [`TrustLinkContract::has_valid_claim`] — `true` if the subject holds a valid
-//!   attestation of the given claim type.
-//! - [`TrustLinkContract::has_any_claim`] — `true` if the subject holds a valid
-//!   attestation for any type in a provided list.
-//! - [`TrustLinkContract::get_valid_claims`] — deduplicated list of all valid claim
-//!   types currently held by a subject.
-//! - [`TrustLinkContract::get_attestation`] / [`TrustLinkContract::get_attestation_status`]
-//! - [`TrustLinkContract::get_attestation_by_type`]
-//! - [`TrustLinkContract::get_subject_attestations`] / [`TrustLinkContract::get_issuer_attestations`]
-//!
-//! ### Claim-type registry (admin only)
-//! - [`TrustLinkContract::register_claim_type`] — registers a human-readable label
-//!   for a claim type identifier.
-//! - [`TrustLinkContract::get_claim_type_description`] / [`TrustLinkContract::list_claim_types`]
-//!
-//! ## Events emitted
-//!
-//! | Symbol       | Trigger                                      |
-//! |--------------|----------------------------------------------|
-//! | `admin_init` | Contract successfully initialized            |
-//! | `created`    | New attestation created                      |
-//! | `revoked`    | Attestation revoked (single or batch)        |
-//! | `renewed`    | Attestation renewed with new expiration      |
-//! | `updated`    | Attestation expiration updated               |
-//! | `expired`    | Expired attestation detected during a query  |
-//! | `iss_reg`    | Issuer registered                            |
-//! | `iss_rem`    | Issuer removed                               |
-//! | `clmtype`    | Claim type registered                        |
-//!
-//! ## Storage layout
-//!
-//! Admin and version are stored in **instance storage** (shared TTL).
-//! Everything else — issuers, attestations, subject/issuer indexes, issuer
-//! metadata, and claim-type records — lives in **persistent storage** with a
-//! rolling 30-day TTL refreshed on every write.
-//!
-//! ## Error codes
-//!
-//! | Code | Variant                | Meaning                                      |
-//! |------|------------------------|----------------------------------------------|
-//! | 1    | `AlreadyInitialized`   | `initialize` called more than once           |
-//! | 2    | `NotInitialized`       | Contract not yet initialized                 |
-//! | 3    | `Unauthorized`         | Caller is not admin / not a registered issuer|
-//! | 4    | `NotFound`             | Attestation ID does not exist                |
-//! | 5    | `DuplicateAttestation` | Same (issuer, subject, claim, timestamp) ID  |
-//! | 6    | `AlreadyRevoked`       | Attestation is already revoked               |
-//! | 7    | `Expired`              | (reserved)                                   |
-//! | 8    | `InvalidValidFrom`     | `valid_from` is not strictly in the future   |
-//! | 9    | `InvalidExpiration`    | New expiration is not strictly in the future |
-
+mod errors;
+mod events;
 mod storage;
 pub mod types;
 mod validation;
-mod events;
 
 #[cfg(test)]
 mod test;
 
-use soroban_sdk::{contract, contractimpl, Address, Env, String, Vec};
-use types::{Attestation, AttestationStatus, ClaimTypeInfo, ContractMetadata, Error, IssuerMetadata};
-use storage::Storage;
-use validation::Validation;
-use events::Events;
+use soroban_sdk::{contract, contractimpl, token::TokenClient, Address, Env, String, Vec};
 
-/// The TrustLink smart contract.
-///
-/// Provides a shared attestation infrastructure: admins manage a registry of
-/// trusted issuers, issuers create and revoke attestations, and any caller can
-/// verify claims against the registry.
+use crate::events::Events;
+use crate::storage::Storage;
+use crate::types::{
+    AdminCouncil, Attestation, AttestationRequest, AttestationStatus, AuditAction, AuditEntry, ClaimTypeInfo,
+    ContractConfig, ContractMetadata, Endorsement, Error, FeeConfig, GlobalStats, HealthStatus,
+    IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, RequestStatus, TtlConfig,
+    ATTESTATION_REQUEST_TTL_SECS, MULTISIG_PROPOSAL_TTL_SECS,
+};
+use crate::validation::Validation;
+
+// Seconds in one day.
+const SECS_PER_DAY: u64 = 86_400;
+
+/// Minimal interface expected on a registered callback contract.
+/// The callback receives the subject, attestation ID, and expiration timestamp.
+mod callback {
+    use soroban_sdk::{contractclient, Address, Env, String};
+
+    #[contractclient(name = "ExpirationCallbackClient")]
+    #[allow(dead_code)]
+    pub trait ExpirationCallback {
+        fn notify_expiring(env: Env, subject: Address, attestation_id: String, expiration: u64);
+    }
+}
+
+use callback::ExpirationCallbackClient;
+
+fn validate_metadata(metadata: &Option<String>) -> Result<(), Error> {
+    if let Some(value) = metadata {
+        if value.len() > 256 {
+            return Err(Error::MetadataTooLong);
+        }
+    }
+    Ok(())
+}
+
+/// Claim type must be non-empty and at most 64 characters.
+/// Only alphanumeric characters, underscores, and hyphens are allowed.
+fn validate_claim_type(claim_type: &String) -> Result<(), Error> {
+    let len = claim_type.len();
+    if len == 0 || len > 64 {
+        return Err(Error::InvalidClaimType);
+    }
+    // Copy into a fixed-size stack buffer and validate each byte.
+    let mut buf = [0u8; 64];
+    claim_type.copy_into_slice(&mut buf[..len as usize]);
+    for &byte in &buf[..len as usize] {
+        if !matches!(byte, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-') {
+            return Err(Error::InvalidClaimType);
+        }
+    }
+    Ok(())
+}
+
+fn validate_reason(reason: &Option<String>) -> Result<(), Error> {
+    if let Some(r) = reason {
+        if r.len() > 128 {
+            return Err(Error::ReasonTooLong);
+        }
+    }
+    Ok(())
+}
+
+fn validate_tags(tags: &Option<Vec<String>>) -> Result<(), Error> {
+    if let Some(t) = tags {
+        if t.len() > 5 {
+            return Err(Error::TooManyTags);
+        }
+        for tag in t.iter() {
+            if tag.len() > 32 {
+                return Err(Error::TagTooLong);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_jurisdiction(env: &Env, jurisdiction: &Option<String>) -> Result<(), Error> {
+    if let Some(code) = jurisdiction {
+        if code.len() != 2 {
+            return Err(Error::InvalidJurisdiction);
+        }
+
+        let valid_codes = [
+            "AF", "AX", "AL", "DZ", "AS", "AD", "AO", "AI", "AQ", "AG", "AR", "AM", "AW", "AU", "AT", "AZ",
+            "BS", "BH", "BD", "BB", "BY", "BE", "BZ", "BJ", "BM", "BT", "BO", "BQ", "BA", "BW", "BV", "BR",
+            "IO", "BN", "BG", "BF", "BI", "CV", "KH", "CM", "CA", "KY", "CF", "TD", "CL", "CN", "CX", "CC",
+            "CO", "KM", "CG", "CD", "CK", "CR", "CI", "HR", "CU", "CW", "CY", "CZ", "DK", "DJ", "DM", "DO",
+            "EC", "EG", "SV", "GQ", "ER", "EE", "SZ", "ET", "FK", "FO", "FJ", "FI", "FR", "GF", "PF", "TF",
+            "GA", "GM", "GE", "DE", "GH", "GI", "GR", "GL", "GD", "GP", "GU", "GT", "GG", "GN", "GW", "GY",
+            "HT", "HM", "VA", "HN", "HK", "HU", "IS", "IN", "ID", "IR", "IQ", "IE", "IM", "IL", "IT", "JM",
+            "JP", "JE", "JO", "KZ", "KE", "KI", "KP", "KR", "KW", "KG", "LA", "LV", "LB", "LS", "LR", "LY",
+            "LI", "LT", "LU", "MO", "MK", "MG", "MW", "MY", "MV", "ML", "MT", "MH", "MQ", "MR", "MU", "YT",
+            "MX", "FM", "MD", "MC", "MN", "ME", "MS", "MA", "MZ", "MM", "NA", "NR", "NP", "NL", "NC", "NZ",
+            "NI", "NE", "NG", "NU", "NF", "MP", "NO", "OM", "PK", "PW", "PS", "PA", "PG", "PY", "PE", "PH",
+            "PN", "PL", "PT", "PR", "QA", "RE", "RO", "RU", "RW", "BL", "SH", "KN", "LC", "MF", "PM", "VC",
+            "WS", "SM", "ST", "SA", "SN", "RS", "SC", "SL", "SG", "SX", "SK", "SI", "SB", "SO", "ZA", "GS",
+            "SS", "ES", "LK", "SD", "SR", "SJ", "SE", "CH", "SY", "TW", "TJ", "TZ", "TH", "TL", "TG", "TK",
+            "TO", "TT", "TN", "TR", "TM", "TC", "TV", "UG", "UA", "AE", "GB", "US", "UM", "UY", "UZ", "VU",
+            "VE", "VN", "VG", "VI", "WF", "EH", "YE", "ZM", "ZW",
+        ];
+
+        let mut valid = false;
+        for iso in valid_codes.iter() {
+            if code == &String::from_str(env, iso) {
+                valid = true;
+                break;
+            }
+        }
+
+        if !valid {
+            return Err(Error::InvalidJurisdiction);
+        }
+    }
+    Ok(())
+}
+
+fn validate_native_expiration(env: &Env, expiration: Option<u64>) -> Result<(), Error> {
+    if let Some(value) = expiration {
+        if value <= env.ledger().timestamp() {
+            return Err(Error::InvalidExpiration);
+        }
+    }
+    Ok(())
+}
+
+fn validate_import_timestamps(
+    env: &Env,
+    timestamp: u64,
+    expiration: Option<u64>,
+) -> Result<(), Error> {
+    if timestamp > env.ledger().timestamp() {
+        return Err(Error::InvalidTimestamp);
+    }
+
+    if let Some(value) = expiration {
+        if value <= timestamp {
+            return Err(Error::InvalidExpiration);
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_fee_config(env: &Env, fee: i128, fee_token: &Option<Address>) -> Result<(), Error> {
+    if fee < 0 {
+        return Err(Error::InvalidFee);
+    }
+
+    if fee > 0 && fee_token.is_none() {
+        return Err(Error::FeeTokenRequired);
+    }
+
+    // Validate that fee_token is a real token contract by attempting a balance call
+    if let Some(token_addr) = fee_token {
+        let token = TokenClient::new(&env, token_addr);
+        // Dry-run balance call to verify it's a token contract
+        let _ = token.balance(&env.current_contract_address());
+    }
+
+    Ok(())
+}
+
+fn check_rate_limit(env: &Env, issuer: &Address) -> Result<(), Error> {
+    if let Some(config) = Storage::get_rate_limit_config(env) {
+        if config.min_issuance_interval == 0 {
+            return Ok(());
+        }
+
+        let current_time = env.ledger().timestamp();
+        if let Some(last_issuance) = Storage::get_last_issuance_time(env, issuer) {
+            let elapsed = current_time.saturating_sub(last_issuance);
+            if elapsed < config.min_issuance_interval {
+                return Err(Error::RateLimited);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn default_fee_config(admin: &Address) -> FeeConfig {
+    FeeConfig {
+        attestation_fee: 0,
+        fee_collector: admin.clone(),
+        fee_token: None,
+    }
+}
+
+fn load_fee_config(env: &Env) -> Result<FeeConfig, Error> {
+    Storage::get_fee_config(env).ok_or(Error::NotInitialized)
+}
+
+fn charge_attestation_fee(env: &Env, issuer: &Address) -> Result<(), Error> {
+    let fee_config = load_fee_config(env)?;
+
+    if fee_config.attestation_fee < 0 {
+        return Err(Error::InvalidFee);
+    }
+
+    if fee_config.attestation_fee == 0 {
+        return Ok(());
+    }
+
+    let fee_token = fee_config.fee_token.ok_or(Error::FeeTokenRequired)?;
+    TokenClient::new(env, &fee_token).transfer(
+        issuer,
+        &fee_config.fee_collector,
+        &fee_config.attestation_fee,
+    );
+
+    Ok(())
+}
+
+fn store_attestation(env: &Env, attestation: &Attestation) {
+    Storage::set_attestation(env, attestation);
+    Storage::add_subject_attestation(env, &attestation.subject, &attestation.id);
+    Storage::add_issuer_attestation(env, &attestation.issuer, &attestation.id);
+
+    // Increment total_issued counter for this issuer.
+    let mut stats = Storage::get_issuer_stats(env, &attestation.issuer);
+    stats.total_issued += 1;
+    Storage::set_issuer_stats(env, &attestation.issuer, &stats);
+
+    // Increment global total_attestations counter.
+    Storage::increment_total_attestations(env, 1);
+}
+
+/// Fire the expiration hook for `subject` if one is registered and the
+/// attestation is inside the notification window. Failures are silently
+/// swallowed so the main flow is never interrupted.
+fn maybe_trigger_expiration_hook(
+    env: &Env,
+    subject: &Address,
+    attestation_id: &String,
+    expiration: u64,
+    current_time: u64,
+) {
+    let hook = match Storage::get_expiration_hook(env, subject) {
+        Some(h) => h,
+        None => return,
+    };
+
+    let notify_window = (hook.notify_days_before as u64) * SECS_PER_DAY;
+    let notify_from = expiration.saturating_sub(notify_window);
+
+    if current_time >= notify_from && current_time < expiration {
+        Events::expiration_hook_triggered(env, subject, attestation_id, expiration);
+        // Best-effort cross-contract call — ignore any panic/error.
+        let client = ExpirationCallbackClient::new(env, &hook.callback_contract);
+        let _ = client.try_notify_expiring(subject, attestation_id, &expiration);
+    }
+}
+
 #[contract]
 pub struct TrustLinkContract;
 
 #[contractimpl]
 impl TrustLinkContract {
-    /// Initialize the contract and set the administrator.
-    ///
-    /// Must be called exactly once after deployment. The `admin` address
-    /// must authorize this call.
-    ///
-    /// Emits an [`events::Events::admin_initialized`] event on success.
-    ///
-    /// # Parameters
-    /// - `admin` — address that will control issuer registration.
-    ///
-    /// # Errors
-    /// - [`Error::AlreadyInitialized`] — contract has already been initialized.
-    ///
-    /// # Examples
-    /// ```ignore
-    /// client.initialize(&admin_address);
-    /// ```
-    pub fn initialize(env: Env, admin: Address) -> Result<(), Error> {
+    pub fn initialize(env: Env, admin: Address, ttl_days: Option<u32>) -> Result<(), Error> {
+        admin.require_auth();
+
         if Storage::has_admin(&env) {
             return Err(Error::AlreadyInitialized);
         }
-
-        admin.require_auth();
-        Storage::set_admin(&env, &admin);
+        let mut council: AdminCouncil = Vec::new(&env);
+        council.push_back(admin.clone());
+        Storage::set_admin_council(&env, &council);
         Storage::set_version(&env, &String::from_str(&env, "1.0.0"));
+        Storage::set_fee_config(&env, &default_fee_config(&admin));
+
+        // Set TTL configuration if provided
+        if let Some(days) = ttl_days {
+            Storage::set_ttl_config(&env, &TtlConfig { ttl_days: days });
+        } else {
+            Storage::set_ttl_config(&env, &TtlConfig { ttl_days: 30 });
+        }
+
         Events::admin_initialized(&env, &admin, env.ledger().timestamp());
         Ok(())
     }
 
-    /// Register an address as an authorized attestation issuer.
-    ///
-    /// Only the current admin may call this function.
-    ///
-    /// # Parameters
-    /// - `admin` — current administrator address (must authorize).
-    /// - `issuer` — address to grant issuer privileges.
-    ///
-    /// # Errors
-    /// - [`Error::NotInitialized`] — contract has not been initialized.
-    /// - [`Error::Unauthorized`] — `admin` is not the registered administrator.
-    ///
-    /// # Examples
-    /// ```ignore
-    /// client.register_issuer(&admin, &issuer_address);
-    /// ```
+    /// Legacy transfer_admin - now use add_admin then remove_admin.
+    pub fn transfer_admin(
+        env: Env,
+        current_admin: Address,
+        new_admin: Address,
+    ) -> Result<(), Error> {
+        current_admin.require_auth();
+        Validation::require_admin(&env, &current_admin)?;
+        Storage::add_admin(&env, &new_admin);
+        Storage::remove_admin(&env, &current_admin);
+        Events::admin_transferred(&env, &current_admin, &new_admin);
+        Ok(())
+    }
+
+    /// Add new admin to council (any existing admin).
+    pub fn add_admin(
+        env: Env,
+        existing_admin: Address,
+        new_admin: Address,
+    ) -> Result<(), Error> {
+        existing_admin.require_auth();
+        Validation::require_admin(&env, &existing_admin)?;
+        if Storage::is_admin(&env, &new_admin) {
+            return Ok(()); // idempotent
+        }
+        Storage::add_admin(&env, &new_admin);
+        let ts = env.ledger().timestamp();
+        Events::admin_added(&env, &existing_admin, &new_admin, ts);
+        Ok(())
+    }
+
+    /// Remove admin from council (any existing admin, cannot remove last).
+    pub fn remove_admin(
+        env: Env,
+        existing_admin: Address,
+        admin_to_remove: Address,
+    ) -> Result<(), Error> {
+        existing_admin.require_auth();
+        Validation::require_admin(&env, &existing_admin)?;
+        let council = Storage::get_admin_council(&env)?;
+        if council.len() <= 1 {
+            return Err(Error::LastAdminCannotBeRemoved);
+        }
+        if !Storage::is_admin(&env, &admin_to_remove) {
+            return Ok(()); // idempotent
+        }
+        Storage::remove_admin(&env, &admin_to_remove);
+        let ts = env.ledger().timestamp();
+        Events::admin_removed(&env, &existing_admin, &admin_to_remove, ts);
+        Ok(())
+    }
+
     pub fn register_issuer(env: Env, admin: Address, issuer: Address) -> Result<(), Error> {
         admin.require_auth();
         Validation::require_admin(&env, &admin)?;
-
         Storage::add_issuer(&env, &issuer);
-        Events::issuer_registered(&env, &issuer, &admin);
+        Storage::increment_total_issuers(&env);
+        Events::issuer_registered(&env, &issuer, &admin, env.ledger().timestamp());
         Ok(())
     }
 
-    /// Remove an address from the authorized issuer registry.
-    ///
-    /// Only the current admin may call this function. Removing an issuer does
-    /// not revoke attestations they have already created.
-    ///
-    /// # Parameters
-    /// - `admin` — current administrator address (must authorize).
-    /// - `issuer` — address to revoke issuer privileges from.
-    ///
-    /// # Errors
-    /// - [`Error::NotInitialized`] — contract has not been initialized.
-    /// - [`Error::Unauthorized`] — `admin` is not the registered administrator.
-    ///
-    /// # Examples
-    /// ```ignore
-    /// client.remove_issuer(&admin, &issuer_address);
-    /// ```
     pub fn remove_issuer(env: Env, admin: Address, issuer: Address) -> Result<(), Error> {
         admin.require_auth();
         Validation::require_admin(&env, &admin)?;
-
         Storage::remove_issuer(&env, &issuer);
-        Events::issuer_removed(&env, &issuer, &admin);
+        Storage::decrement_total_issuers(&env);
+        Events::issuer_removed(&env, &issuer, &admin, env.ledger().timestamp());
         Ok(())
     }
 
-    /// Create a new attestation about a subject address.
+    /// Enable or disable whitelist mode for the calling issuer.
     ///
+    /// When enabled, `create_attestation` will reject any subject not present
+    /// in the issuer's whitelist. Disabled by default.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — `issuer` is not a registered issuer.
+    pub fn set_whitelist_enabled(env: Env, issuer: Address, enabled: bool) -> Result<(), Error> {
+        issuer.require_auth();
+        Validation::require_issuer(&env, &issuer)?;
+        Storage::set_whitelist_enabled(&env, &issuer, enabled);
+        Ok(())
+    }
+
+    /// Add `subject` to the calling issuer's whitelist.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — `issuer` is not a registered issuer.
+    pub fn add_to_whitelist(env: Env, issuer: Address, subject: Address) -> Result<(), Error> {
+        issuer.require_auth();
+        Validation::require_issuer(&env, &issuer)?;
+        Storage::add_subject_to_whitelist(&env, &issuer, &subject);
+        Ok(())
+    }
+
+    /// Remove `subject` from the calling issuer's whitelist.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — `issuer` is not a registered issuer.
+    pub fn remove_from_whitelist(env: Env, issuer: Address, subject: Address) -> Result<(), Error> {
+        issuer.require_auth();
+        Validation::require_issuer(&env, &issuer)?;
+        Storage::remove_subject_from_whitelist(&env, &issuer, &subject);
+        Ok(())
+    }
+
+    /// Return `true` if `subject` is on `issuer`'s whitelist.
+    pub fn is_whitelisted(env: Env, issuer: Address, subject: Address) -> bool {
+        Storage::is_subject_whitelisted(&env, &issuer, &subject)
+    }
+
+    /// Return `true` if whitelist mode is enabled for `issuer`.
+    pub fn is_whitelist_enabled(env: Env, issuer: Address) -> bool {
+        Storage::is_whitelist_enabled(&env, &issuer)
+    }
+
+    /// Update the trust tier of an already-registered issuer.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — `issuer` is not registered.
+    pub fn update_issuer_tier(
+        env: Env,
+        admin: Address,
+        issuer: Address,
+        tier: IssuerTier,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        Validation::require_admin(&env, &admin)?;
+        Validation::require_issuer(&env, &issuer)?;
+        Storage::set_issuer_tier(&env, &issuer, &tier);
+        Events::issuer_tier_updated(&env, &issuer, &tier);
+        Ok(())
+    }
+
+    /// Return the trust tier of `issuer`, or `None` if not registered.
+    pub fn get_issuer_tier(env: Env, issuer: Address) -> Option<IssuerTier> {
+        Storage::get_issuer_tier(&env, &issuer)
+    }
+
+    /// Return `true` if `subject` holds a valid `claim_type` attestation issued
+    /// by an issuer whose tier is >= `min_tier`.
+    pub fn has_valid_claim_from_tier(
+        env: Env,
+        subject: Address,
+        claim_type: String,
+        min_tier: IssuerTier,
+    ) -> bool {
+        let attestation_ids = Storage::get_subject_attestations(&env, &subject);
+        let current_time = env.ledger().timestamp();
+        let min_rank = min_tier.rank();
+
+        for attestation_id in attestation_ids.iter() {
+            if let Ok(attestation) = Storage::get_attestation(&env, &attestation_id) {
+                if attestation.deleted || attestation.claim_type != claim_type {
+                    continue;
+                }
+                if attestation.get_status(current_time) != AttestationStatus::Valid {
+                    continue;
+                }
+                if let Some(tier) = Storage::get_issuer_tier(&env, &attestation.issuer) {
+                    if tier.rank() >= min_rank {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
+    pub fn register_bridge(
+        env: Env,
+        admin: Address,
+        bridge_contract: Address,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        Validation::require_admin(&env, &admin)?;
+        Storage::add_bridge(&env, &bridge_contract);
+        Ok(())
+    }
+
+    pub fn set_fee(
+        env: Env,
+        admin: Address,
+        fee: i128,
+        collector: Address,
+        fee_token: Option<Address>,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        Validation::require_admin(&env, &admin)?;
+        validate_fee_config(&env, fee, &fee_token)?;
+
+        // Prevent admin from setting themselves as fee_collector
+        if admin == collector {
+            return Err(Error::Unauthorized);
+        }
+
+        Storage::set_fee_config(
+            &env,
+            &FeeConfig {
+                attestation_fee: fee,
+                fee_collector: collector,
+                fee_token,
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Enable whitelist mode for the calling issuer.
+    ///
+    /// When enabled, `create_attestation` will reject subjects not on the
+    /// issuer's whitelist with [`Error::SubjectNotWhitelisted`].
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — caller is not a registered issuer.
+    pub fn enable_whitelist_mode(env: Env, issuer: Address) -> Result<(), Error> {
+        issuer.require_auth();
+        Validation::require_issuer(&env, &issuer)?;
+        Storage::set_whitelist_mode(&env, &issuer, true);
+        Events::whitelist_mode_enabled(&env, &issuer);
+        Ok(())
+    }
+
+    /// Add a subject to the calling issuer's whitelist.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — caller is not a registered issuer.
+    pub fn add_to_whitelist(env: Env, issuer: Address, subject: Address) -> Result<(), Error> {
+        issuer.require_auth();
+        Validation::require_issuer(&env, &issuer)?;
+        Storage::add_to_whitelist(&env, &issuer, &subject);
+        Events::whitelist_updated(&env, &issuer, &subject, true);
+        Ok(())
+    }
+
+    /// Remove a subject from the calling issuer's whitelist.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — caller is not a registered issuer.
+    pub fn remove_from_whitelist(env: Env, issuer: Address, subject: Address) -> Result<(), Error> {
+        issuer.require_auth();
+        Validation::require_issuer(&env, &issuer)?;
+        Storage::remove_from_whitelist(&env, &issuer, &subject);
+        Events::whitelist_updated(&env, &issuer, &subject, false);
+        Ok(())
+    }
+
+    /// Return `true` if `subject` is on `issuer`'s whitelist.
+    pub fn is_whitelisted(env: Env, issuer: Address, subject: Address) -> bool {
+        Storage::is_whitelisted(&env, &issuer, &subject)
+    }
+
+    /// Create a new attestation about a subject address.    ///
     /// The attestation ID is derived deterministically from `(issuer, subject,
     /// claim_type, timestamp)`, so the same combination at the same ledger
     /// timestamp will always produce the same ID.
     ///
-    /// Emits an [`events::Events::attestation_created`] event on success.
+    /// # Errors
+    /// - [`Error::Unauthorized`] — caller is not the admin.
+    pub fn set_rate_limit(
+        env: Env,
+        admin: Address,
+        min_issuance_interval: u64,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        Validation::require_admin(&env, &admin)?;
+
+        Storage::set_rate_limit_config(
+            &env,
+            &RateLimitConfig {
+                min_issuance_interval,
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Retrieve the current rate limit configuration, or `None` if not set.
+    pub fn get_rate_limit(env: Env) -> Option<RateLimitConfig> {
+        Storage::get_rate_limit_config(&env)
+    }
+
+    /// Pause the contract, disabling all attestation write operations.
     ///
-    /// # Parameters
-    /// - `issuer` — authorized issuer creating the attestation (must authorize).
-    /// - `subject` — address the attestation is about.
-    /// - `claim_type` — free-form claim label, e.g. `"KYC_PASSED"`.
-    /// - `expiration` — optional Unix timestamp (seconds) after which the
-    ///   attestation is considered expired. Pass `None` for no expiration.
-    ///
-    /// # Returns
-    /// The deterministic attestation ID as a [`String`].
+    /// Read-only functions (`has_valid_claim`, `get_attestation`, etc.) remain
+    /// available while paused so that integrators can still verify existing
+    /// attestations during an incident.
     ///
     /// # Errors
-    /// - [`Error::Unauthorized`] — `issuer` is not a registered issuer.
-    /// - [`Error::DuplicateAttestation`] — an attestation with the same ID
-    ///   already exists (same issuer/subject/claim_type/timestamp).
+    /// - [`Error::Unauthorized`] — caller is not the admin.
+    pub fn pause(env: Env, admin: Address) -> Result<(), Error> {
+        admin.require_auth();
+        Validation::require_admin(&env, &admin)?;
+        Storage::set_paused(&env, true);
+        Events::contract_paused(&env, &admin, env.ledger().timestamp());
+        Ok(())
+    }
+
+    /// Unpause the contract, re-enabling attestation write operations.
     ///
-    /// # Examples
-    /// ```ignore
-    /// // No expiration
-    /// let id = client.create_attestation(&issuer, &user, &String::from_str(&env, "KYC_PASSED"), &None);
-    ///
-    /// // Expires in one year
-    /// let exp = env.ledger().timestamp() + 365 * 24 * 3600;
-    /// let id = client.create_attestation(&issuer, &user, &String::from_str(&env, "ACCREDITED_INVESTOR"), &Some(exp));
-    /// ```
+    /// # Errors
+    /// - [`Error::Unauthorized`] — caller is not the admin.
+    pub fn unpause(env: Env, admin: Address) -> Result<(), Error> {
+        admin.require_auth();
+        Validation::require_admin(&env, &admin)?;
+        Storage::set_paused(&env, false);
+        Events::contract_unpaused(&env, &admin, env.ledger().timestamp());
+        Ok(())
+    }
+
+    /// Return `true` if the contract is currently paused.
+    pub fn is_paused(env: Env) -> bool {
+        Storage::is_paused(&env)
+    }
+
+    /// Internal helper to create an attestation, optionally with jurisdiction.
+    fn create_attestation_internal(
+        env: &Env,
+        issuer: Address,
+        subject: Address,
+        claim_type: String,
+        expiration: Option<u64>,
+        metadata: Option<String>,
+        jurisdiction: Option<String>,
+        tags: Option<Vec<String>>,
+    ) -> Result<String, Error> {
+        issuer.require_auth();
+        Validation::require_not_paused(&env)?;
+        Validation::require_issuer(&env, &issuer)?;
+        Validation::validate_claim_type(&claim_type)?;
+        validate_metadata(&metadata)?;
+        validate_jurisdiction(env, &jurisdiction)?;
+        validate_tags(&tags)?;
+        validate_native_expiration(env, expiration)?;
+
+        if issuer == subject {
+            return Err(Error::Unauthorized);
+        }
+
+        if Storage::is_whitelist_enabled(&env, &issuer)
+            && !Storage::is_subject_whitelisted(&env, &issuer, &subject)
+        {
+            return Err(Error::SubjectNotWhitelisted);
+        }
+
+        // Check rate limit before creating attestation
+        check_rate_limit(env, &issuer)?;
+
+        let timestamp = env.ledger().timestamp();
+        let attestation_id = Attestation::generate_id(env, &issuer, &subject, &claim_type, timestamp);
+
+        if Storage::has_attestation(env, &attestation_id) {
+            return Err(Error::DuplicateAttestation);
+        }
+        
+        // Reject subject if issuer has whitelist mode enabled and subject is not listed
+        if Storage::is_whitelist_mode(&env, &issuer)
+            && !Storage::is_whitelisted(&env, &issuer, &subject)
+        {
+            return Err(Error::SubjectNotWhitelisted);
+        }
+
+        // Generate deterministic ID from attestation data
+
+        // Validate claim_type length (enforce max 64 characters)
+        let claim_type_len = claim_type.len();
+        if claim_type_len > 64 {
+            return Err(Error::InvalidClaimType);
+        }
+
+        let attestation = Attestation {
+            id: attestation_id.clone(),
+            issuer: issuer.clone(),
+            subject,
+            claim_type,
+            timestamp,
+            expiration,
+            revoked: false,
+            metadata,
+            jurisdiction,
+            valid_from: None,
+            imported: false,
+            bridged: false,
+            source_chain: None,
+            source_tx: None,
+            tags,
+            revocation_reason: None,
+            deleted: false,
+        };
+
+        // Store attestation state BEFORE calling external token contract (reentrancy guard)
+        store_attestation(env, &attestation);
+        Events::attestation_created(env, &attestation);
+        Storage::append_audit_entry(
+            env,
+            &attestation_id,
+            &AuditEntry {
+                action: AuditAction::Created,
+                actor: attestation.issuer.clone(),
+                timestamp,
+                details: None,
+            },
+        );
+
+        // Charge fee after state is persisted (reentrancy guard)
+        charge_attestation_fee(env, &issuer)?;
+
+        // Record last issuance time for rate limiting
+        Storage::set_last_issuance_time(env, &issuer, timestamp);
+
+        Events::attestation_created(env, &attestation);
+        Ok(attestation_id)
+    }
+
     pub fn create_attestation(
         env: Env,
         issuer: Address,
         subject: Address,
         claim_type: String,
         expiration: Option<u64>,
-        valid_from: Option<u64>,
+        metadata: Option<String>,
+        tags: Option<Vec<String>>,
     ) -> Result<String, Error> {
-        issuer.require_auth();
+        Self::create_attestation_internal(
+            &env,
+            issuer,
+            subject,
+            claim_type,
+            expiration,
+            metadata,
+            None,
+            tags,
+        )
+    }
+
+    pub fn create_attestation_jurisdiction(
+        env: Env,
+        issuer: Address,
+        subject: Address,
+        claim_type: String,
+        expiration: Option<u64>,
+        metadata: Option<String>,
+        jurisdiction: Option<String>,
+        tags: Option<Vec<String>>,
+    ) -> Result<String, Error> {
+        Self::create_attestation_internal(
+            &env,
+            issuer,
+            subject,
+            claim_type,
+            expiration,
+            metadata,
+            jurisdiction,
+            tags,
+        )
+    }
+
+    pub fn import_attestation(
+        env: Env,
+        admin: Address,
+        issuer: Address,
+        subject: Address,
+        claim_type: String,
+        timestamp: u64,
+        expiration: Option<u64>,
+    ) -> Result<String, Error> {
+        admin.require_auth();
+        Validation::require_admin(&env, &admin)?;
         Validation::require_issuer(&env, &issuer)?;
+        validate_import_timestamps(&env, timestamp, expiration)?;
+
+        let attestation_id =
+            Attestation::generate_id(&env, &issuer, &subject, &claim_type, timestamp);
+
+        if Storage::has_attestation(&env, &attestation_id) {
+            return Err(Error::DuplicateAttestation);
+        }
+
+        let attestation = Attestation {
+            id: attestation_id.clone(),
+            issuer,
+            subject,
+            claim_type,
+            timestamp,
+            expiration,
+            revoked: false,
+            metadata: None,
+            jurisdiction: None,
+            valid_from: None,
+            imported: true,
+            bridged: false,
+            source_chain: None,
+            source_tx: None,
+            tags: None,
+            revocation_reason: None,
+            deleted: false,
+        };
+
+        store_attestation(&env, &attestation);
+        Events::attestation_imported(&env, &attestation);
+        Storage::append_audit_entry(
+            &env,
+            &attestation_id,
+            &AuditEntry {
+                action: AuditAction::Created,
+                actor: admin.clone(),
+                timestamp,
+                details: None,
+            },
+        );
+        Ok(attestation_id)
+    }
+
+    pub fn bridge_attestation(
+        env: Env,
+        bridge: Address,
+        subject: Address,
+        claim_type: String,
+        source_chain: String,
+        source_tx: String,
+    ) -> Result<String, Error> {
+        bridge.require_auth();
+        Validation::require_bridge(&env, &bridge)?;
 
         let timestamp = env.ledger().timestamp();
-        
-        if let Some(vf) = valid_from {
-            if vf <= timestamp {
-                return Err(Error::InvalidValidFrom);
-            }
-        }
-        
-        // Generate deterministic ID from attestation data
-
-        let attestation_id = Attestation::generate_id(
+        let attestation_id = Attestation::generate_bridge_id(
             &env,
-            &issuer,
+            &bridge,
             &subject,
             &claim_type,
+            &source_chain,
+            &source_tx,
             timestamp,
         );
 
@@ -293,47 +837,39 @@ impl TrustLinkContract {
 
         let attestation = Attestation {
             id: attestation_id.clone(),
-            issuer: issuer.clone(),
-            subject: subject.clone(),
-            claim_type: claim_type.clone(),
+            issuer: bridge,
+            subject,
+            claim_type,
             timestamp,
-            expiration,
+            expiration: None,
             revoked: false,
-            valid_from,
+            metadata: None,
+            jurisdiction: None,
+            valid_from: None,
+            imported: false,
+            bridged: true,
+            source_chain: Some(source_chain),
+            source_tx: Some(source_tx),
+            tags: None,
+            revocation_reason: None,
+            deleted: false,
         };
 
-        Storage::set_attestation(&env, &attestation);
-        Storage::add_subject_attestation(&env, &subject, &attestation_id);
-        Storage::add_issuer_attestation(&env, &issuer, &attestation_id);
-
-        Events::attestation_created(&env, &attestation);
-
+        store_attestation(&env, &attestation);
+        Events::attestation_bridged(&env, &attestation);
+        Storage::append_audit_entry(
+            &env,
+            &attestation_id,
+            &AuditEntry {
+                action: AuditAction::Created,
+                actor: attestation.issuer.clone(),
+                timestamp,
+                details: None,
+            },
+        );
         Ok(attestation_id)
     }
 
-    /// Create multiple attestations in a single call (issuer only).
-    ///
-    /// Authorization is checked once for the issuer. Each subject gets an
-    /// attestation with the same `claim_type` and `expiration`. If any subject
-    /// would produce a duplicate attestation ID the entire batch fails
-    /// immediately — no partial writes occur.
-    ///
-    /// Emits an [`events::Events::attestation_created`] event for each created
-    /// attestation.
-    ///
-    /// # Parameters
-    /// - `issuer` — authorized issuer creating the attestations (must authorize).
-    /// - `subjects` — list of subject addresses to attest.
-    /// - `claim_type` — free-form claim label applied to every attestation.
-    /// - `expiration` — optional Unix timestamp after which attestations expire.
-    ///
-    /// # Returns
-    /// A [`Vec<String>`] of created attestation IDs in the same order as
-    /// `subjects`.
-    ///
-    /// # Errors
-    /// - [`Error::Unauthorized`] — `issuer` is not a registered issuer.
-    /// - [`Error::DuplicateAttestation`] — any subject would produce a duplicate ID.
     pub fn create_attestations_batch(
         env: Env,
         issuer: Address,
@@ -341,24 +877,35 @@ impl TrustLinkContract {
         claim_type: String,
         expiration: Option<u64>,
     ) -> Result<Vec<String>, Error> {
-        // Single auth check for the entire batch
         issuer.require_auth();
         Validation::require_issuer(&env, &issuer)?;
+        validate_claim_type(&claim_type)?;
+        validate_native_expiration(&env, expiration)?;
+        check_rate_limit(&env, &issuer)?;
 
         let timestamp = env.ledger().timestamp();
+
+        // Enforce issuer-level limit up front for the whole batch
+        let limits = Storage::get_limits(&env);
+        let issuer_count = Storage::get_issuer_attestations(&env, &issuer).len();
+        if issuer_count.saturating_add(subjects.len()) > limits.max_attestations_per_issuer {
+            return Err(Error::LimitExceeded);
+        }
+
         let mut ids: Vec<String> = Vec::new(&env);
 
         for subject in subjects.iter() {
-            let attestation_id = Attestation::generate_id(
-                &env,
-                &issuer,
-                &subject,
-                &claim_type,
-                timestamp,
-            );
+            let attestation_id =
+                Attestation::generate_id(&env, &issuer, &subject, &claim_type, timestamp);
 
             if Storage::has_attestation(&env, &attestation_id) {
                 return Err(Error::DuplicateAttestation);
+            }
+
+            // Per-subject limit check
+            let subject_count = Storage::get_subject_attestations(&env, &subject).len();
+            if subject_count >= limits.max_attestations_per_subject {
+                return Err(Error::LimitExceeded);
             }
 
             let attestation = Attestation {
@@ -369,47 +916,47 @@ impl TrustLinkContract {
                 timestamp,
                 expiration,
                 revoked: false,
+                metadata: None,
+                jurisdiction: None,
                 valid_from: None,
+                imported: false,
+                bridged: false,
+                source_chain: None,
+                source_tx: None,
+                tags: None,
+                revocation_reason: None,
+                deleted: false,
             };
 
-            Storage::set_attestation(&env, &attestation);
-            Storage::add_subject_attestation(&env, &subject, &attestation_id);
-            Storage::add_issuer_attestation(&env, &issuer, &attestation_id);
+            store_attestation(&env, &attestation);
             Events::attestation_created(&env, &attestation);
-
+            Storage::append_audit_entry(
+                &env,
+                &attestation_id,
+                &AuditEntry {
+                    action: AuditAction::Created,
+                    actor: issuer.clone(),
+                    timestamp,
+                    details: None,
+                },
+            );
             ids.push_back(attestation_id);
         }
 
+        Storage::set_last_issuance_time(&env, &issuer, timestamp);
         Ok(ids)
     }
 
-    /// Revoke an existing attestation.
-    ///
-    /// Only the original issuer of the attestation may revoke it. Revocation is
-    /// permanent — the attestation record is kept but marked as revoked.
-    ///
-    /// Emits an [`events::Events::attestation_revoked`] event on success.
-    ///
-    /// # Parameters
-    /// - `issuer` — the issuer who created the attestation (must authorize).
-    /// - `attestation_id` — ID of the attestation to revoke.
-    ///
-    /// # Errors
-    /// - [`Error::NotFound`] — no attestation exists with the given ID.
-    /// - [`Error::Unauthorized`] — caller is not the original issuer.
-    /// - [`Error::AlreadyRevoked`] — attestation has already been revoked.
-    ///
-    /// # Examples
-    /// ```ignore
-    /// client.revoke_attestation(&issuer, &attestation_id);
-    /// ```
     pub fn revoke_attestation(
         env: Env,
         issuer: Address,
         attestation_id: String,
+        reason: Option<String>,
     ) -> Result<(), Error> {
         issuer.require_auth();
-
+        Validation::require_not_paused(&env)?;
+        Validation::require_issuer(&env, &issuer)?;
+        validate_reason(&reason)?;
         let mut attestation = Storage::get_attestation(&env, &attestation_id)?;
 
         if attestation.issuer != issuer {
@@ -421,67 +968,43 @@ impl TrustLinkContract {
         }
 
         attestation.revoked = true;
+        attestation.revocation_reason = reason.clone();
         Storage::set_attestation(&env, &attestation);
 
-        Events::attestation_revoked(&env, &attestation_id, &issuer);
+        // Prune revoked attestation ID from both indexes so pagination reflects
+        // only non-revoked entries, while preserving immutable attestation
+        // history in storage.
+        Storage::remove_subject_attestation(&env, &attestation.subject, &attestation_id);
+        Storage::remove_issuer_attestation(&env, &issuer, &attestation_id);
 
+        Events::attestation_revoked(&env, &attestation_id, &issuer, &reason);
+        Storage::append_audit_entry(
+            &env,
+            &attestation_id,
+            &AuditEntry {
+                action: AuditAction::Revoked,
+                actor: issuer.clone(),
+                timestamp: env.ledger().timestamp(),
+                details: reason.clone(),
+            },
+        );
+        Storage::increment_total_revocations(&env, 1);
         Ok(())
     }
 
-    /// Renew an existing attestation with a new expiration (issuer only)
-    pub fn renew_attestation(
-        env: Env,
-        issuer: Address,
-        attestation_id: String,
-        new_expiration: Option<u64>,
-    ) -> Result<(), Error> {
-        issuer.require_auth();
-
-        let mut attestation = Storage::get_attestation(&env, &attestation_id)?;
-
-        if attestation.issuer != issuer {
-            return Err(Error::Unauthorized);
-        }
-
-        Validation::require_issuer(&env, &issuer)?;
-
-        if attestation.revoked {
-            return Err(Error::AlreadyRevoked);
-        }
-
-        if let Some(t) = new_expiration {
-            if t <= env.ledger().timestamp() {
-                return Err(Error::InvalidExpiration);
-            }
-        }
-
-        attestation.expiration = new_expiration;
-        Storage::set_attestation(&env, &attestation);
-        Events::attestation_renewed(&env, &attestation_id, &issuer, new_expiration);
-
-        Ok(())
-    }
-
-    /// Check if an address has a valid attestation of a given type
-    /// Revoke multiple attestations in a single call (issuer only).
-    /// Auth is checked once for the issuer. Each attestation is validated
-    /// individually — if any attestation does not belong to the caller or is
-    /// already revoked the corresponding error is returned immediately and no
-    /// further attestations are processed.
-    /// Returns the count of successfully revoked attestations.
     pub fn revoke_attestations_batch(
         env: Env,
         issuer: Address,
         attestation_ids: Vec<String>,
+        reason: Option<String>,
     ) -> Result<u32, Error> {
-        // Single auth check for the entire batch
         issuer.require_auth();
         Validation::require_issuer(&env, &issuer)?;
+        validate_reason(&reason)?;
 
-        let mut count: u32 = 0;
-
-        for id in attestation_ids.iter() {
-            let mut attestation = Storage::get_attestation(&env, &id)?;
+        let mut count = 0;
+        for attestation_id in attestation_ids.iter() {
+            let mut attestation = Storage::get_attestation(&env, &attestation_id)?;
 
             if attestation.issuer != issuer {
                 return Err(Error::Unauthorized);
@@ -492,32 +1015,147 @@ impl TrustLinkContract {
             }
 
             attestation.revoked = true;
+            attestation.revocation_reason = reason.clone();
             Storage::set_attestation(&env, &attestation);
-            Events::attestation_revoked(&env, &id, &issuer);
 
+            // Prune revoked attestation ID from both indexes so pagination
+            // counts shrink after revocation.
+            Storage::remove_subject_attestation(&env, &attestation.subject, &attestation_id);
+            Storage::remove_issuer_attestation(&env, &issuer, &attestation_id);
+
+            Events::attestation_revoked(&env, &attestation_id, &issuer, &reason);
+            Storage::append_audit_entry(
+                &env,
+                &attestation_id,
+                &AuditEntry {
+                    action: AuditAction::Revoked,
+                    actor: issuer.clone(),
+                    timestamp: env.ledger().timestamp(),
+                    details: reason.clone(),
+                },
+            );
             count += 1;
         }
 
+        Storage::increment_total_revocations(&env, count as u64);
         Ok(count)
     }
 
-    /// Check if an address has a valid attestation of a given type.
-    /// Emits an `expired` event for any expired (non-revoked) attestation encountered.
-    pub fn has_valid_claim(
+    pub fn renew_attestation(
+        env: Env,
+        issuer: Address,
+        attestation_id: String,
+        new_expiration: Option<u64>,
+    ) -> Result<(), Error> {
+        issuer.require_auth();
+        Validation::require_issuer(&env, &issuer)?;
+        validate_native_expiration(&env, new_expiration)?;
+
+        let mut attestation = Storage::get_attestation(&env, &attestation_id)?;
+        if attestation.issuer != issuer {
+            return Err(Error::Unauthorized);
+        }
+        if attestation.revoked {
+            return Err(Error::AlreadyRevoked);
+        }
+
+        attestation.expiration = new_expiration;
+        Storage::set_attestation(&env, &attestation);
+        Events::attestation_renewed(&env, &attestation_id, &issuer, new_expiration);
+        Storage::append_audit_entry(
+            &env,
+            &attestation_id,
+            &AuditEntry {
+                action: AuditAction::Renewed,
+                actor: issuer.clone(),
+                timestamp: env.ledger().timestamp(),
+                details: None,
+            },
+        );
+        Ok(())
+    }
+
+    /// Revoke multiple attestations in a single atomic call (issuer only).
+    ///
+    /// Authorization is checked once for the issuer. If any attestation does
+    /// not belong to the caller or is already revoked the entire batch is
+    /// rolled back — no partial writes occur.
+    ///
+    /// Max batch size is 50. Passing more IDs returns [`Error::BatchTooLarge`].
+    ///
+    /// Emits one `revoked` event per attestation.
+    ///
+    /// # Parameters
+    /// - `issuer` — authorized issuer (must authorize).
+    /// - `attestation_ids` — list of IDs to revoke (max 50).
+    /// - `reason` — optional human-readable reason stored in the event data.
+    ///
+    /// # Returns
+    /// Count of revoked attestations.
+    ///
+    /// # Errors
+    /// - [`Error::BatchTooLarge`] — more than 50 IDs supplied.
+    /// - [`Error::Unauthorized`] — issuer is not registered or does not own an attestation.
+    /// - [`Error::NotFound`] — an ID does not exist.
+    /// - [`Error::AlreadyRevoked`] — an attestation is already revoked.
+    pub fn revoke_attestations_batch(
+        env: Env,
+        issuer: Address,
+        attestation_ids: Vec<String>,
+        reason: Option<String>,
+    ) -> Result<u32, Error> {
+        const MAX_BATCH: u32 = 50;
+
+        issuer.require_auth();
+        Validation::require_issuer(&env, &issuer)?;
+
+        if attestation_ids.len() > MAX_BATCH {
+            return Err(Error::BatchTooLarge);
+        }
+
+        // Validate all attestations first (atomic — no partial writes)
+        for id in attestation_ids.iter() {
+            let attestation = Storage::get_attestation(&env, &id)?;
+            if attestation.issuer != issuer {
+                return Err(Error::Unauthorized);
+            }
+            if attestation.revoked {
+                return Err(Error::AlreadyRevoked);
+            }
+        }
+
+        // All checks passed — apply writes
+        let mut count: u32 = 0;
+        for id in attestation_ids.iter() {
+            let mut attestation = Storage::get_attestation(&env, &id)?;
+            attestation.revoked = true;
+            Storage::set_attestation(&env, &attestation);
+            Events::attestation_revoked_with_reason(&env, &id, &issuer, &reason);
+            count += 1;
+        }
+
+        false
+    }
+
+    pub fn has_valid_claim_from_issuer(
         env: Env,
         subject: Address,
         claim_type: String,
+        issuer: Address,
     ) -> bool {
         let attestation_ids = Storage::get_subject_attestations(&env, &subject);
         let current_time = env.ledger().timestamp();
 
-        for id in attestation_ids.iter() {
-            if let Ok(attestation) = Storage::get_attestation(&env, &id) {
-                if attestation.claim_type == claim_type {
+        for attestation_id in attestation_ids.iter() {
+            if let Ok(attestation) = Storage::get_attestation(&env, &attestation_id) {
+                if attestation.deleted {
+                    continue;
+                }
+                if attestation.claim_type == claim_type && attestation.issuer == issuer {
                     match attestation.get_status(current_time) {
                         AttestationStatus::Valid => return true,
                         AttestationStatus::Expired => {
-                            Events::attestation_expired(&env, &id, &subject);
+                            Events::attestation_expired(&env, &attestation_id, &subject);
                         }
                         AttestationStatus::Revoked | AttestationStatus::Pending => {}
                     }
@@ -528,228 +1166,235 @@ impl TrustLinkContract {
         false
     }
 
-    /// Check if an address has a valid attestation for any of the given claim types
     pub fn has_any_claim(env: Env, subject: Address, claim_types: Vec<String>) -> bool {
         if claim_types.is_empty() {
             return false;
         }
+
         let attestation_ids = Storage::get_subject_attestations(&env, &subject);
         let current_time = env.ledger().timestamp();
+
         for claim_type in claim_types.iter() {
-            for id in attestation_ids.iter() {
-                if let Ok(attestation) = Storage::get_attestation(&env, &id) {
-                    if attestation.claim_type == claim_type {
-                        if attestation.get_status(current_time) == AttestationStatus::Valid {
-                            return true;
-                        }
+            for attestation_id in attestation_ids.iter() {
+                if let Ok(attestation) = Storage::get_attestation(&env, &attestation_id) {
+                    if !attestation.deleted
+                        && attestation.claim_type == claim_type
+                        && attestation.get_status(current_time) == AttestationStatus::Valid
+                    {
+                        return true;
                     }
                 }
             }
         }
+
         false
     }
 
-    /// Check if an address holds a valid attestation for every claim type in the list.
-    ///
-    /// Returns `true` immediately when `claim_types` is empty (vacuous truth).
-    /// Short-circuits and returns `false` as soon as any claim type is found to
-    /// be missing, revoked, or expired — no further types are checked.
-    ///
-    /// # Parameters
-    /// - `subject` — address to check.
-    /// - `claim_types` — list of claim type strings that must all be valid.
-    ///
-    /// # Returns
-    /// `true` only if every claim type in the list has at least one
-    /// [`AttestationStatus::Valid`] attestation for `subject`.
-    ///
-    /// # Examples
-    /// ```ignore
-    /// let mut required = Vec::new(&env);
-    /// required.push_back(String::from_str(&env, "KYC_PASSED"));
-    /// required.push_back(String::from_str(&env, "ACCREDITED_INVESTOR"));
-    /// assert!(client.has_all_claims(&user, &required));
-    /// ```
     pub fn has_all_claims(env: Env, subject: Address, claim_types: Vec<String>) -> bool {
         if claim_types.is_empty() {
             return true;
         }
+
         let attestation_ids = Storage::get_subject_attestations(&env, &subject);
         let current_time = env.ledger().timestamp();
 
-        // For each required claim type, check that at least one valid attestation exists.
-        // Short-circuit on the first missing/invalid claim.
-        'outer: for claim_type in claim_types.iter() {
-            for id in attestation_ids.iter() {
-                if let Ok(attestation) = Storage::get_attestation(&env, &id) {
-                    if attestation.claim_type == claim_type
+        'claims: for claim_type in claim_types.iter() {
+            for attestation_id in attestation_ids.iter() {
+                if let Ok(attestation) = Storage::get_attestation(&env, &attestation_id) {
+                    if !attestation.deleted
+                        && attestation.claim_type == claim_type
                         && attestation.get_status(current_time) == AttestationStatus::Valid
                     {
-                        continue 'outer; // this claim type is satisfied
+                        continue 'claims;
                     }
                 }
             }
-            // No valid attestation found for this claim type
+
             return false;
         }
+
         true
     }
 
-    /// Get a specific attestation by ID
-    /// Fetch the full attestation record by ID.
-    ///
-    /// # Parameters
-    /// - `attestation_id` — the attestation ID returned by [`create_attestation`].
-    ///
-    /// # Returns
-    /// The [`Attestation`] struct containing all fields.
-    ///
-    /// # Errors
-    /// - [`Error::NotFound`] — no attestation exists with the given ID.
-    ///
-    /// # Examples
-    /// ```ignore
-    /// let attestation = client.get_attestation(&id);
-    /// assert_eq!(attestation.claim_type, String::from_str(&env, "KYC_PASSED"));
-    /// ```
-    pub fn get_attestation(
-        env: Env,
-        attestation_id: String,
-    ) -> Result<Attestation, Error> {
+    pub fn get_attestation(env: Env, attestation_id: String) -> Result<Attestation, Error> {
         Storage::get_attestation(&env, &attestation_id)
     }
 
-    /// Return the current status of an attestation.
+    /// Request GDPR deletion of an attestation.
     ///
-    /// Emits an [`events::Events::attestation_expired`] event when the status
-    /// is [`AttestationStatus::Expired`]. No event is emitted for revoked
-    /// attestations (revocation takes precedence over expiration).
+    /// Only the subject of the attestation may call this. The attestation is
+    /// marked as `deleted` (soft-delete) and removed from the subject index so
+    /// it no longer appears in any query result. The record itself is retained
+    /// in storage for audit purposes, but is invisible to all public queries.
     ///
-    /// # Parameters
-    /// - `attestation_id` — the attestation ID to query.
-    ///
-    /// # Returns
-    /// - [`AttestationStatus::Valid`] — active and not expired.
-    /// - [`AttestationStatus::Expired`] — past its expiration timestamp.
-    /// - [`AttestationStatus::Revoked`] — explicitly revoked by the issuer.
+    /// A `DeletionRequested` event is emitted for off-chain compliance audit trails.
     ///
     /// # Errors
-    /// - [`Error::NotFound`] — no attestation exists with the given ID.
+    /// - [`Error::NotFound`] — attestation does not exist.
+    /// - [`Error::Unauthorized`] — caller is not the subject of the attestation.
+    pub fn request_deletion(
+        env: Env,
+        subject: Address,
+        attestation_id: String,
+    ) -> Result<(), Error> {
+        subject.require_auth();
+
+        let mut attestation = Storage::get_attestation(&env, &attestation_id)?;
+
+        if attestation.subject != subject {
+            return Err(Error::Unauthorized);
+        }
+
+        attestation.deleted = true;
+        Storage::set_attestation(&env, &attestation);
+        Storage::remove_subject_attestation(&env, &subject, &attestation_id);
+
+        let timestamp = env.ledger().timestamp();
+        Events::deletion_requested(&env, &subject, &attestation_id, timestamp);
+        Ok(())
+    }
+
+    /// Return the full audit log for `attestation_id`.
     ///
-    /// # Examples
-    /// ```ignore
-    /// match client.get_attestation_status(&id) {
-    ///     AttestationStatus::Valid   => { /* proceed */ }
-    ///     AttestationStatus::Expired => { /* re-issue */ }
-    ///     AttestationStatus::Revoked => { /* deny */ }
-    /// }
-    /// ```
+    /// The log is append-only and contains one entry per state change
+    /// (create, revoke, renew, update). Returns an empty list if the
+    /// attestation has no recorded history.
+    pub fn get_audit_log(env: Env, attestation_id: String) -> Vec<AuditEntry> {
+        Storage::get_audit_log(&env, &attestation_id)
+    }
+
     pub fn get_attestation_status(
         env: Env,
         attestation_id: String,
     ) -> Result<AttestationStatus, Error> {
         let attestation = Storage::get_attestation(&env, &attestation_id)?;
-        let current_time = env.ledger().timestamp();
-        let status = attestation.get_status(current_time);
+        let status = attestation.get_status(env.ledger().timestamp());
+
         if status == AttestationStatus::Expired {
             Events::attestation_expired(&env, &attestation_id, &attestation.subject);
         }
+
         Ok(status)
     }
 
-    /// Return a paginated list of attestation IDs for a subject.
-    ///
-    /// # Parameters
-    /// - `subject` — address whose attestations to list.
-    /// - `start` — zero-based index of the first item to return.
-    /// - `limit` — maximum number of items to return.
-    ///
-    /// # Returns
-    /// A [`Vec<String>`] of attestation IDs. May be shorter than `limit` if
-    /// fewer attestations exist beyond `start`.
-    ///
-    /// # Examples
-    /// ```ignore
-    /// let page1 = client.get_subject_attestations(&user, &0, &10);
-    /// let page2 = client.get_subject_attestations(&user, &10, &10);
-    /// ```
     pub fn get_subject_attestations(
         env: Env,
         subject: Address,
         start: u32,
         limit: u32,
     ) -> Vec<String> {
-        let all_ids = Storage::get_subject_attestations(&env, &subject);
-        let total = all_ids.len();
+        crate::storage::paginate(
+            &env,
+            &Storage::get_subject_attestations(&env, &subject),
+            start,
+            limit,
+        )
+    }
 
+    pub fn get_attestations_in_range(
+        env: Env,
+        subject: Address,
+        from_ts: u64,
+        to_ts: u64,
+        start: u32,
+        limit: u32,
+    ) -> Vec<Attestation> {
+        let attestation_ids = Storage::get_subject_attestations(&env, &subject);
+        let mut filtered_ids = Vec::new(&env);
+
+        for id in attestation_ids.iter() {
+            if let Ok(attestation) = Storage::get_attestation(&env, &id) {
+                if !attestation.deleted
+                    && attestation.timestamp >= from_ts
+                    && attestation.timestamp <= to_ts
+                {
+                    filtered_ids.push_back(id);
+                }
+            }
+        }
+
+        let paginated_ids = crate::storage::paginate(&env, filtered_ids, start, limit);
         let mut result = Vec::new(&env);
-        let end = (start + limit).min(total);
 
-        for i in start..end {
-            if let Some(id) = all_ids.get(i) {
-                result.push_back(id);
+        for id in paginated_ids.iter() {
+            if let Ok(attestation) = Storage::get_attestation(&env, &id) {
+                result.push_back(attestation);
             }
         }
 
         result
     }
 
-    /// Return a paginated list of attestation IDs created by an issuer.
-    ///
-    /// # Parameters
-    /// - `issuer` — issuer address whose attestations to list.
-    /// - `start` — zero-based index of the first item to return.
-    /// - `limit` — maximum number of items to return.
-    ///
-    /// # Returns
-    /// A [`Vec<String>`] of attestation IDs. May be shorter than `limit` if
-    /// fewer attestations exist beyond `start`.
-    ///
-    /// # Examples
-    /// ```ignore
-    /// let issued = client.get_issuer_attestations(&issuer, &0, &50);
-    /// ```
+    pub fn get_attestations_by_tag(env: Env, subject: Address, tag: String) -> Vec<String> {
+        let attestation_ids = Storage::get_subject_attestations(&env, &subject);
+        let mut result = Vec::new(&env);
+
+        for id in attestation_ids.iter() {
+            if let Ok(attestation) = Storage::get_attestation(&env, &id) {
+                if attestation.deleted {
+                    continue;
+                }
+                if let Some(tags) = attestation.tags {
+                    for t in tags.iter() {
+                        if t == tag {
+                            result.push_back(id.clone());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        result
+    }
+
+    pub fn get_attestations_by_jurisdiction(
+        env: Env,
+        subject: Address,
+        jurisdiction: String,
+    ) -> Vec<String> {
+        let attestation_ids = Storage::get_subject_attestations(&env, &subject);
+        let mut result = Vec::new(&env);
+
+        for id in attestation_ids.iter() {
+            if let Ok(attestation) = Storage::get_attestation(&env, &id) {
+                if attestation.deleted {
+                    continue;
+                }
+                if let Some(att_jurisdiction) = attestation.jurisdiction {
+                    if att_jurisdiction == jurisdiction {
+                        result.push_back(id.clone());
+                    }
+                }
+            }
+        }
+
+        result
+    }
+
     pub fn get_issuer_attestations(
         env: Env,
         issuer: Address,
         start: u32,
         limit: u32,
     ) -> Vec<String> {
-        let all_ids = Storage::get_issuer_attestations(&env, &issuer);
-        let total = all_ids.len();
-
-        let mut result = Vec::new(&env);
-        let end = (start + limit).min(total);
-
-        for i in start..end {
-            if let Some(id) = all_ids.get(i) {
-                result.push_back(id);
-            }
-        }
-
-        result
+        crate::storage::paginate(
+            &env,
+            &Storage::get_issuer_attestations(&env, &issuer),
+            start,
+            limit,
+        )
     }
 
-    /// Return a deduplicated list of valid claim types for a subject.
-    ///
-    /// Iterates all attestations for `subject` and collects claim types whose
-    /// status is [`AttestationStatus::Valid`]. Revoked and expired attestations
-    /// are silently skipped. Duplicate claim types appear only once in the result.
-    ///
-    /// # Parameters
-    /// - `subject` — address to query.
-    ///
-    /// # Returns
-    /// A [`Vec<String>`] of unique valid claim type strings. Empty if the
-    /// subject has no valid attestations.
     pub fn get_valid_claims(env: Env, subject: Address) -> Vec<String> {
-        let attestation_ids = Storage::get_subject_attestations(&env, &subject);
         let current_time = env.ledger().timestamp();
-        let mut result: Vec<String> = Vec::new(&env);
+        let mut result = Vec::new(&env);
 
-        for id in attestation_ids.iter() {
-            if let Ok(attestation) = Storage::get_attestation(&env, &id) {
-                if attestation.get_status(current_time) == AttestationStatus::Valid {
+        for attestation_id in Storage::get_subject_attestations(&env, &subject).iter() {
+            if let Ok(attestation) = Storage::get_attestation(&env, &attestation_id) {
+                if !attestation.deleted
+                    && attestation.get_status(current_time) == AttestationStatus::Valid
+                {
                     let mut already_present = false;
                     for existing in result.iter() {
                         if existing == attestation.claim_type {
@@ -757,6 +1402,7 @@ impl TrustLinkContract {
                             break;
                         }
                     }
+
                     if !already_present {
                         result.push_back(attestation.claim_type);
                     }
@@ -767,26 +1413,6 @@ impl TrustLinkContract {
         result
     }
 
-    /// Check whether an address is a registered issuer.
-    ///
-    /// # Parameters
-    /// - `address` — address to check.
-    ///
-    /// # Returns
-    /// `true` if the address is in the issuer registry, `false` otherwise.
-    ///
-    /// # Examples
-    /// ```ignore
-    /// assert!(client.is_issuer(&issuer_address));
-    /// ```
-    pub fn is_issuer(env: Env, address: Address) -> bool {
-        Storage::is_issuer(&env, &address)
-    }
-
-    /// Find the most recent valid attestation for a subject by claim type.
-    /// Iterates the subject's attestations in reverse (most recent first) and
-    /// returns the first one that is neither revoked nor expired.
-    /// Returns Error::NotFound if no valid attestation exists.
     pub fn get_attestation_by_type(
         env: Env,
         subject: Address,
@@ -794,19 +1420,17 @@ impl TrustLinkContract {
     ) -> Result<Attestation, Error> {
         let attestation_ids = Storage::get_subject_attestations(&env, &subject);
         let current_time = env.ledger().timestamp();
-        let len = attestation_ids.len();
+        let mut index = attestation_ids.len();
 
-        // Iterate in reverse so the most recently added attestation is checked first
-        let mut i = len;
-        while i > 0 {
-            i -= 1;
-            if let Some(id) = attestation_ids.get(i) {
-                if let Ok(attestation) = Storage::get_attestation(&env, &id) {
-                    if attestation.claim_type == claim_type
-                        && attestation.get_status(current_time) == AttestationStatus::Valid
-                    {
-                        return Ok(attestation);
-                    }
+        while index > 0 {
+            index -= 1;
+            if let Some(attestation_id) = attestation_ids.get(index) {
+                let attestation = Storage::get_attestation(&env, &attestation_id)?;
+                if !attestation.deleted
+                    && attestation.claim_type == claim_type
+                    && attestation.get_status(current_time) == AttestationStatus::Valid
+                {
+                    return Ok(attestation);
                 }
             }
         }
@@ -814,26 +1438,18 @@ impl TrustLinkContract {
         Err(Error::NotFound)
     }
 
-    /// Set metadata for the calling issuer.
-    ///
-    /// Only the issuer themselves may set their own metadata. The issuer must
-    /// already be registered in the issuer registry.
-    ///
-    /// # Parameters
-    /// - `issuer` — the issuer address (must authorize).
-    /// - `metadata` — [`IssuerMetadata`] containing name, url, and description.
-    ///
-    /// # Errors
-    /// - [`Error::Unauthorized`] — `issuer` is not a registered issuer.
-    ///
-    /// # Examples
-    /// ```ignore
-    /// client.set_issuer_metadata(&issuer, &IssuerMetadata {
-    ///     name: String::from_str(&env, "Acme KYC"),
-    ///     url: String::from_str(&env, "https://acme.example"),
-    ///     description: String::from_str(&env, "Trusted KYC provider"),
-    /// });
-    /// ```
+    pub fn is_issuer(env: Env, address: Address) -> bool {
+        Storage::is_issuer(&env, &address)
+    }
+
+    pub fn get_issuer_stats(env: Env, issuer: Address) -> IssuerStats {
+        Storage::get_issuer_stats(&env, &issuer)
+    }
+
+    pub fn is_bridge(env: Env, address: Address) -> bool {
+        Storage::is_bridge(&env, &address)
+    }
+
     pub fn set_issuer_metadata(
         env: Env,
         issuer: Address,
@@ -841,60 +1457,22 @@ impl TrustLinkContract {
     ) -> Result<(), Error> {
         issuer.require_auth();
         Validation::require_issuer(&env, &issuer)?;
-
         Storage::set_issuer_metadata(&env, &issuer, &metadata);
         Ok(())
     }
 
-    /// Retrieve metadata for an issuer.
-    ///
-    /// # Parameters
-    /// - `issuer` — the issuer address to look up.
-    ///
-    /// # Returns
-    /// `Some(IssuerMetadata)` if the issuer has set metadata, `None` otherwise.
-    ///
-    /// # Examples
-    /// ```ignore
-    /// if let Some(meta) = client.get_issuer_metadata(&issuer) {
-    ///     println!("{}", meta.name);
-    /// }
-    /// ```
     pub fn get_issuer_metadata(env: Env, issuer: Address) -> Option<IssuerMetadata> {
         Storage::get_issuer_metadata(&env, &issuer)
     }
 
-    /// Get the admin address
-    /// Return the current administrator address.    ///
-    /// # Returns
-    /// The admin [`Address`] set during [`initialize`].
-    ///
-    /// # Errors
-    /// - [`Error::NotInitialized`] — contract has not been initialized.
-    ///
-    /// # Examples
-    /// ```ignore
-    /// let admin = client.get_admin();
-    /// ```
     pub fn get_admin(env: Env) -> Result<Address, Error> {
         Storage::get_admin(&env)
     }
 
-    /// Register a known claim type with a human-readable description (admin only).
-    ///
-    /// Pre-registers standard types on first deployment. Re-registering an
-    /// existing claim type updates its description.
-    ///
-    /// Emits a `clmtype` event on success.
-    ///
-    /// # Parameters
-    /// - `admin` — current administrator address (must authorize).
-    /// - `claim_type` — identifier string, e.g. `"KYC_PASSED"`.
-    /// - `description` — human-readable description of the claim type.
-    ///
-    /// # Errors
-    /// - [`Error::NotInitialized`] — contract has not been initialized.
-    /// - [`Error::Unauthorized`] — `admin` is not the registered administrator.
+    pub fn get_fee_config(env: Env) -> Result<FeeConfig, Error> {
+        load_fee_config(&env)
+    }
+
     pub fn register_claim_type(
         env: Env,
         admin: Address,
@@ -903,83 +1481,264 @@ impl TrustLinkContract {
     ) -> Result<(), Error> {
         admin.require_auth();
         Validation::require_admin(&env, &admin)?;
+        validate_claim_type(&claim_type)?;
 
-        let info = ClaimTypeInfo { claim_type: claim_type.clone(), description: description.clone() };
+        let info = ClaimTypeInfo {
+            claim_type: claim_type.clone(),
+            description: description.clone(),
+        };
         Storage::set_claim_type(&env, &info);
         Events::claim_type_registered(&env, &claim_type, &description);
         Ok(())
     }
 
-    /// Return the description for a registered claim type, or `None` if unknown.
-    ///
-    /// # Parameters
-    /// - `claim_type` — identifier to look up.
     pub fn get_claim_type_description(env: Env, claim_type: String) -> Option<String> {
         Storage::get_claim_type(&env, &claim_type).map(|info| info.description)
     }
 
-    /// Return a paginated list of registered claim type identifiers.
-    ///
-    /// # Parameters
-    /// - `start` — zero-based index of the first item to return.
-    /// - `limit` — maximum number of items to return.
-    ///
-    /// # Returns
-    /// A [`Vec<String>`] of claim type strings in registration order.
     pub fn list_claim_types(env: Env, start: u32, limit: u32) -> Vec<String> {
-        let all = Storage::get_claim_type_list(&env);
-        let total = all.len();
-        let mut result = Vec::new(&env);
-        let end = (start + limit).min(total);
-        for i in start..end {
-            if let Some(ct) = all.get(i) {
-                result.push_back(ct);
-            }
-        }
-        result
+        crate::storage::paginate(&env, &Storage::get_claim_type_list(&env), start, limit)
     }
 
-    /// Update the expiration of an existing attestation.
+    /// Create a multi-sig attestation proposal.
     ///
-    /// Only the original issuer may update the expiration. The attestation must
-    /// not be revoked. The expiration can be extended, shortened, or removed
-    /// entirely by passing `None`.
-    ///
-    /// Emits an `attestation_updated` event on success.
-    ///
-    /// # Parameters
-    /// - `issuer` — the issuer who created the attestation (must authorize).
-    /// - `attestation_id` — ID of the attestation to update.
-    /// - `new_expiration` — new expiration timestamp, or `None` to remove expiration.
+    /// The proposer automatically counts as the first signer. The proposal
+    /// expires after `MULTISIG_PROPOSAL_TTL_SECS` seconds if not completed.
     ///
     /// # Errors
-    /// - [`Error::NotFound`] — no attestation exists with the given ID.
-    /// - [`Error::Unauthorized`] — caller is not the original issuer.
-    /// - [`Error::AlreadyRevoked`] — attestation has already been revoked.
-    pub fn update_expiration(
+    /// - [`Error::Unauthorized`] — proposer is not a registered issuer, or any
+    ///   address in `required_signers` is not a registered issuer.
+    /// - [`Error::InvalidThreshold`] — threshold is 0 or exceeds signer count.
+    pub fn propose_attestation(
         env: Env,
-        issuer: Address,
-        attestation_id: String,
-        new_expiration: Option<u64>,
-    ) -> Result<(), Error> {
+        proposer: Address,
+        subject: Address,
+        claim_type: String,
+        required_signers: Vec<Address>,
+        threshold: u32,
+    ) -> Result<String, Error> {
+        proposer.require_auth();
+        Validation::require_issuer(&env, &proposer)?;
+
+        // Validate all required signers are registered issuers.
+        for signer in required_signers.iter() {
+            Validation::require_issuer(&env, &signer)?;
+        }
+
+        let signer_count = required_signers.len();
+        if threshold == 0 || threshold > signer_count {
+            return Err(Error::InvalidThreshold);
+        }
+
+        let timestamp = env.ledger().timestamp();
+        let proposal_id =
+            MultiSigProposal::generate_id(&env, &proposer, &subject, &claim_type, timestamp);
+
+        // Proposer auto-signs on creation.
+        let mut signers = Vec::new(&env);
+        signers.push_back(proposer.clone());
+
+        let proposal = MultiSigProposal {
+            id: proposal_id.clone(),
+            proposer: proposer.clone(),
+            subject: subject.clone(),
+            claim_type,
+            required_signers,
+            threshold,
+            signers,
+            created_at: timestamp,
+            expires_at: timestamp + MULTISIG_PROPOSAL_TTL_SECS,
+            finalized: false,
+        };
+
+        Storage::set_multisig_proposal(&env, &proposal);
+        Events::multisig_proposed(&env, &proposal_id, &proposer, &subject, threshold);
+        Ok(proposal_id)
+    }
+
+    /// Co-sign an existing multi-sig proposal.
+    ///
+    /// When the number of signatures reaches `threshold`, the attestation is
+    /// automatically finalized and stored as an active attestation.
+    ///
+    /// # Errors
+    /// - [`Error::NotFound`] — proposal does not exist.
+    /// - [`Error::ProposalExpired`] — proposal window has passed.
+    /// - [`Error::ProposalFinalized`] — proposal already activated.
+    /// - [`Error::NotRequiredSigner`] — issuer is not in the required signers list.
+    /// - [`Error::AlreadySigned`] — issuer has already co-signed.
+    pub fn cosign_attestation(env: Env, issuer: Address, proposal_id: String) -> Result<(), Error> {
         issuer.require_auth();
+        Validation::require_issuer(&env, &issuer)?;
 
-        let mut attestation = Storage::get_attestation(&env, &attestation_id)?;
+        let mut proposal = Storage::get_multisig_proposal(&env, &proposal_id)?;
 
-        if attestation.issuer != issuer {
-            return Err(Error::Unauthorized);
+        if proposal.finalized {
+            return Err(Error::ProposalFinalized);
+        }
+
+        let current_time = env.ledger().timestamp();
+        if current_time >= proposal.expires_at {
+            return Err(Error::ProposalExpired);
+        }
+
+        // Verify issuer is in the required signers list.
+        let mut is_required = false;
+        for signer in proposal.required_signers.iter() {
+            if signer == issuer {
+                is_required = true;
+                break;
+            }
+        }
+        if !is_required {
+            return Err(Error::NotRequiredSigner);
+        }
+
+        // Check for duplicate signature.
+        for signer in proposal.signers.iter() {
+            if signer == issuer {
+                return Err(Error::AlreadySigned);
+            }
+        }
+
+        proposal.signers.push_back(issuer.clone());
+        let sig_count = proposal.signers.len();
+
+        Events::multisig_cosigned(&env, &proposal_id, &issuer, sig_count, proposal.threshold);
+
+        if sig_count >= proposal.threshold {
+            // Threshold reached — finalize into an active attestation.
+            proposal.finalized = true;
+            Storage::set_multisig_proposal(&env, &proposal);
+
+            let attestation_id = Attestation::generate_id(
+                &env,
+                &proposal.proposer,
+                &proposal.subject,
+                &proposal.claim_type,
+                proposal.created_at,
+            );
+
+            let attestation = Attestation {
+                id: attestation_id.clone(),
+                issuer: proposal.proposer.clone(),
+                subject: proposal.subject.clone(),
+                claim_type: proposal.claim_type.clone(),
+                timestamp: proposal.created_at,
+                expiration: None,
+                revoked: false,
+                metadata: None,
+                jurisdiction: None,
+                valid_from: None,
+                imported: false,
+                bridged: false,
+                source_chain: None,
+                source_tx: None,
+                tags: None,
+                revocation_reason: None,
+                deleted: false,
+            };
+
+            store_attestation(&env, &attestation);
+            Events::attestation_created(&env, &attestation);
+            Events::multisig_activated(&env, &proposal_id, &attestation_id);
+        } else {
+            Storage::set_multisig_proposal(&env, &proposal);
+        }
+
+        Ok(())
+    }
+
+    /// Retrieve a multi-sig proposal by ID.
+    pub fn get_multisig_proposal(env: Env, proposal_id: String) -> Result<MultiSigProposal, Error> {
+        Storage::get_multisig_proposal(&env, &proposal_id)
+    }
+
+    /// Endorse an existing attestation, adding a layer of social proof.
+    ///
+    /// Only registered issuers may endorse. An issuer cannot endorse their own
+    /// attestation, and cannot endorse a revoked attestation. Each issuer may
+    /// endorse a given attestation at most once.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — endorser is not a registered issuer.
+    /// - [`Error::NotFound`] — attestation does not exist.
+    /// - [`Error::CannotEndorseOwn`] — endorser is the attestation's issuer.
+    /// - [`Error::AlreadyRevoked`] — attestation has been revoked.
+    /// - [`Error::AlreadyEndorsed`] — endorser has already endorsed this attestation.
+    pub fn endorse_attestation(
+        env: Env,
+        endorser: Address,
+        attestation_id: String,
+    ) -> Result<(), Error> {
+        endorser.require_auth();
+        Validation::require_issuer(&env, &endorser)?;
+
+        let attestation = Storage::get_attestation(&env, &attestation_id)?;
+
+        if attestation.issuer == endorser {
+            return Err(Error::CannotEndorseOwn);
         }
 
         if attestation.revoked {
             return Err(Error::AlreadyRevoked);
         }
 
-        attestation.expiration = new_expiration;
-        Storage::set_attestation(&env, &attestation);
+        // Prevent duplicate endorsements from the same issuer.
+        for existing in Storage::get_endorsements(&env, &attestation_id).iter() {
+            if existing.endorser == endorser {
+                return Err(Error::AlreadyEndorsed);
+            }
+        }
 
-        Events::attestation_updated(&env, &attestation_id, &issuer, new_expiration);
+        let timestamp = env.ledger().timestamp();
+        let endorsement = Endorsement {
+            attestation_id: attestation_id.clone(),
+            endorser: endorser.clone(),
+            timestamp,
+        };
 
+        Storage::add_endorsement(&env, &endorsement);
+        Events::attestation_endorsed(&env, &attestation_id, &endorser, timestamp);
         Ok(())
+    }
+
+    /// Configure storage exhaustion limits (admin only).
+    ///
+    /// Sets the maximum number of attestations allowed per issuer and per subject.
+    /// Limits are stored in instance storage and take effect immediately for all
+    /// subsequent `create_attestation` calls.
+    ///
+    /// # Parameters
+    /// - `admin` — current administrator address (must authorize).
+    /// - `max_attestations_per_issuer` — max attestations a single issuer may create.
+    /// - `max_attestations_per_subject` — max attestations a single subject may hold.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] — contract has not been initialized.
+    /// - [`Error::Unauthorized`] — `admin` is not the registered administrator.
+    pub fn set_limits(
+        env: Env,
+        admin: Address,
+        max_attestations_per_issuer: u32,
+        max_attestations_per_subject: u32,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        Validation::require_admin(&env, &admin)?;
+
+        Storage::set_limits(&env, &StorageLimits {
+            max_attestations_per_issuer,
+            max_attestations_per_subject,
+        });
+        Ok(())
+    }
+
+    /// Return the current storage limits.
+    ///
+    /// Returns the admin-configured limits, or the defaults
+    /// (10,000 per issuer / 100 per subject) if never explicitly set.
+    pub fn get_limits(env: Env) -> StorageLimits {
+        Storage::get_limits(&env)
     }
 
     /// Return the semver version string set at initialization (e.g. `"1.0.0"`).
@@ -990,10 +1749,48 @@ impl TrustLinkContract {
         Storage::get_version(&env).ok_or(Error::NotInitialized)
     }
 
-    /// Return static metadata about this contract.
+    /// Return global contract statistics.
     ///
-    /// # Errors
-    /// - [`Error::NotInitialized`] — contract has not been initialized.
+    /// No authentication required — safe to call from dashboards and analytics tools.
+    pub fn get_global_stats(env: Env) -> GlobalStats {
+        Storage::get_global_stats(&env)
+    }
+
+    /// Lightweight health probe for monitoring dashboards and uptime checks.
+    ///
+    /// No authentication required. Returns `initialized: false` before
+    /// `initialize` has been called.
+    pub fn health_check(env: Env) -> HealthStatus {
+        let initialized = Storage::has_admin(&env);
+        let stats = Storage::get_global_stats(&env);
+        HealthStatus {
+            initialized,
+            admin_set: initialized,
+            issuer_count: stats.total_issuers,
+            total_attestations: stats.total_attestations,
+        }
+    }
+
+    pub fn pause(env: Env, admin: Address) -> Result<(), Error> {
+        admin.require_auth();
+        Validation::require_admin(&env, &admin)?;
+        Storage::set_paused(&env, true);
+        Events::contract_paused(&env, &admin);
+        Ok(())
+    }
+
+    pub fn unpause(env: Env, admin: Address) -> Result<(), Error> {
+        admin.require_auth();
+        Validation::require_admin(&env, &admin)?;
+        Storage::set_paused(&env, false);
+        Events::contract_unpaused(&env, &admin);
+        Ok(())
+    }
+
+    pub fn is_paused(env: Env) -> bool {
+        Storage::is_paused(&env)
+    }
+
     pub fn get_contract_metadata(env: Env) -> Result<ContractMetadata, Error> {
         let version = Storage::get_version(&env).ok_or(Error::NotInitialized)?;
         Ok(ContractMetadata {
@@ -1034,3 +1831,4 @@ impl TrustLinkContract {
         Storage::get_multisig_ttl_days(&env)
     }
 }
+
