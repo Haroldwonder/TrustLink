@@ -14,6 +14,18 @@ pub const MULTISIG_PROPOSAL_TTL_SECS: u64 = 7 * 24 * 60 * 60;
 /// Default lifetime for an attestation request: 7 days in seconds.
 pub const ATTESTATION_REQUEST_TTL_SECS: u64 = 7 * 24 * 60 * 60;
 
+/// Seconds in one day.
+pub const SECS_PER_DAY: u64 = 86_400;
+
+/// Default TTL for persistent storage entries, in days.
+pub const DEFAULT_TTL_DAYS: u32 = 30;
+
+/// Number of ledgers per day on Stellar (one ledger every ~5 seconds).
+pub const DAY_IN_LEDGERS: u32 = 17_280;
+
+/// Minimum TTL threshold in ledgers before a TTL extension is triggered (7 days).
+pub const MIN_TTL_THRESHOLD_LEDGERS: u32 = 7 * DAY_IN_LEDGERS;
+
 /// Status of an attestation request.
 #[contracttype]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

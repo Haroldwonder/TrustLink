@@ -31,6 +31,7 @@
 use crate::types::{
     AdminCouncil, Attestation, AttestationRequest, AuditEntry, ClaimTypeInfo, Endorsement, Error, ExpirationHook,
     FeeConfig, GlobalStats, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, TtlConfig, Delegation, RateLimitConfig,
+    DAY_IN_LEDGERS, DEFAULT_TTL_DAYS, MIN_TTL_THRESHOLD_LEDGERS,
 };
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
 use crate::types::{AdminCouncil, Attestation, ClaimTypeInfo, CouncilProposal, Error, IssuerMetadata};
@@ -74,12 +75,10 @@ pub enum StorageKey {
     Paused,
 }
 
-const DAY_IN_LEDGERS: u32 = 17280;
-const DEFAULT_TTL_DAYS: u32 = 30;
 const DEFAULT_INSTANCE_LIFETIME: u32 = DAY_IN_LEDGERS * DEFAULT_TTL_DAYS;
 // Only extend TTL on read if remaining TTL drops below this threshold (7 days)
 #[allow(dead_code)]
-const MIN_TTL_THRESHOLD: u32 = 7 * DAY_IN_LEDGERS;
+const MIN_TTL_THRESHOLD: u32 = MIN_TTL_THRESHOLD_LEDGERS;
 
 /// Get the TTL in ledgers for the configured number of days.
 fn get_ttl_lifetime(env: &Env) -> u32 {
@@ -438,7 +437,7 @@ impl Storage {
     /// Persist the admin council configuration.
     pub fn set_council(env: &Env, council: &AdminCouncil) {
         env.storage().instance().set(&StorageKey::AdminCouncil, council);
-        env.storage().instance().extend_ttl(INSTANCE_LIFETIME, INSTANCE_LIFETIME);
+        env.storage().instance().extend_ttl(DEFAULT_INSTANCE_LIFETIME, DEFAULT_INSTANCE_LIFETIME);
     }
 
     /// Retrieve the admin council, or `None` if not initialized.
@@ -450,7 +449,7 @@ impl Storage {
     pub fn set_proposal(env: &Env, proposal: &CouncilProposal) {
         let key = StorageKey::CouncilProposal(proposal.id);
         env.storage().persistent().set(&key, proposal);
-        env.storage().persistent().extend_ttl(&key, INSTANCE_LIFETIME, INSTANCE_LIFETIME);
+        env.storage().persistent().extend_ttl(&key, DEFAULT_INSTANCE_LIFETIME, DEFAULT_INSTANCE_LIFETIME);
     }
 
     /// Retrieve a council proposal by ID.
@@ -469,7 +468,7 @@ impl Storage {
     /// Set the contract paused flag.
     pub fn set_paused(env: &Env, paused: bool) {
         env.storage().instance().set(&StorageKey::Paused, &paused);
-        env.storage().instance().extend_ttl(INSTANCE_LIFETIME, INSTANCE_LIFETIME);
+        env.storage().instance().extend_ttl(DEFAULT_INSTANCE_LIFETIME, DEFAULT_INSTANCE_LIFETIME);
     }
 
     /// Return `true` if the contract is paused.

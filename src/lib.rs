@@ -19,12 +19,10 @@ use crate::types::{
     AdminCouncil, Attestation, AttestationOrigin, AttestationRequest, AttestationStatus, AuditAction, AuditEntry,
     ClaimTypeInfo, ContractConfig, ContractMetadata, Endorsement, Error, FeeConfig, GlobalStats, HealthStatus,
     IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, RequestStatus, TtlConfig,
-    ATTESTATION_REQUEST_TTL_SECS, MULTISIG_PROPOSAL_TTL_SECS,
+    ATTESTATION_REQUEST_TTL_SECS, MULTISIG_PROPOSAL_TTL_SECS, SECS_PER_DAY,
 };
 use crate::validation::Validation;
 
-// Seconds in one day.
-const SECS_PER_DAY: u64 = 86_400;
 const MAX_SOURCE_CHAIN_LEN: u32 = 32;
 const MAX_SOURCE_TX_LEN: u32 = 128;
 
