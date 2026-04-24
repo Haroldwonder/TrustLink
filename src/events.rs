@@ -1,6 +1,6 @@
 use soroban_sdk::{symbol_short, Address, Env, String};
 
-use crate::types::{Attestation, IssuerTier, Address};
+use crate::types::{Attestation, IssuerTier};
 
 pub struct Events;
 
@@ -92,18 +92,6 @@ impl Events {
             (attestation_id.clone(), new_expiration),
         );
     }
-
-    pub fn deletion_requested(
-    env: &Env,
-    subject: &Address,
-    attestation_id: &String,
-    timestamp: u64,
-) {
-    env.events().publish(
-        (symbol_short!("del_req"), subject.clone()),
-        (attestation_id.clone(), timestamp),
-    );
-}
 
     pub fn attestation_expired(env: &Env, attestation_id: &String, subject: &Address) {
         env.events().publish(
@@ -237,7 +225,7 @@ impl Events {
             .publish((symbol_short!("unpaused"),), (admin.clone(), timestamp));
     }
 
-    /// Emitted when a subject requests 94 of their attestation.
+    /// Emitted when a subject requests deletion of their attestation.
     pub fn deletion_requested(env: &Env, subject: &Address, attestation_id: &String, timestamp: u64) {
         env.events().publish(
             (symbol_short!("del_req"), subject.clone()),
@@ -300,7 +288,7 @@ impl Events {
         expiration: Option<u64>,
     ) {
         env.events().publish(
-            (symbol_short!("del_created"), delegator.clone()),
+            (symbol_short!("del_crtd"), delegator.clone()),
             (delegate.clone(), claim_type.clone(), expiration),
         );
     }
@@ -313,7 +301,7 @@ impl Events {
         claim_type: &String,
     ) {
         env.events().publish(
-            (symbol_short!("del_revoked"), delegator.clone()),
+            (symbol_short!("del_rvkd"), delegator.clone()),
             (delegate.clone(), claim_type.clone()),
         );
     }
@@ -330,6 +318,19 @@ impl Events {
         env.events().publish(
             (sym, issuer.clone()),
             subject.clone(),
+        );
+    }
+
+    /// Emitted when an attestation is transferred to a new issuer by admin.
+    pub fn attestation_transferred(
+        env: &Env,
+        attestation_id: &String,
+        old_issuer: &Address,
+        new_issuer: &Address,
+    ) {
+        env.events().publish(
+            (symbol_short!("att_xfer"),),
+            (attestation_id.clone(), old_issuer.clone(), new_issuer.clone()),
         );
     }
 }

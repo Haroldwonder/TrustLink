@@ -257,6 +257,12 @@
                     },
                     {
                       "key": {
+                        "symbol": "jurisdiction"
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
                         "symbol": "metadata"
                       },
                       "val": "void"
@@ -569,7 +575,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "MultiSigProposal"
+                  "symbol": "MultisigProposal"
                 },
                 {
                   "string": "f2eac624c10e2cf1d5c726c1b07434d6784eb0304eb51dfdeeba25f18e8406aa"
@@ -589,7 +595,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "MultiSigProposal"
+                      "symbol": "MultisigProposal"
                     },
                     {
                       "string": "f2eac624c10e2cf1d5c726c1b07434d6784eb0304eb51dfdeeba25f18e8406aa"
@@ -781,12 +787,16 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "Admin"
+                              "symbol": "AdminCouncil"
                             }
                           ]
                         },
                         "val": {
-                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                          "vec": [
+                            {
+                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                            }
+                          ]
                         }
                       },
                       {
