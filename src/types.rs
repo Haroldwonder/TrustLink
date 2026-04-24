@@ -257,6 +257,45 @@ pub enum Error {
 #[contracttype]
 pub type AdminCouncil = Vec<Address>;
 
+/// Default TTL for a council quorum proposal: 7 days in seconds.
+pub const COUNCIL_PROPOSAL_TTL_SECS: u64 = 7 * 24 * 60 * 60;
+
+/// The sensitive admin action being proposed for council quorum approval.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CouncilAction {
+    /// Pause the contract.
+    Pause,
+    /// Unpause the contract.
+    Unpause,
+    /// Update the attestation fee configuration.
+    SetFee(FeeConfig),
+    /// Remove a registered issuer.
+    RemoveIssuer(Address),
+}
+
+/// A pending council quorum proposal for a sensitive admin action.
+///
+/// The action is only executed once `approvals.len() >= threshold`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CouncilProposal {
+    /// Unique deterministic ID.
+    pub id: String,
+    /// The action being proposed.
+    pub action: CouncilAction,
+    /// Admin who created the proposal.
+    pub proposer: Address,
+    /// Admins who have approved (proposer is auto-included).
+    pub approvals: Vec<Address>,
+    /// Number of approvals required to execute.
+    pub threshold: u32,
+    /// Unix timestamp after which the proposal expires.
+    pub expires_at: u64,
+    /// Whether the proposal has been executed.
+    pub executed: bool,
+}
+
 impl Attestation {
     /// Hashes an arbitrary byte payload and returns a 32-character lowercase hex string.
     ///

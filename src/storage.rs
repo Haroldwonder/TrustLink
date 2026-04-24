@@ -29,7 +29,7 @@
 //! - `GlobalStats` — running counters for total attestations, revocations, and issuers.
 
 use crate::types::{
-    AdminCouncil, Attestation, AttestationRequest, AuditEntry, ClaimTypeInfo, Endorsement, Error, ExpirationHook,
+    AdminCouncil, Attestation, AttestationRequest, AuditEntry, ClaimTypeInfo, CouncilProposal, Endorsement, Error, ExpirationHook,
     FeeConfig, GlobalStats, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, TtlConfig, Delegation, RateLimitConfig,
 };
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
@@ -68,6 +68,8 @@ pub enum StorageKey {
     IssuerWhitelistMode(Address),
     /// Whether a subject is whitelisted for a specific issuer.
     IssuerWhitelist(Address, Address),
+    /// Pending council quorum proposal keyed by proposal ID.
+    CouncilProposal(String),
 }
 
 const DAY_IN_LEDGERS: u32 = 17280;
@@ -465,5 +467,24 @@ impl Storage {
         env.storage()
             .persistent()
             .has(&StorageKey::IssuerWhitelist(issuer.clone(), subject.clone()))
+    }
+
+    /// Persist a council quorum proposal.
+    pub fn set_council_proposal(env: &Env, proposal: &CouncilProposal) {
+        let key = StorageKey::CouncilProposal(proposal.id.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, proposal);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    /// Retrieve a council quorum proposal by ID.
+    ///
+    /// # Errors
+    /// - [`Error::NotFound`] — no proposal with that ID exists.
+    pub fn get_council_proposal(env: &Env, id: &String) -> Result<CouncilProposal, Error> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::CouncilProposal(id.clone()))
+            .ok_or(Error::NotFound)
     }
 }

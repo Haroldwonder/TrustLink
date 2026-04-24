@@ -53,4 +53,18 @@ pub enum Error {
     LastAdminCannotBeRemoved = 29,
     /// Issuer is rate-limited and must wait before creating another attestation.
     RateLimited = 30,
+    /// A council quorum proposal with this ID already exists.
+    CouncilProposalExists = 31,
+    /// The council quorum proposal has already been executed.
+    CouncilProposalExecuted = 32,
+    /// The council quorum proposal has expired.
+    CouncilProposalExpired = 33,
+    /// The caller has already approved this council proposal.
+    AlreadyApproved = 34,
+    /// The batch size exceeds the maximum allowed.
+    BatchTooLarge = 35,
+    /// Storage limit exceeded.
+    LimitExceeded = 36,
+    /// Invalid jurisdiction code.
+    InvalidJurisdiction = 37,
 }

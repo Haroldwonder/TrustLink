@@ -332,5 +332,40 @@ impl Events {
             subject.clone(),
         );
     }
+
+    /// Emitted when an admin proposes a council quorum action.
+    pub fn council_proposal_created(
+        env: &Env,
+        proposal_id: &String,
+        proposer: &Address,
+        threshold: u32,
+    ) {
+        env.events().publish(
+            (symbol_short!("cq_prop"), proposer.clone()),
+            (proposal_id.clone(), threshold),
+        );
+    }
+
+    /// Emitted when an admin approves a council quorum proposal.
+    pub fn council_proposal_approved(
+        env: &Env,
+        proposal_id: &String,
+        approver: &Address,
+        approvals_so_far: u32,
+        threshold: u32,
+    ) {
+        env.events().publish(
+            (symbol_short!("cq_appr"), approver.clone()),
+            (proposal_id.clone(), approvals_so_far, threshold),
+        );
+    }
+
+    /// Emitted when a council quorum proposal reaches threshold and executes.
+    pub fn council_proposal_executed(env: &Env, proposal_id: &String) {
+        env.events().publish(
+            (symbol_short!("cq_exec"),),
+            proposal_id.clone(),
+        );
+    }
 }
 
