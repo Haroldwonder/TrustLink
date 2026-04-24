@@ -630,6 +630,45 @@ fn test_bridge_attestation_stores_source_reference_and_marks_bridged() {
 }
 
 #[test]
+fn test_bridge_attestation_rejects_source_chain_too_long() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let source_chain = String::from_str(&env, "123456789012345678901234567890123"); // 33 chars
+    let source_tx = String::from_str(&env, "0xabc123");
+
+    client.register_bridge(&admin, &bridge);
+    let result = client.try_bridge_attestation(&bridge, &subject, &claim_type, &source_chain, &source_tx);
+
+    assert_eq!(result, Err(Ok(types::Error::MetadataTooLong)));
+}
+
+#[test]
+fn test_bridge_attestation_rejects_source_tx_too_long() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let source_chain = String::from_str(&env, "ethereum");
+    let source_tx = String::from_str(
+        &env,
+        "123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789",
+    ); // 129 chars
+
+    client.register_bridge(&admin, &bridge);
+    let result = client.try_bridge_attestation(&bridge, &subject, &claim_type, &source_chain, &source_tx);
+
+    assert_eq!(result, Err(Ok(types::Error::MetadataTooLong)));
+}
+
+#[test]
 fn test_bridge_attestation_emits_event() {
     let env = Env::default();
     env.mock_all_auths();

@@ -25,6 +25,8 @@ use crate::validation::Validation;
 
 // Seconds in one day.
 const SECS_PER_DAY: u64 = 86_400;
+const MAX_SOURCE_CHAIN_LEN: u32 = 32;
+const MAX_SOURCE_TX_LEN: u32 = 128;
 
 /// Minimal interface expected on a registered callback contract.
 /// The callback receives the subject, attestation ID, and expiration timestamp.
@@ -72,6 +74,13 @@ fn validate_reason(reason: &Option<String>) -> Result<(), Error> {
         if r.len() > 128 {
             return Err(Error::ReasonTooLong);
         }
+    }
+    Ok(())
+}
+
+fn validate_source_reference(source_chain: &String, source_tx: &String) -> Result<(), Error> {
+    if source_chain.len() > MAX_SOURCE_CHAIN_LEN || source_tx.len() > MAX_SOURCE_TX_LEN {
+        return Err(Error::MetadataTooLong);
     }
     Ok(())
 }
@@ -822,6 +831,7 @@ impl TrustLinkContract {
     ) -> Result<String, Error> {
         bridge.require_auth();
         Validation::require_bridge(&env, &bridge)?;
+        validate_source_reference(&source_chain, &source_tx)?;
 
         let timestamp = env.ledger().timestamp();
         let attestation_id = Attestation::generate_bridge_id(
