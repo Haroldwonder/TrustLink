@@ -102,4 +102,32 @@ impl Events {
             admin.clone(),
         );
     }
+
+    pub fn council_initialized(env: &Env, quorum: u32, member_count: u32) {
+        env.events().publish(
+            (symbol_short!("cncl_ini"),),
+            (quorum, member_count),
+        );
+    }
+
+    pub fn proposal_created(env: &Env, proposal_id: u32, proposer: &Address) {
+        env.events().publish(
+            (symbol_short!("prop_new"), proposer.clone()),
+            proposal_id,
+        );
+    }
+
+    pub fn proposal_approved(env: &Env, proposal_id: u32, approver: &Address) {
+        env.events().publish(
+            (symbol_short!("prop_ok"), approver.clone()),
+            proposal_id,
+        );
+    }
+
+    pub fn proposal_executed(env: &Env, proposal_id: u32) {
+        env.events().publish(
+            (symbol_short!("prop_exe"),),
+            proposal_id,
+        );
+    }
 }

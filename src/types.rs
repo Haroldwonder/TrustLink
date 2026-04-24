@@ -34,7 +34,7 @@
 //! | 8 | `InvalidValidFrom`     | `valid_from` ≤ current ledger timestamp          |
 //! | 9 | `InvalidExpiration`    | New expiration ≤ current ledger timestamp        |
 
-use soroban_sdk::{contracterror, contracttype, Address, Env, String};
+use soroban_sdk::{contracterror, contracttype, Address, Env, String, Vec};
 
 /// Contract metadata returned by `get_contract_metadata`.
 #[contracttype]
@@ -51,6 +51,35 @@ pub struct ContractMetadata {
 pub struct ClaimTypeInfo {
     pub claim_type: String,
     pub description: String,
+}
+
+/// The admin council configuration: member list and quorum threshold.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminCouncil {
+    /// Addresses eligible to vote on council proposals.
+    pub members: Vec<Address>,
+    /// Minimum approvals required to execute a proposal.
+    pub quorum: u32,
+}
+
+/// Operations that require council quorum approval.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CouncilOperation {
+    RemoveIssuer(Address),
+    PauseContract,
+}
+
+/// A pending council proposal awaiting quorum.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CouncilProposal {
+    pub id: u32,
+    pub operation: CouncilOperation,
+    pub proposer: Address,
+    pub approvals: Vec<Address>,
+    pub executed: bool,
 }
 
 /// A single attestation record stored on-chain.
@@ -100,6 +129,16 @@ pub enum Error {
     Expired = 7,
     InvalidValidFrom = 8,
     InvalidExpiration = 9,
+    /// Council quorum not yet reached for this proposal.
+    QuorumNotReached = 11,
+    /// Proposal has already been executed.
+    AlreadyExecuted = 12,
+    /// Caller already approved this proposal.
+    AlreadyApproved = 13,
+    /// Council has not been initialized.
+    CouncilNotInitialized = 14,
+    /// Quorum threshold exceeds member count or is zero.
+    InvalidQuorum = 15,
 }
 
 impl Attestation {

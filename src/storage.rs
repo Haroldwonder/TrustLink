@@ -26,7 +26,7 @@
 //!   used for pagination via `list_claim_types`.
 
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
-use crate::types::{Attestation, ClaimTypeInfo, Error, IssuerMetadata};
+use crate::types::{AdminCouncil, Attestation, ClaimTypeInfo, CouncilProposal, Error, IssuerMetadata};
 
 /// Keys used to address data in contract storage.
 #[contracttype]
@@ -49,6 +49,14 @@ pub enum StorageKey {
     ClaimType(String),
     /// Ordered list of registered claim type identifiers.
     ClaimTypeList,
+    /// Admin council configuration (members + quorum).
+    AdminCouncil,
+    /// A council proposal keyed by its numeric ID.
+    CouncilProposal(u32),
+    /// Auto-incrementing proposal counter.
+    ProposalCounter,
+    /// Contract paused flag.
+    Paused,
 }
 
 const DAY_IN_LEDGERS: u32 = 17280;
@@ -216,5 +224,47 @@ impl Storage {
             .persistent()
             .get(&StorageKey::ClaimTypeList)
             .unwrap_or(Vec::new(env))
+    }
+
+    /// Persist the admin council configuration.
+    pub fn set_council(env: &Env, council: &AdminCouncil) {
+        env.storage().instance().set(&StorageKey::AdminCouncil, council);
+        env.storage().instance().extend_ttl(INSTANCE_LIFETIME, INSTANCE_LIFETIME);
+    }
+
+    /// Retrieve the admin council, or `None` if not initialized.
+    pub fn get_council(env: &Env) -> Option<AdminCouncil> {
+        env.storage().instance().get(&StorageKey::AdminCouncil)
+    }
+
+    /// Persist a council proposal.
+    pub fn set_proposal(env: &Env, proposal: &CouncilProposal) {
+        let key = StorageKey::CouncilProposal(proposal.id);
+        env.storage().persistent().set(&key, proposal);
+        env.storage().persistent().extend_ttl(&key, INSTANCE_LIFETIME, INSTANCE_LIFETIME);
+    }
+
+    /// Retrieve a council proposal by ID.
+    pub fn get_proposal(env: &Env, id: u32) -> Option<CouncilProposal> {
+        env.storage().persistent().get(&StorageKey::CouncilProposal(id))
+    }
+
+    /// Increment and return the next proposal ID.
+    pub fn next_proposal_id(env: &Env) -> u32 {
+        let current: u32 = env.storage().instance().get(&StorageKey::ProposalCounter).unwrap_or(0);
+        let next = current + 1;
+        env.storage().instance().set(&StorageKey::ProposalCounter, &next);
+        next
+    }
+
+    /// Set the contract paused flag.
+    pub fn set_paused(env: &Env, paused: bool) {
+        env.storage().instance().set(&StorageKey::Paused, &paused);
+        env.storage().instance().extend_ttl(INSTANCE_LIFETIME, INSTANCE_LIFETIME);
+    }
+
+    /// Return `true` if the contract is paused.
+    pub fn is_paused(env: &Env) -> bool {
+        env.storage().instance().get(&StorageKey::Paused).unwrap_or(false)
     }
 }

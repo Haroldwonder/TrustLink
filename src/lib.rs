@@ -131,7 +131,7 @@ mod events;
 mod test;
 
 use soroban_sdk::{contract, contractimpl, Address, Env, String, Vec};
-use types::{Attestation, AttestationStatus, ClaimTypeInfo, ContractMetadata, Error, IssuerMetadata};
+use types::{AdminCouncil, Attestation, AttestationStatus, ClaimTypeInfo, ContractMetadata, CouncilOperation, CouncilProposal, Error, IssuerMetadata};
 use storage::Storage;
 use validation::Validation;
 use events::Events;
@@ -1004,5 +1004,220 @@ impl TrustLinkContract {
                 "On-chain attestation and verification system for the Stellar blockchain.",
             ),
         })
+    }
+
+    // ── Admin Council (M-of-N quorum for sensitive operations) ──────────────
+
+    /// Initialize the admin council with a list of members and a quorum threshold.
+    ///
+    /// Only the contract admin may call this. Can be called once; re-calling
+    /// updates the council configuration.
+    ///
+    /// # Parameters
+    /// - `admin` — current administrator (must authorize).
+    /// - `members` — addresses eligible to vote on proposals.
+    /// - `quorum` — minimum approvals required to execute a proposal.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] / [`Error::NotInitialized`] — admin check fails.
+    /// - [`Error::InvalidQuorum`] — quorum is 0 or exceeds member count.
+    pub fn init_council(
+        env: Env,
+        admin: Address,
+        members: Vec<Address>,
+        quorum: u32,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        Validation::require_admin(&env, &admin)?;
+
+        if quorum == 0 || quorum > members.len() {
+            return Err(Error::InvalidQuorum);
+        }
+
+        let member_count = members.len();
+        let council = AdminCouncil { members, quorum };
+        Storage::set_council(&env, &council);
+        Events::council_initialized(&env, quorum, member_count);
+        Ok(())
+    }
+
+    /// Create a new council proposal for a sensitive operation.
+    ///
+    /// The caller must be a council member. The proposal starts with the
+    /// proposer's approval already counted.
+    ///
+    /// # Parameters
+    /// - `proposer` — council member creating the proposal (must authorize).
+    /// - `operation` — the [`CouncilOperation`] to execute upon quorum.
+    ///
+    /// # Returns
+    /// The new proposal ID.
+    ///
+    /// # Errors
+    /// - [`Error::CouncilNotInitialized`] — council has not been set up.
+    /// - [`Error::Unauthorized`] — caller is not a council member.
+    pub fn propose_council_action(
+        env: Env,
+        proposer: Address,
+        operation: CouncilOperation,
+    ) -> Result<u32, Error> {
+        proposer.require_auth();
+
+        let council = Storage::get_council(&env).ok_or(Error::CouncilNotInitialized)?;
+
+        // Verify proposer is a council member
+        let mut is_member = false;
+        for m in council.members.iter() {
+            if m == proposer {
+                is_member = true;
+                break;
+            }
+        }
+        if !is_member {
+            return Err(Error::Unauthorized);
+        }
+
+        let id = Storage::next_proposal_id(&env);
+        let mut approvals: Vec<Address> = Vec::new(&env);
+        approvals.push_back(proposer.clone());
+
+        let proposal = CouncilProposal {
+            id,
+            operation,
+            proposer: proposer.clone(),
+            approvals,
+            executed: false,
+        };
+
+        Storage::set_proposal(&env, &proposal);
+        Events::proposal_created(&env, id, &proposer);
+        Ok(id)
+    }
+
+    /// Approve an existing council proposal.
+    ///
+    /// The caller must be a council member and must not have already approved.
+    ///
+    /// # Parameters
+    /// - `approver` — council member approving (must authorize).
+    /// - `proposal_id` — ID of the proposal to approve.
+    ///
+    /// # Errors
+    /// - [`Error::CouncilNotInitialized`] — council has not been set up.
+    /// - [`Error::NotFound`] — proposal does not exist.
+    /// - [`Error::AlreadyExecuted`] — proposal already executed.
+    /// - [`Error::Unauthorized`] — caller is not a council member.
+    /// - [`Error::AlreadyApproved`] — caller already approved this proposal.
+    pub fn approve_council_action(
+        env: Env,
+        approver: Address,
+        proposal_id: u32,
+    ) -> Result<(), Error> {
+        approver.require_auth();
+
+        let council = Storage::get_council(&env).ok_or(Error::CouncilNotInitialized)?;
+        let mut proposal = Storage::get_proposal(&env, proposal_id).ok_or(Error::NotFound)?;
+
+        if proposal.executed {
+            return Err(Error::AlreadyExecuted);
+        }
+
+        // Verify approver is a council member
+        let mut is_member = false;
+        for m in council.members.iter() {
+            if m == approver {
+                is_member = true;
+                break;
+            }
+        }
+        if !is_member {
+            return Err(Error::Unauthorized);
+        }
+
+        // Check not already approved
+        for a in proposal.approvals.iter() {
+            if a == approver {
+                return Err(Error::AlreadyApproved);
+            }
+        }
+
+        proposal.approvals.push_back(approver.clone());
+        Storage::set_proposal(&env, &proposal);
+        Events::proposal_approved(&env, proposal_id, &approver);
+        Ok(())
+    }
+
+    /// Execute a council proposal once quorum is reached.
+    ///
+    /// Any council member may trigger execution once enough approvals exist.
+    ///
+    /// # Parameters
+    /// - `executor` — council member triggering execution (must authorize).
+    /// - `proposal_id` — ID of the proposal to execute.
+    ///
+    /// # Errors
+    /// - [`Error::CouncilNotInitialized`] — council has not been set up.
+    /// - [`Error::NotFound`] — proposal does not exist.
+    /// - [`Error::AlreadyExecuted`] — proposal already executed.
+    /// - [`Error::Unauthorized`] — caller is not a council member.
+    /// - [`Error::QuorumNotReached`] — not enough approvals yet.
+    pub fn execute_council_action(
+        env: Env,
+        executor: Address,
+        proposal_id: u32,
+    ) -> Result<(), Error> {
+        executor.require_auth();
+
+        let council = Storage::get_council(&env).ok_or(Error::CouncilNotInitialized)?;
+        let mut proposal = Storage::get_proposal(&env, proposal_id).ok_or(Error::NotFound)?;
+
+        if proposal.executed {
+            return Err(Error::AlreadyExecuted);
+        }
+
+        // Verify executor is a council member
+        let mut is_member = false;
+        for m in council.members.iter() {
+            if m == executor {
+                is_member = true;
+                break;
+            }
+        }
+        if !is_member {
+            return Err(Error::Unauthorized);
+        }
+
+        if proposal.approvals.len() < council.quorum {
+            return Err(Error::QuorumNotReached);
+        }
+
+        // Execute the operation
+        match proposal.operation.clone() {
+            CouncilOperation::RemoveIssuer(issuer) => {
+                Storage::remove_issuer(&env, &issuer);
+                // Emit issuer_removed using the first council member as "admin" proxy
+                if let Some(first) = council.members.get(0) {
+                    Events::issuer_removed(&env, &issuer, &first);
+                }
+            }
+            CouncilOperation::PauseContract => {
+                Storage::set_paused(&env, true);
+            }
+        }
+
+        proposal.executed = true;
+        Storage::set_proposal(&env, &proposal);
+        Events::proposal_executed(&env, proposal_id);
+        Ok(())
+    }
+
+    /// Return the current council configuration, or `None` if not initialized.
+    pub fn get_council(env: Env) -> Option<AdminCouncil> {
+        Storage::get_council(&env)
+    }
+
+    /// Return a council proposal by ID, or `None` if not found.
+    pub fn get_council_proposal(env: Env, proposal_id: u32) -> Option<CouncilProposal> {
+        Storage::get_proposal(&env, proposal_id)
     }
 }
