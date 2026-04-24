@@ -70,6 +70,9 @@ pub struct Attestation {
     pub timestamp: u64,
     pub expiration: Option<u64>,
     pub revoked: bool,
+    /// Set to `true` by `request_deletion` (GDPR right-to-erasure soft delete).
+    /// Deleted attestations are excluded from all query results.
+    pub deleted: bool,
     pub metadata: Option<String>,
     pub valid_from: Option<u64>,
     pub imported: bool,

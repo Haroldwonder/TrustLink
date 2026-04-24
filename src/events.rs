@@ -55,6 +55,13 @@ impl Events {
         );
     }
 
+    pub fn deletion_requested(env: &Env, attestation_id: &String, subject: &Address) {
+        env.events().publish(
+            (symbol_short!("del_req"), subject.clone()),
+            attestation_id.clone(),
+        );
+    }
+
     pub fn attestation_revoked(env: &Env, attestation_id: &String, issuer: &Address, reason: &Option<String>) {
         env.events().publish(
             (symbol_short!("revoked"), issuer.clone()),
