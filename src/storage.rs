@@ -33,7 +33,7 @@ use crate::types::{
     FeeConfig, GlobalStats, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, TtlConfig, Delegation, RateLimitConfig,
 };
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
-use crate::types::{Attestation, ClaimTypeInfo, Error, IssuerMetadata, StorageLimits, Delegation};
+use crate::types::{AdminCouncil, Attestation, ClaimTypeInfo, CouncilProposal, Error, IssuerMetadata};
 
 /// Keys used to address data in contract storage.
 #[contracttype]
@@ -64,12 +64,14 @@ pub enum StorageKey {
     ClaimType(String),
     /// Ordered list of registered claim type identifiers.
     ClaimTypeList,
-    /// Whether whitelist mode is enabled for an issuer.
-    IssuerWhitelistMode(Address),
-    /// Whether a subject is whitelisted for a specific issuer.
-    IssuerWhitelist(Address, Address),
-    /// Pending council quorum proposal keyed by proposal ID.
-    CouncilProposal(String),
+    /// Admin council configuration (members + quorum).
+    AdminCouncil,
+    /// A council proposal keyed by its numeric ID.
+    CouncilProposal(u32),
+    /// Auto-incrementing proposal counter.
+    ProposalCounter,
+    /// Contract paused flag.
+    Paused,
 }
 
 const DAY_IN_LEDGERS: u32 = 17280;
@@ -433,40 +435,46 @@ impl Storage {
             .unwrap_or(Vec::new(env))
     }
 
-    /// Enable or disable whitelist mode for an issuer.
-    pub fn set_whitelist_mode(env: &Env, issuer: &Address, enabled: bool) {
-        let key = StorageKey::IssuerWhitelistMode(issuer.clone());
-        env.storage().persistent().set(&key, &enabled);
+    /// Persist the admin council configuration.
+    pub fn set_council(env: &Env, council: &AdminCouncil) {
+        env.storage().instance().set(&StorageKey::AdminCouncil, council);
+        env.storage().instance().extend_ttl(INSTANCE_LIFETIME, INSTANCE_LIFETIME);
+    }
+
+    /// Retrieve the admin council, or `None` if not initialized.
+    pub fn get_council(env: &Env) -> Option<AdminCouncil> {
+        env.storage().instance().get(&StorageKey::AdminCouncil)
+    }
+
+    /// Persist a council proposal.
+    pub fn set_proposal(env: &Env, proposal: &CouncilProposal) {
+        let key = StorageKey::CouncilProposal(proposal.id);
+        env.storage().persistent().set(&key, proposal);
         env.storage().persistent().extend_ttl(&key, INSTANCE_LIFETIME, INSTANCE_LIFETIME);
     }
 
-    /// Return `true` if whitelist mode is enabled for `issuer`.
-    pub fn is_whitelist_mode(env: &Env, issuer: &Address) -> bool {
-        env.storage()
-            .persistent()
-            .get(&StorageKey::IssuerWhitelistMode(issuer.clone()))
-            .unwrap_or(false)
+    /// Retrieve a council proposal by ID.
+    pub fn get_proposal(env: &Env, id: u32) -> Option<CouncilProposal> {
+        env.storage().persistent().get(&StorageKey::CouncilProposal(id))
     }
 
-    /// Add `subject` to `issuer`'s whitelist.
-    pub fn add_to_whitelist(env: &Env, issuer: &Address, subject: &Address) {
-        let key = StorageKey::IssuerWhitelist(issuer.clone(), subject.clone());
-        env.storage().persistent().set(&key, &true);
-        env.storage().persistent().extend_ttl(&key, INSTANCE_LIFETIME, INSTANCE_LIFETIME);
+    /// Increment and return the next proposal ID.
+    pub fn next_proposal_id(env: &Env) -> u32 {
+        let current: u32 = env.storage().instance().get(&StorageKey::ProposalCounter).unwrap_or(0);
+        let next = current + 1;
+        env.storage().instance().set(&StorageKey::ProposalCounter, &next);
+        next
     }
 
-    /// Remove `subject` from `issuer`'s whitelist.
-    pub fn remove_from_whitelist(env: &Env, issuer: &Address, subject: &Address) {
-        env.storage()
-            .persistent()
-            .remove(&StorageKey::IssuerWhitelist(issuer.clone(), subject.clone()));
+    /// Set the contract paused flag.
+    pub fn set_paused(env: &Env, paused: bool) {
+        env.storage().instance().set(&StorageKey::Paused, &paused);
+        env.storage().instance().extend_ttl(INSTANCE_LIFETIME, INSTANCE_LIFETIME);
     }
 
-    /// Return `true` if `subject` is on `issuer`'s whitelist.
-    pub fn is_whitelisted(env: &Env, issuer: &Address, subject: &Address) -> bool {
-        env.storage()
-            .persistent()
-            .has(&StorageKey::IssuerWhitelist(issuer.clone(), subject.clone()))
+    /// Return `true` if the contract is paused.
+    pub fn is_paused(env: &Env) -> bool {
+        env.storage().instance().get(&StorageKey::Paused).unwrap_or(false)
     }
 
     /// Persist a council quorum proposal.

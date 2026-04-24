@@ -23,6 +23,12 @@ export enum AuditAction {
   Updated = "Updated",
 }
 
+export enum AttestationOrigin {
+  Native = "Native",
+  Imported = "Imported",
+  Bridged = "Bridged",
+}
+
 /** Trust tier assigned to a registered issuer. */
 export enum IssuerTier {
   Basic = 0,
@@ -42,8 +48,7 @@ export interface Attestation {
   revoked: boolean;
   metadata: string | null;
   valid_from: bigint | null;
-  imported: boolean;
-  bridged: boolean;
+  origin: AttestationOrigin;
   source_chain: string | null;
   source_tx: string | null;
   tags: string[] | null;
@@ -194,7 +199,9 @@ export const CONTRACT_ERRORS: Record<number, string> = {
 // ─── XDR helpers ──────────────────────────────────────────────────────────────
 
 /** Decode a contract error code from an XDR ScVal. */
-export function decodeContractError(scVal: xdr.ScVal): ContractErrorCode | undefined {
+export function decodeContractError(
+  scVal: xdr.ScVal,
+): ContractErrorCode | undefined {
   if (scVal.switch() === xdr.ScValType.scvError()) {
     const err = scVal.error();
     if (err.switch() === xdr.ScErrorType.sceContract()) {

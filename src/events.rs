@@ -1,6 +1,6 @@
 use soroban_sdk::{symbol_short, Address, Env, String};
 
-use crate::types::{Attestation, IssuerTier, Address};
+use crate::types::{Attestation, IssuerTier};
 
 pub struct Events;
 
@@ -55,12 +55,14 @@ impl Events {
         );
     }
 
-    pub fn attestation_revoked(
-        env: &Env,
-        attestation_id: &String,
-        issuer: &Address,
-        reason: &Option<String>,
-    ) {
+    pub fn deletion_requested(env: &Env, attestation_id: &String, subject: &Address) {
+        env.events().publish(
+            (symbol_short!("del_req"), subject.clone()),
+            attestation_id.clone(),
+        );
+    }
+
+    pub fn attestation_revoked(env: &Env, attestation_id: &String, issuer: &Address, reason: &Option<String>) {
         env.events().publish(
             (symbol_short!("revoked"), issuer.clone()),
             (attestation_id.clone(), reason.clone()),
@@ -92,18 +94,6 @@ impl Events {
             (attestation_id.clone(), new_expiration),
         );
     }
-
-    pub fn deletion_requested(
-    env: &Env,
-    subject: &Address,
-    attestation_id: &String,
-    timestamp: u64,
-) {
-    env.events().publish(
-        (symbol_short!("del_req"), subject.clone()),
-        (attestation_id.clone(), timestamp),
-    );
-}
 
     pub fn attestation_expired(env: &Env, attestation_id: &String, subject: &Address) {
         env.events().publish(
@@ -228,16 +218,16 @@ impl Events {
     /// Emitted when the admin pauses the contract.
     pub fn contract_paused(env: &Env, admin: &Address, timestamp: u64) {
         env.events()
-            .publish((symbol_short!("paused"),), (admin.clone(), timestamp));
+            .publish((symbol_short!("paused"), admin.clone()), timestamp);
     }
 
     /// Emitted when the admin unpauses the contract.
     pub fn contract_unpaused(env: &Env, admin: &Address, timestamp: u64) {
         env.events()
-            .publish((symbol_short!("unpaused"),), (admin.clone(), timestamp));
+            .publish((symbol_short!("unpaused"), admin.clone()), timestamp);
     }
 
-    /// Emitted when a subject requests 94 of their attestation.
+    /// Emitted when a subject requests deletion of their attestation.
     pub fn deletion_requested(env: &Env, subject: &Address, attestation_id: &String, timestamp: u64) {
         env.events().publish(
             (symbol_short!("del_req"), subject.clone()),
@@ -333,38 +323,31 @@ impl Events {
         );
     }
 
-    /// Emitted when an admin proposes a council quorum action.
-    pub fn council_proposal_created(
-        env: &Env,
-        proposal_id: &String,
-        proposer: &Address,
-        threshold: u32,
-    ) {
+    pub fn council_initialized(env: &Env, quorum: u32, member_count: u32) {
         env.events().publish(
-            (symbol_short!("cq_prop"), proposer.clone()),
-            (proposal_id.clone(), threshold),
+            (symbol_short!("cncl_ini"),),
+            (quorum, member_count),
         );
     }
 
-    /// Emitted when an admin approves a council quorum proposal.
-    pub fn council_proposal_approved(
-        env: &Env,
-        proposal_id: &String,
-        approver: &Address,
-        approvals_so_far: u32,
-        threshold: u32,
-    ) {
+    pub fn proposal_created(env: &Env, proposal_id: u32, proposer: &Address) {
         env.events().publish(
-            (symbol_short!("cq_appr"), approver.clone()),
-            (proposal_id.clone(), approvals_so_far, threshold),
+            (symbol_short!("prop_new"), proposer.clone()),
+            proposal_id,
         );
     }
 
-    /// Emitted when a council quorum proposal reaches threshold and executes.
-    pub fn council_proposal_executed(env: &Env, proposal_id: &String) {
+    pub fn proposal_approved(env: &Env, proposal_id: u32, approver: &Address) {
         env.events().publish(
-            (symbol_short!("cq_exec"),),
-            proposal_id.clone(),
+            (symbol_short!("prop_ok"), approver.clone()),
+            proposal_id,
+        );
+    }
+
+    pub fn proposal_executed(env: &Env, proposal_id: u32) {
+        env.events().publish(
+            (symbol_short!("prop_exe"),),
+            proposal_id,
         );
     }
 }
