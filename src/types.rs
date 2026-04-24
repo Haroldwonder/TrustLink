@@ -223,31 +223,24 @@ pub struct Delegation {
     pub claim_type: String,
     /// Optional expiration timestamp for this delegation.
     pub expiration: Option<u64>,
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum Error {
-    AlreadyInitialized = 1,
-    NotInitialized = 2,
-    Unauthorized = 3,
-    NotFound = 4,
-    DuplicateAttestation = 5,
-    AlreadyRevoked = 6,
-    Expired = 7,
-    InvalidValidFrom = 8,
-    InvalidExpiration = 9,
-    /// Council quorum not yet reached for this proposal.
-    QuorumNotReached = 11,
-    /// Proposal has already been executed.
-    AlreadyExecuted = 12,
-    /// Caller already approved this proposal.
-    AlreadyApproved = 13,
-    /// Council has not been initialized.
-    CouncilNotInitialized = 14,
-    /// Quorum threshold exceeds member count or is zero.
-    InvalidQuorum = 15,
 }
 
+/// A multi-sig attestation proposal requiring M-of-N issuer signatures.
 #[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MultiSigProposal {
+    pub id: String,
+    pub proposer: Address,
+    pub subject: Address,
+    pub claim_type: String,
+    pub required_signers: Vec<Address>,
+    pub threshold: u32,
+    pub signers: Vec<Address>,
+    pub created_at: u64,
+    pub expires_at: u64,
+    pub finalized: bool,
+}
+
 pub type AdminCouncil = Vec<Address>;
 
 impl Attestation {
