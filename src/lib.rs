@@ -5,6 +5,7 @@
 mod errors;
 mod events;
 mod storage;
+mod constants;
 pub mod types;
 mod validation;
 
@@ -13,6 +14,7 @@ mod test;
 
 use soroban_sdk::{contract, contractimpl, token::TokenClient, Address, Env, String, Vec};
 
+use crate::constants::SECS_PER_DAY;
 use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::{
@@ -23,8 +25,6 @@ use crate::types::{
 };
 use crate::validation::Validation;
 
-// Seconds in one day.
-const SECS_PER_DAY: u64 = 86_400;
 const MAX_SOURCE_CHAIN_LEN: u32 = 32;
 const MAX_SOURCE_TX_LEN: u32 = 128;
 
