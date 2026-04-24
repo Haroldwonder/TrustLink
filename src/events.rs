@@ -67,12 +67,14 @@ impl Events {
         );
     }
 
-    pub fn attestation_renewed(
-        env: &Env,
-        attestation_id: &String,
-        issuer: &Address,
-        new_expiration: Option<u64>,
-    ) {
+    pub fn attestation_revoked_with_reason(env: &Env, attestation_id: &String, issuer: &Address, reason: &Option<String>) {
+        env.events().publish(
+            (symbol_short!("revoked"), issuer.clone()),
+            (attestation_id.clone(), reason.clone()),
+        );
+    }
+
+    pub fn attestation_renewed(env: &Env, attestation_id: &String, issuer: &Address, new_expiration: Option<u64>) {
         env.events().publish(
             (symbol_short!("renewed"), issuer.clone()),
             (attestation_id.clone(), new_expiration),
@@ -313,6 +315,21 @@ impl Events {
         env.events().publish(
             (symbol_short!("del_revoked"), delegator.clone()),
             (delegate.clone(), claim_type.clone()),
+        );
+    }
+
+    pub fn whitelist_mode_enabled(env: &Env, issuer: &Address) {
+        env.events().publish(
+            (symbol_short!("wl_on"), issuer.clone()),
+            (),
+        );
+    }
+
+    pub fn whitelist_updated(env: &Env, issuer: &Address, subject: &Address, added: bool) {
+        let sym = if added { symbol_short!("wl_add") } else { symbol_short!("wl_rem") };
+        env.events().publish(
+            (sym, issuer.clone()),
+            subject.clone(),
         );
     }
 }

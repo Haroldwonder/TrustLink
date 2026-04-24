@@ -251,24 +251,7 @@ pub enum Error {
     Expired = 7,
     InvalidValidFrom = 8,
     InvalidExpiration = 9,
-    MetadataTooLong = 10,
-    InvalidTimestamp = 11,
-    InvalidFee = 12,
-    FeeTokenRequired = 13,
-    TooManyTags = 14,
-    TagTooLong = 15,
-    /// Threshold must be >= 1 and <= number of required signers.
-    InvalidThreshold = 16,
-    /// The signer is not in the proposal's required_signers list.
-    NotRequiredSigner = 17,
-    /// The signer has already co-signed this proposal.
-    AlreadySigned = 18,
-    /// The proposal has already been finalized.
-    ProposalFinalized = 19,
-    /// The proposal has expired without reaching threshold.
-    ProposalExpired = 20,
-    /// The contract is paused and cannot accept state-changing operations.
-    ContractPaused = 21,
+    SubjectNotWhitelisted = 25,
 }
 
 #[contracttype]

@@ -64,34 +64,8 @@ pub enum StorageKey {
     ClaimType(String),
     /// Ordered list of registered claim type identifiers.
     ClaimTypeList,
-    /// Configurable storage limits (admin-settable).
-    Limits,
-    /// A multi-sig attestation proposal keyed by its ID.
-    MultiSigProposal(String),
-    /// Ordered list of endorsements for an attestation, keyed by attestation ID.
-    Endorsements(String),
-    /// Global contract statistics (total attestations, revocations, issuers).
-    GlobalStats,
-    /// Trust tier for a registered issuer.
-    IssuerTier(Address),
-    /// Per-issuer statistics keyed by issuer address.
-    IssuerStats(Address),
-    /// Expiration notification hook for a subject address.
-    ExpirationHook(Address),
-    /// Append-only audit log for an attestation, keyed by attestation ID.
-    AuditLog(String),
-    /// Global pause flag — when present and true, write operations are disabled.
-    Paused,
-    /// Whitelist enabled flag per issuer — when true, only whitelisted subjects are accepted.
-    WhitelistEnabled(Address),
-    /// Presence flag for a whitelisted subject under a specific issuer.
-    SubjectWhitelist(Address, Address),
-    /// Delegation from delegator to delegate for specific claim_type.
-    Delegation((Address, Address, String)),
-    /// Rate limit configuration (global).
-    RateLimit,
-    /// Last attestation issuance timestamp for an issuer.
-    LastIssuanceTime(Address),
+    /// Admin-configured multisig proposal TTL in days (default 7).
+    MultisigTtlDays,
 }
 
 const DAY_IN_LEDGERS: u32 = 17280;
@@ -455,14 +429,15 @@ impl Storage {
             .unwrap_or(Vec::new(env))
     }
 
-    /// Persist storage limits in instance storage.
-    pub fn set_limits(env: &Env, limits: &StorageLimits) {
-        env.storage().instance().set(&StorageKey::Limits, limits);
+    /// Persist the multisig proposal TTL in days.
+    pub fn set_multisig_ttl_days(env: &Env, days: u32) {
+        let key = StorageKey::MultisigTtlDays;
+        env.storage().instance().set(&key, &days);
         env.storage().instance().extend_ttl(INSTANCE_LIFETIME, INSTANCE_LIFETIME);
     }
 
-    /// Retrieve storage limits, returning defaults if never set.
-    pub fn get_limits(env: &Env) -> StorageLimits {
+    /// Return the multisig proposal TTL in days (default 7).
+    pub fn get_multisig_ttl_days(env: &Env) -> u32 {
         env.storage()
             .instance()
             .get(&StorageKey::Limits)
