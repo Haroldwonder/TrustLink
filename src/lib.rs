@@ -1803,87 +1803,32 @@ impl TrustLinkContract {
         })
     }
 
-    pub fn get_config(env: Env) -> ContractConfig {
-        let ttl_config = Storage::get_ttl_config(&env).unwrap_or(TtlConfig { ttl_days: 30 });
-
-        let fee_config = Storage::get_fee_config(&env).unwrap_or_else(|| FeeConfig {
-            attestation_fee: 0,
-            fee_collector: env.current_contract_address(),
-            fee_token: None,
-        });
-
-        let version = Storage::get_version(&env).unwrap_or_else(|| String::from_str(&env, ""));
-
-        ContractConfig {
-            ttl_config,
-            fee_config,
-            contract_name: String::from_str(&env, "TrustLink"),
-            contract_version: version,
-            contract_description: String::from_str(
-                &env,
-                "On-chain attestation and verification system for the Stellar blockchain.",
-            ),
-        }
-    }
-
-    /// Transfer ownership of an attestation to a new issuer (admin only).
+    /// Set the multisig proposal TTL (admin only).
     ///
-    /// Used when an issuer is removed/deactivated, allowing admin to re-assign orphaned
-    /// attestations to a new issuer. Updates issuer field, indexes, stats, emits event.
+    /// Controls how long (in days) a multisig proposal remains open for
+    /// approval before it expires. Defaults to 7 days if never set.
+    ///
+    /// # Parameters
+    /// - `admin` — current administrator address (must authorize).
+    /// - `days` — TTL in days; must be ≥ 1.
     ///
     /// # Errors
-    /// [`Error::Unauthorized`] if caller is not admin or new_issuer not registered.
-    /// [`Error::NotFound`] if attestation_id does not exist.
-    pub fn transfer_attestation(
-        env: Env,
-        admin: Address,
-        attestation_id: String,
-        new_issuer: Address,
-    ) -> Result<(), Error> {
+    /// - [`Error::NotInitialized`] — contract has not been initialized.
+    /// - [`Error::Unauthorized`] — `admin` is not the registered administrator.
+    /// - [`Error::InvalidExpiration`] — `days` is 0.
+    pub fn set_multisig_ttl(env: Env, admin: Address, days: u32) -> Result<(), Error> {
         admin.require_auth();
         Validation::require_admin(&env, &admin)?;
-
-        let mut attestation = Storage::get_attestation(&env, &attestation_id)?;
-        let old_issuer = attestation.issuer.clone();
-
-        Validation::require_issuer(&env, &new_issuer)?;
-
-        if old_issuer == new_issuer {
-            return Ok(());
+        if days == 0 {
+            return Err(Error::InvalidExpiration);
         }
-
-        // Update indexes
-        Storage::remove_issuer_attestation(&env, &old_issuer, &attestation_id);
-        let mut old_stats = Storage::get_issuer_stats(&env, &old_issuer);
-        old_stats.total_issued = old_stats.total_issued.saturating_sub(1);
-        Storage::set_issuer_stats(&env, &old_issuer, &old_stats);
-
-        attestation.issuer = new_issuer.clone();
-        Storage::set_attestation(&env, &attestation);
-
-        Storage::add_issuer_attestation(&env, &new_issuer, &attestation_id);
-        let mut new_stats = Storage::get_issuer_stats(&env, &new_issuer);
-        new_stats.total_issued += 1;
-        Storage::set_issuer_stats(&env, &new_issuer, &new_stats);
-
-        // Event and audit
-        Events::attestation_transferred(&env, &attestation_id, &old_issuer, &new_issuer);
-        let timestamp = env.ledger().timestamp();
-        Storage::append_audit_entry(
-            &env,
-            &attestation_id,
-            &AuditEntry {
-                action: AuditAction::Transferred,
-                actor: admin.clone(),
-                timestamp,
-                details: Some(format!(
-                    "{}",
-                    new_issuer.to_string()
-                )),
-            },
-        );
-
+        Storage::set_multisig_ttl_days(&env, days);
         Ok(())
+    }
+
+    /// Return the current multisig proposal TTL in days (default 7).
+    pub fn get_multisig_ttl(env: Env) -> u32 {
+        Storage::get_multisig_ttl_days(&env)
     }
 }
 
