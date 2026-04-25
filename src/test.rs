@@ -6,6 +6,8 @@ use soroban_sdk::{
     Address, Env, String,
 };
 
+use crate::types::AttestationOrigin;
+
 #[contract]
 struct MockBridgeContract;
 
@@ -180,7 +182,7 @@ fn test_fee_is_disabled_by_default() {
     assert_eq!(fee_config.fee_token, None);
 
     let id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
-    assert!(!client.get_attestation(&id).imported);
+    assert_eq!(client.get_attestation(&id).origin, types::AttestationOrigin::Native);
 }
 
 #[test]
@@ -199,7 +201,7 @@ fn test_create_attestation_sets_imported_false() {
     assert_eq!(attestation.subject, subject);
     assert_eq!(attestation.issuer, issuer);
     assert_eq!(attestation.metadata, metadata);
-    assert!(!attestation.imported);
+    assert_eq!(attestation.origin, types::AttestationOrigin::Native);
     assert_eq!(attestation.valid_from, None);
 }
 
@@ -581,7 +583,7 @@ fn test_import_attestation_preserves_historical_timestamp_and_marks_imported() {
     assert_eq!(attestation.timestamp, historical_timestamp);
     assert_eq!(attestation.expiration, Some(10_000));
     assert_eq!(attestation.metadata, None);
-    assert!(attestation.imported);
+    assert_eq!(attestation.origin, types::AttestationOrigin::Imported);
 }
 
 #[test]
@@ -622,10 +624,48 @@ fn test_bridge_attestation_stores_source_reference_and_marks_bridged() {
 
     let attestation = client.get_attestation(&id);
     assert_eq!(attestation.issuer, bridge);
-    assert!(attestation.bridged);
-    assert!(!attestation.imported);
+    assert_eq!(attestation.origin, types::AttestationOrigin::Bridged);
     assert_eq!(attestation.source_chain, Some(source_chain));
     assert_eq!(attestation.source_tx, Some(source_tx));
+}
+
+#[test]
+fn test_bridge_attestation_rejects_source_chain_too_long() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let source_chain = String::from_str(&env, "123456789012345678901234567890123"); // 33 chars
+    let source_tx = String::from_str(&env, "0xabc123");
+
+    client.register_bridge(&admin, &bridge);
+    let result = client.try_bridge_attestation(&bridge, &subject, &claim_type, &source_chain, &source_tx);
+
+    assert_eq!(result, Err(Ok(types::Error::MetadataTooLong)));
+}
+
+#[test]
+fn test_bridge_attestation_rejects_source_tx_too_long() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let source_chain = String::from_str(&env, "ethereum");
+    let source_tx = String::from_str(
+        &env,
+        "123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789",
+    ); // 129 chars
+
+    client.register_bridge(&admin, &bridge);
+    let result = client.try_bridge_attestation(&bridge, &subject, &claim_type, &source_chain, &source_tx);
+
+    assert_eq!(result, Err(Ok(types::Error::MetadataTooLong)));
 }
 
 #[test]
@@ -687,7 +727,7 @@ fn test_bridge_contract_can_create_attestation() {
     assert!(client.has_valid_claim(&subject, &claim_type));
     assert_eq!(client.get_subject_attestations(&subject, &0, &10).len(), 1);
     assert_eq!(attestation.issuer, bridge_id);
-    assert!(attestation.bridged);
+    assert_eq!(attestation.origin, types::AttestationOrigin::Bridged);
 }
 
 #[test]

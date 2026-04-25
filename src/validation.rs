@@ -65,6 +65,20 @@ impl Validation {
         Ok(())
     }
 
+    /// Assert that `caller` is either a registered issuer or a registered bridge contract.
+    ///
+    /// Used by attestation creation paths that accept both issuers and bridges,
+    /// eliminating the duplicated `require_issuer` / `require_bridge` pattern.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — `caller` is neither a registered issuer nor a registered bridge.
+    pub fn require_authorized_creator(env: &Env, caller: &Address) -> Result<(), Error> {
+        if Storage::is_issuer(env, caller) || Storage::is_bridge(env, caller) {
+            return Ok(());
+        }
+        Err(Error::Unauthorized)
+    }
+
     /// Assert that the contract is not currently paused.
     ///
     /// # Errors
@@ -100,6 +114,22 @@ impl Validation {
             let is_underscore = b == b'_';
             if !is_alpha && !is_digit && !is_underscore {
                 return Err(Error::InvalidClaimType);
+            }
+        }
+        Ok(())
+    }
+
+    /// Validate optional metadata string.
+    ///
+    /// # Rules
+    /// - Maximum 256 characters.
+    ///
+    /// # Errors
+    /// - [`Error::MetadataTooLong`] — metadata exceeds 256 characters.
+    pub fn validate_metadata(_env: &Env, metadata: &Option<String>) -> Result<(), Error> {
+        if let Some(value) = metadata {
+            if value.len() > 256 {
+                return Err(Error::MetadataTooLong);
             }
         }
         Ok(())
