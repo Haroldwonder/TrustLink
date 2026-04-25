@@ -158,6 +158,14 @@ impl Events {
         );
     }
 
+    /// Emitted when a two-step admin transfer is proposed.
+    pub fn admin_transfer_proposed(env: &Env, current_admin: &Address, new_admin: &Address) {
+        env.events().publish(
+            (symbol_short!("adm_prop"), current_admin.clone()),
+            new_admin.clone(),
+        );
+    }
+
     /// Emitted when an admin adds a new admin to the council.
     pub fn admin_added(env: &Env, by_admin: &Address, new_admin: &Address, timestamp: u64) {
         env.events().publish(

@@ -315,6 +315,49 @@ impl TrustLinkContract {
         Ok(())
     }
 
+    /// Step 1 of two-step admin transfer: propose a new admin.
+    ///
+    /// Stores the pending transfer. The new admin must call `accept_admin_transfer`
+    /// to complete the handover, preventing lockout from a typo in the address.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — caller is not the current admin.
+    pub fn propose_admin_transfer(
+        env: Env,
+        current_admin: Address,
+        new_admin: Address,
+    ) -> Result<(), Error> {
+        current_admin.require_auth();
+        Validation::require_admin(&env, &current_admin)?;
+        Storage::set_pending_admin_transfer(
+            &env,
+            &PendingAdminTransfer {
+                proposed_by: current_admin.clone(),
+                new_admin: new_admin.clone(),
+            },
+        );
+        Events::admin_transfer_proposed(&env, &current_admin, &new_admin);
+        Ok(())
+    }
+
+    /// Step 2 of two-step admin transfer: new admin accepts the pending transfer.
+    ///
+    /// # Errors
+    /// - [`Error::NotFound`] — no pending transfer exists.
+    /// - [`Error::Unauthorized`] — caller is not the proposed new admin.
+    pub fn accept_admin_transfer(env: Env, new_admin: Address) -> Result<(), Error> {
+        new_admin.require_auth();
+        let pending = Storage::get_pending_admin_transfer(&env).ok_or(Error::NotFound)?;
+        if pending.new_admin != new_admin {
+            return Err(Error::Unauthorized);
+        }
+        Storage::add_admin(&env, &new_admin);
+        Storage::remove_admin(&env, &pending.proposed_by);
+        Storage::remove_pending_admin_transfer(&env);
+        Events::admin_transferred(&env, &pending.proposed_by, &new_admin);
+        Ok(())
+    }
+
     /// Add new admin to council (any existing admin).
     pub fn add_admin(
         env: Env,
