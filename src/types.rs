@@ -14,6 +14,18 @@ pub const MULTISIG_PROPOSAL_TTL_SECS: u64 = 7 * 24 * 60 * 60;
 /// Default lifetime for an attestation request: 7 days in seconds.
 pub const ATTESTATION_REQUEST_TTL_SECS: u64 = 7 * 24 * 60 * 60;
 
+/// Seconds in one day.
+pub const SECS_PER_DAY: u64 = 86_400;
+
+/// Default TTL for persistent storage entries, in days.
+pub const DEFAULT_TTL_DAYS: u32 = 30;
+
+/// Number of ledgers per day on Stellar (one ledger every ~5 seconds).
+pub const DAY_IN_LEDGERS: u32 = 17_280;
+
+/// Minimum TTL threshold in ledgers before a TTL extension is triggered (7 days).
+pub const MIN_TTL_THRESHOLD_LEDGERS: u32 = 7 * DAY_IN_LEDGERS;
+
 /// Status of an attestation request.
 #[contracttype]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -192,6 +204,22 @@ pub struct Endorsement {
     pub timestamp: u64,
 }
 
+/// A multi-signature attestation proposal requiring threshold signatures.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MultiSigProposal {
+    pub id: String,
+    pub proposer: Address,
+    pub subject: Address,
+    pub claim_type: String,
+    pub required_signers: Vec<Address>,
+    pub threshold: u32,
+    pub signers: Vec<Address>,
+    pub created_at: u64,
+    pub expires_at: u64,
+    pub finalized: bool,
+}
+
 /// Configurable storage limits to prevent exhaustion attacks.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -215,40 +243,112 @@ impl Default for StorageLimits {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Delegation {
-    /// Issuer delegating authority.
     pub delegator: Address,
-    /// Sub-issuer receiving delegation.
     pub delegate: Address,
-    /// Specific claim type this delegation covers.
     pub claim_type: String,
-    /// Optional expiration timestamp for this delegation.
     pub expiration: Option<u64>,
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum Error {
-    AlreadyInitialized = 1,
-    NotInitialized = 2,
-    Unauthorized = 3,
-    NotFound = 4,
-    DuplicateAttestation = 5,
-    AlreadyRevoked = 6,
-    Expired = 7,
-    InvalidValidFrom = 8,
-    InvalidExpiration = 9,
-    /// Council quorum not yet reached for this proposal.
-    QuorumNotReached = 11,
-    /// Proposal has already been executed.
-    AlreadyExecuted = 12,
-    /// Caller already approved this proposal.
-    AlreadyApproved = 13,
-    /// Council has not been initialized.
-    CouncilNotInitialized = 14,
-    /// Quorum threshold exceeds member count or is zero.
-    InvalidQuorum = 15,
 }
 
 #[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MultiSigProposal {
+    pub id: String,
+    pub proposer: Address,
+    pub subject: Address,
+    pub claim_type: String,
+    pub required_signers: Vec<Address>,
+    pub threshold: u32,
+    pub signers: Vec<Address>,
+    pub created_at: u64,
+    pub expires_at: u64,
+    pub finalized: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MultiSigProposal {
+    pub id: String,
+    pub proposer: Address,
+    pub subject: Address,
+    pub claim_type: String,
+    pub required_signers: Vec<Address>,
+    pub threshold: u32,
+    pub signers: Vec<Address>,
+    pub created_at: u64,
+    pub expires_at: u64,
+    pub finalized: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MultiSigProposal {
+    pub id: String,
+    pub proposer: Address,
+    pub subject: Address,
+    pub claim_type: String,
+    pub required_signers: Vec<Address>,
+    pub threshold: u32,
+    pub signers: Vec<Address>,
+    pub created_at: u64,
+    pub expires_at: u64,
+    pub finalized: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MultiSigProposal {
+    pub id: String,
+    pub proposer: Address,
+    pub subject: Address,
+    pub claim_type: String,
+    pub required_signers: Vec<Address>,
+    pub threshold: u32,
+    pub signers: Vec<Address>,
+    pub created_at: u64,
+    pub expires_at: u64,
+    pub finalized: bool,
+}
+
 pub type AdminCouncil = Vec<Address>;
+
+/// Default TTL for a council quorum proposal: 7 days in seconds.
+pub const COUNCIL_PROPOSAL_TTL_SECS: u64 = 7 * 24 * 60 * 60;
+
+/// The sensitive admin action being proposed for council quorum approval.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CouncilAction {
+    /// Pause the contract.
+    Pause,
+    /// Unpause the contract.
+    Unpause,
+    /// Update the attestation fee configuration.
+    SetFee(FeeConfig),
+    /// Remove a registered issuer.
+    RemoveIssuer(Address),
+}
+
+/// A pending council quorum proposal for a sensitive admin action.
+///
+/// The action is only executed once `approvals.len() >= threshold`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CouncilProposal {
+    /// Unique deterministic ID.
+    pub id: String,
+    /// The action being proposed.
+    pub action: CouncilAction,
+    /// Admin who created the proposal.
+    pub proposer: Address,
+    /// Admins who have approved (proposer is auto-included).
+    pub approvals: Vec<Address>,
+    /// Number of approvals required to execute.
+    pub threshold: u32,
+    /// Unix timestamp after which the proposal expires.
+    pub expires_at: u64,
+    /// Whether the proposal has been executed.
+    pub executed: bool,
+}
 
 impl Attestation {
     /// Hashes an arbitrary byte payload and returns a 32-character lowercase hex string.
@@ -341,6 +441,22 @@ impl AttestationRequest {
         payload.append(&timestamp.to_xdr(env));
         Attestation::hash_payload(env, &payload)
     }
+}
+
+/// A multi-sig attestation proposal requiring M-of-N issuer signatures.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MultiSigProposal {
+    pub id: String,
+    pub proposer: Address,
+    pub subject: Address,
+    pub claim_type: String,
+    pub required_signers: Vec<Address>,
+    pub threshold: u32,
+    pub signers: Vec<Address>,
+    pub created_at: u64,
+    pub expires_at: u64,
+    pub finalized: bool,
 }
 
 impl MultiSigProposal {

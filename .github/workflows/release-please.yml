@@ -22,15 +22,4 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           release-type: rust
-          package-name: trustlink
           path: .
-          changelog-types: |
-            [
-              {"type": "feat", "section": "Features", "hidden": false},
-              {"type": "fix", "section": "Bug Fixes", "hidden": false},
-              {"type": "docs", "section": "Documentation", "hidden": false},
-              {"type": "test", "section": "Tests", "hidden": true},
-              {"type": "refactor", "section": "Refactoring", "hidden": false},
-              {"type": "perf", "section": "Performance", "hidden": false},
-              {"type": "chore", "section": "Miscellaneous", "hidden": true}
-            ]
