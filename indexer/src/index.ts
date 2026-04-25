@@ -7,7 +7,7 @@ import { WebSocketServer } from "ws";
 import { useServer } from "graphql-ws/use/ws";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { startIndexer } from "./indexer";
+import { startIndexer, getLastLedger } from "./indexer";
 import { buildResolvers } from "./graphql";
 
 const db = new PrismaClient();
@@ -26,6 +26,35 @@ async function main() {
 
   // ── REST (Fastify) ─────────────────────────────────────────────────────────
   const fastify = Fastify({ logger: true });
+
+  fastify.get("/health", async () => {
+    let dbConnected = false;
+    try {
+      await db.$queryRaw`SELECT 1`;
+      dbConnected = true;
+    } catch {
+      dbConnected = false;
+    }
+    return {
+      status: "ok",
+      lastLedger: getLastLedger(),
+      dbConnected,
+    };
+  });
+
+  fastify.get("/ready", async () => {
+    const checkpoint = await db.checkpoint.findUnique({ where: { id: 1 } });
+    const rpc = new (await import("@stellar/stellar-sdk")).rpc.Server(
+      process.env.RPC_URL ?? "https://soroban-testnet.stellar.org",
+      { allowHttp: true }
+    );
+    const { sequence: tip } = await rpc.getLatestLedger();
+    const lag = tip - (checkpoint?.ledger ?? 0);
+    if (lag <= 10) {
+      return { status: 200 };
+    }
+    return { status: 503 };
+  });
 
   fastify.get<{ Params: { subject: string } }>(
     "/attestations/:subject",

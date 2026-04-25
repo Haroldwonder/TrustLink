@@ -10,6 +10,12 @@ const POLL_MS = 5_000;
 
 const WATCHED = new Set(["created", "revoked", "imported", "bridged"]);
 
+let lastLedger = 0;
+
+export function getLastLedger(): number {
+  return lastLedger;
+}
+
 export async function startIndexer(db: PrismaClient): Promise<void> {
   const rpc = new SorobanRpc.Server(RPC_URL, { allowHttp: true });
 
@@ -61,6 +67,7 @@ async function processRange(
         ? response.events[response.events.length - 1].ledger
         : Math.min(startLedger + PAGE_LIMIT - 1, to);
 
+    lastLedger = lastProcessed;
     startLedger = lastProcessed + 1;
 
     await db.checkpoint.upsert({
