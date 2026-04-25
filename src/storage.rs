@@ -68,34 +68,8 @@ pub enum StorageKey {
     IssuerWhitelistMode(Address),
     /// Whether a subject is whitelisted for a specific issuer.
     IssuerWhitelist(Address, Address),
-    /// Global contract statistics.
-    GlobalStats,
-    /// Per-issuer statistics.
-    IssuerStats(Address),
-    /// Issuer trust tier.
-    IssuerTier(Address),
-    /// Audit log for an attestation.
-    AuditLog(String),
-    /// Endorsements for an attestation.
-    Endorsements(String),
-    /// Expiration hook for a subject.
-    ExpirationHook(Address),
-    /// Multi-sig proposal.
-    MultiSigProposal(String),
-    /// Attestation request.
-    AttestationRequest(String),
-    /// Pending request IDs for an issuer.
-    PendingRequests(Address),
-    /// Rate limit config.
-    RateLimitConfig,
-    /// Last issuance timestamp for an issuer.
-    LastIssuanceTime(Address),
-    /// Storage limits.
-    StorageLimits,
-    /// Contract paused flag.
-    Paused,
-    /// Delegation key (delegator, delegate, claim_type).
-    Delegation(Address, Address, String),
+    /// Configurable storage exhaustion limits.
+    Limits,
 }
 
 const DAY_IN_LEDGERS: u32 = 17280;
@@ -376,21 +350,6 @@ impl Storage {
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 
-    /// Remove `attestation_id` from `issuer`'s attestation index.
-    pub fn remove_issuer_attestation(env: &Env, issuer: &Address, attestation_id: &String) {
-        let key = StorageKey::IssuerAttestations(issuer.clone());
-        let ttl = get_ttl_lifetime(env);
-        let existing = Self::get_issuer_attestations(env, issuer);
-        let mut updated = Vec::new(env);
-        for id in existing.iter() {
-            if &id != attestation_id {
-                updated.push_back(id);
-            }
-        }
-        env.storage().persistent().set(&key, &updated);
-        env.storage().persistent().extend_ttl(&key, ttl, ttl);
-    }
-
     /// Persist `metadata` for `issuer` and refresh its TTL.
     pub fn set_issuer_metadata(env: &Env, issuer: &Address, metadata: &IssuerMetadata) {
         let key = StorageKey::IssuerMetadata(issuer.clone());
@@ -451,12 +410,19 @@ impl Storage {
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 
-    /// Return `true` if whitelist mode is enabled for `issuer`.
-    pub fn is_whitelist_mode(env: &Env, issuer: &Address) -> bool {
-        env.storage()
-            .persistent()
-            .get(&StorageKey::IssuerWhitelistMode(issuer.clone()))
-            .unwrap_or(false)
+    /// Retrieve the admin council, or `None` if not initialized.
+    pub fn get_council(env: &Env) -> Option<AdminCouncil> {
+        env.storage().instance().get(&StorageKey::AdminCouncil)
+    }
+
+    /// Enable or disable whitelist mode (alias used by lib.rs).
+    pub fn set_whitelist_enabled(env: &Env, issuer: &Address, enabled: bool) {
+        Self::set_whitelist_mode(env, issuer, enabled);
+    }
+
+    /// Return `true` if whitelist mode is enabled (alias used by lib.rs).
+    pub fn is_whitelist_enabled(env: &Env, issuer: &Address) -> bool {
+        Self::is_whitelist_mode(env, issuer)
     }
 
     /// Add `subject` to `issuer`'s whitelist.
@@ -467,18 +433,28 @@ impl Storage {
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 
-    /// Remove `subject` from `issuer`'s whitelist.
-    pub fn remove_from_whitelist(env: &Env, issuer: &Address, subject: &Address) {
-        env.storage()
-            .persistent()
-            .remove(&StorageKey::IssuerWhitelist(issuer.clone(), subject.clone()));
+    /// Retrieve a council proposal by ID.
+    pub fn get_proposal(env: &Env, id: u32) -> Option<CouncilProposal> {
+        env.storage().persistent().get(&StorageKey::CouncilProposal(id))
     }
 
-    /// Return `true` if `subject` is on `issuer`'s whitelist.
-    pub fn is_whitelisted(env: &Env, issuer: &Address, subject: &Address) -> bool {
-        env.storage()
-            .persistent()
-            .has(&StorageKey::IssuerWhitelist(issuer.clone(), subject.clone()))
+    /// Increment and return the next proposal ID.
+    pub fn next_proposal_id(env: &Env) -> u32 {
+        let current: u32 = env.storage().instance().get(&StorageKey::ProposalCounter).unwrap_or(0);
+        let next = current + 1;
+        env.storage().instance().set(&StorageKey::ProposalCounter, &next);
+        next
+    }
+
+    /// Set the contract paused flag.
+    pub fn set_paused(env: &Env, paused: bool) {
+        env.storage().instance().set(&StorageKey::Paused, &paused);
+        env.storage().instance().extend_ttl(INSTANCE_LIFETIME, INSTANCE_LIFETIME);
+    }
+
+    /// Return `true` if the contract is paused.
+    pub fn is_paused(env: &Env) -> bool {
+        env.storage().instance().get(&StorageKey::Paused).unwrap_or(false)
     }
 
     // ── Whitelist aliases used by lib.rs ──────────────────────────────────────
@@ -625,9 +601,29 @@ impl Storage {
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 
-    // ── Endorsements ──────────────────────────────────────────────────────────
-
+    /// Return the ordered list of endorsements for `attestation_id`, or an empty [`Vec`] if none.
     pub fn get_endorsements(env: &Env, attestation_id: &String) -> Vec<Endorsement> {
+        let key = StorageKey::Endorsements(attestation_id.clone());
+        env.storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(Vec::new(env))
+    }
+
+    /// Append `endorsement` to the endorsements list for its attestation and refresh TTL.
+    pub fn add_endorsement(env: &Env, endorsement: &Endorsement) {
+        let key = StorageKey::Endorsements(endorsement.attestation_id.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut endorsements = Self::get_endorsements(env, &endorsement.attestation_id);
+        endorsements.push_back(endorsement.clone());
+        env.storage().persistent().set(&key, &endorsements);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    /// Return `true` if the contract is currently paused.
+    ///
+    /// Defaults to `false` (not paused) when the key is absent.
+    pub fn is_paused(env: &Env) -> bool {
         env.storage()
             .persistent()
             .get(&StorageKey::Endorsements(attestation_id.clone()))
@@ -812,5 +808,17 @@ where
             result.push_back(item);
         }
     }
-    result
+
+    /// Persist storage exhaustion limits.
+    pub fn set_limits(env: &Env, limits: &StorageLimits) {
+        env.storage().instance().set(&StorageKey::Limits, limits);
+    }
+
+    /// Return the current storage limits, falling back to [`StorageLimits::default`] if not set.
+    pub fn get_limits(env: &Env) -> StorageLimits {
+        env.storage()
+            .instance()
+            .get(&StorageKey::Limits)
+            .unwrap_or_default()
+    }
 }

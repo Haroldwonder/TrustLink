@@ -55,31 +55,7 @@ impl IssuerTier {
     }
 }
 
-/// Per-issuer statistics.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct IssuerStats {
-    pub total_issued: u64,
-}
-
-/// A registered expiration notification hook for a subject.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ExpirationHook {
-    pub callback_contract: Address,
-    pub notify_days_before: u32,
-}
-
-/// Full contract configuration snapshot returned by `get_config`.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ContractConfig {
-    pub ttl_config: TtlConfig,
-    pub fee_config: FeeConfig,
-    pub contract_name: String,
-    pub contract_version: String,
-    pub contract_description: String,
-}
+use soroban_sdk::{contracterror, contracttype, Address, Env, String, Vec};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -96,53 +72,59 @@ pub struct ClaimTypeInfo {
     pub description: String,
 }
 
+/// The admin council configuration: member list and quorum threshold.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct IssuerMetadata {
-    pub name: String,
-    pub url: String,
-    pub description: String,
+pub struct AdminCouncil {
+    /// Addresses eligible to vote on council proposals.
+    pub members: Vec<Address>,
+    /// Minimum approvals required to execute a proposal.
+    pub quorum: u32,
 }
 
+/// Operations that require council quorum approval.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct FeeConfig {
-    pub attestation_fee: i128,
-    pub fee_collector: Address,
-    pub fee_token: Option<Address>,
+pub enum CouncilOperation {
+    RemoveIssuer(Address),
+    PauseContract,
 }
 
+/// Describes how an attestation entered the system.
+///
+/// Replaces the previous `imported: bool` and `bridged: bool` fields, which
+/// were mutually exclusive and left the "native" state implicit.
+///
+/// # Variants
+/// - `Native`   — created directly by a registered issuer via `create_attestation`.
+/// - `Imported` — migrated from an external verified source by the admin via `import_attestation`.
+/// - `Bridged`  — mirrored from another chain by a trusted bridge contract via `bridge_attestation`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TtlConfig {
-    pub ttl_days: u32,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RateLimitConfig {
-    pub min_issuance_interval: u64,
-}
-
-/// Global contract statistics for dashboards and analytics.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct GlobalStats {
-    pub total_attestations: u64,
-    pub total_revocations: u64,
-    pub total_issuers: u64,
-}
-
+pub enum AttestationOrigin {
+    Native,
+    Imported,
+    Bridged,
 /// Lightweight health status returned by `health_check`.
 ///
 /// No authentication required — designed for monitoring dashboards and uptime probes.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct HealthStatus {
-    pub initialized: bool,
-    pub admin_set: bool,
-    pub issuer_count: u64,
-    pub total_attestations: u64,
+pub struct CouncilProposal {
+    pub id: u32,
+    pub operation: CouncilOperation,
+    pub proposer: Address,
+    pub approvals: Vec<Address>,
+    pub executed: bool,
+}
+
+/// A single attestation record stored on-chain.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AttestationOrigin {
+    Native,
+    Imported,
+    Bridged,
 }
 
 #[contracttype]
@@ -155,11 +137,13 @@ pub struct Attestation {
     pub timestamp: u64,
     pub expiration: Option<u64>,
     pub revoked: bool,
+    /// Set to `true` by `request_deletion` (GDPR right-to-erasure soft delete).
+    /// Deleted attestations are excluded from all query results.
+    pub deleted: bool,
     pub metadata: Option<String>,
     pub jurisdiction: Option<String>,
     pub valid_from: Option<u64>,
-    pub imported: bool,
-    pub bridged: bool,
+    pub origin: AttestationOrigin,
     pub source_chain: Option<String>,
     pub source_tx: Option<String>,
     pub tags: Option<Vec<String>>,
@@ -208,6 +192,22 @@ pub struct Endorsement {
     pub timestamp: u64,
 }
 
+/// A multi-signature attestation proposal requiring threshold signatures.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MultiSigProposal {
+    pub id: String,
+    pub proposer: Address,
+    pub subject: Address,
+    pub claim_type: String,
+    pub required_signers: Vec<Address>,
+    pub threshold: u32,
+    pub signers: Vec<Address>,
+    pub created_at: u64,
+    pub expires_at: u64,
+    pub finalized: bool,
+}
+
 /// Configurable storage limits to prevent exhaustion attacks.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -239,6 +239,38 @@ pub struct Delegation {
     pub claim_type: String,
     /// Optional expiration timestamp for this delegation.
     pub expiration: Option<u64>,
+}
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum Error {
+    AlreadyInitialized = 1,
+    NotInitialized = 2,
+    Unauthorized = 3,
+    NotFound = 4,
+    DuplicateAttestation = 5,
+    AlreadyRevoked = 6,
+    Expired = 7,
+    InvalidValidFrom = 8,
+    InvalidExpiration = 9,
+    MetadataTooLong = 10,
+    InvalidTimestamp = 11,
+    InvalidFee = 12,
+    FeeTokenRequired = 13,
+    TooManyTags = 14,
+    TagTooLong = 15,
+    /// Threshold must be >= 1 and <= number of required signers.
+    InvalidThreshold = 16,
+    /// The signer is not in the proposal's required_signers list.
+    NotRequiredSigner = 17,
+    /// The signer has already co-signed this proposal.
+    AlreadySigned = 18,
+    /// The proposal has already been finalized.
+    ProposalFinalized = 19,
+    /// The proposal has expired without reaching threshold.
+    ProposalExpired = 20,
+    /// The contract is paused and cannot accept state-changing operations.
+    ContractPaused = 21,
 }
 
 /// A multi-sig attestation proposal requiring M-of-N issuer signatures.
