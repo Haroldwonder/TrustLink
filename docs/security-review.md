@@ -41,7 +41,7 @@ pub fn initialize(env: Env, admin: Address, ttl_days: Option<u32>) -> Result<(),
 
 **Recommendation:** Move `require_auth()` to the first line.
 
-**Status:** Open
+**Status:** Fixed — `require_auth()` is now the first call in `initialize()`, before `Storage::has_admin()`. Verified at `src/lib.rs` line 277.
 
 ---
 
