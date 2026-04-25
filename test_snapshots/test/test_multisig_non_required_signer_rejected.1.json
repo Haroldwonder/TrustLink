@@ -352,7 +352,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "MultiSigProposal"
+                  "symbol": "MultisigProposal"
                 },
                 {
                   "string": "99cee80ea265d03b73d5dd3de44d90c2da86be341fa217024567018b9baec2de"
@@ -372,7 +372,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "MultiSigProposal"
+                      "symbol": "MultisigProposal"
                     },
                     {
                       "string": "99cee80ea265d03b73d5dd3de44d90c2da86be341fa217024567018b9baec2de"
@@ -512,12 +512,16 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "Admin"
+                              "symbol": "AdminCouncil"
                             }
                           ]
                         },
                         "val": {
-                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                          "vec": [
+                            {
+                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                            }
+                          ]
                         }
                       },
                       {
