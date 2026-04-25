@@ -43,4 +43,21 @@ type Query {
 type Subscription {
   """Subscribe to new attestation creation events, optionally filtered by subject"""
   onAttestationCreated(subject: String): Attestation!
+
+  """Subscribe to attestation revocation events, optionally filtered by issuer"""
+  onAttestationRevoked(issuer: String): AttestationRevoked!
+
+  """Subscribe to issuer registration events"""
+  onIssuerRegistered: IssuerRegistered!
+}
+
+type AttestationRevoked {
+  id: String!
+  issuer: String!
+  revokedAt: String!
+}
+
+type IssuerRegistered {
+  issuer: String!
+  registeredAt: String!
 }

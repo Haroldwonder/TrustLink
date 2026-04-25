@@ -25,6 +25,9 @@ model Attestation {
 
   @@index([subject])
   @@index([issuer])
+  @@index([claimType])
+  @@index([subject, claimType])
+  @@index([timestamp])
 }
 
 // Singleton row (id=1) tracking the last fully-processed ledger sequence.

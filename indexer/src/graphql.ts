@@ -3,6 +3,8 @@ import { PrismaClient, Attestation } from "@prisma/client";
 
 export const pubsub = new PubSub();
 export const ATTESTATION_CREATED = "ATTESTATION_CREATED";
+export const ATTESTATION_REVOKED = "ATTESTATION_REVOKED";
+export const ISSUER_REGISTERED = "ISSUER_REGISTERED";
 
 type MappedAttestation = Omit<Attestation, "timestamp" | "expiration" | "createdAt" | "updatedAt"> & {
   timestamp: string;
@@ -91,6 +93,47 @@ export function buildResolvers(db: PrismaClient) {
         resolve: (payload: {
           onAttestationCreated: ReturnType<typeof mapAttestation>;
         }) => payload.onAttestationCreated,
+      },
+
+      onAttestationRevoked: {
+        subscribe: (_: unknown, args: { issuer?: string }) => {
+          const iter = pubsub.asyncIterableIterator<{
+            onAttestationRevoked: { id: string; issuer: string; revokedAt: string };
+          }>(ATTESTATION_REVOKED);
+
+          if (!args.issuer) return iter;
+
+          const issuer = args.issuer;
+          return {
+            [Symbol.asyncIterator]() {
+              return this;
+            },
+            async next(): Promise<IteratorResult<unknown>> {
+              while (true) {
+                const result = await iter.next();
+                if (result.done) return result;
+                const data = result.value?.onAttestationRevoked;
+                if (!data || data.issuer === issuer) return result;
+              }
+            },
+            async return() {
+              return iter.return?.() ?? { done: true as const, value: undefined };
+            },
+          };
+        },
+        resolve: (payload: {
+          onAttestationRevoked: { id: string; issuer: string; revokedAt: string };
+        }) => payload.onAttestationRevoked,
+      },
+
+      onIssuerRegistered: {
+        subscribe: () =>
+          pubsub.asyncIterableIterator<{
+            onIssuerRegistered: { issuer: string; registeredAt: string };
+          }>(ISSUER_REGISTERED),
+        resolve: (payload: {
+          onIssuerRegistered: { issuer: string; registeredAt: string };
+        }) => payload.onIssuerRegistered,
       },
     },
   };
