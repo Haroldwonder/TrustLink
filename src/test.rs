@@ -4068,3 +4068,410 @@ fn test_ttl_refreshed_on_deletion_request() {
     });
     assert!(raw.deleted, "attestation must be marked deleted");
 }
+
+// =============================================================================
+// import_attestation — historical timestamp edge cases
+//
+// Focused tests for the five behaviours called out in the task:
+//
+//   1. Historical timestamp in the past  → accepted, stored verbatim
+//   2. Future timestamp                  → InvalidTimestamp
+//   3. Expiration before timestamp       → InvalidExpiration
+//   4. origin == AttestationOrigin::Imported (imported flag is set)
+//   5. source_chain / source_tx are None (bridged flag is false for imports)
+//
+// Each test is isolated and uses its own contract instance so there is no
+// shared state between cases.
+// =============================================================================
+
+#[cfg(test)]
+mod import_attestation_tests {
+    use super::*;
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger},
+        Env, String,
+    };
+
+    /// Deploy a fresh contract, initialize it, register one issuer, and return
+    /// `(admin, issuer, subject, client)`.
+    fn setup(env: &Env) -> (Address, Address, Address, TrustLinkContractClient<'_>) {
+        let contract_id = env.register_contract(None, TrustLinkContract);
+        let client = TrustLinkContractClient::new(env, &contract_id);
+        let admin = Address::generate(env);
+        let issuer = Address::generate(env);
+        let subject = Address::generate(env);
+        client.initialize(&admin, &None);
+        client.register_issuer(&admin, &issuer);
+        (admin, issuer, subject, client)
+    }
+
+    // -------------------------------------------------------------------------
+    // 1. Historical timestamp in the past → accepted
+    // -------------------------------------------------------------------------
+
+    /// A timestamp strictly less than the current ledger time must be accepted
+    /// and stored verbatim on the attestation record.
+    #[test]
+    fn test_historical_timestamp_accepted_and_stored_verbatim() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, subject, client) = setup(&env);
+
+        // Ledger is at 10_000; historical timestamp is 1_000 — well in the past.
+        env.ledger().with_mut(|li| li.timestamp = 10_000);
+        let historical_ts: u64 = 1_000;
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        let id = client.import_attestation(
+            &admin, &issuer, &subject, &claim, &historical_ts, &None,
+        );
+
+        let att = client.get_attestation(&id);
+        assert_eq!(
+            att.timestamp, historical_ts,
+            "stored timestamp must equal the supplied historical value, not the ledger time"
+        );
+    }
+
+    /// Timestamp equal to the current ledger time is the boundary — it is NOT
+    /// in the future so it must be accepted.
+    #[test]
+    fn test_timestamp_equal_to_ledger_time_accepted() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, subject, client) = setup(&env);
+
+        env.ledger().with_mut(|li| li.timestamp = 5_000);
+        let boundary_ts: u64 = 5_000; // == ledger timestamp, not strictly future
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        let result = client.try_import_attestation(
+            &admin, &issuer, &subject, &claim, &boundary_ts, &None,
+        );
+        assert!(
+            result.is_ok(),
+            "timestamp equal to ledger time must be accepted (not future)"
+        );
+    }
+
+    /// Timestamp of zero (epoch) is the oldest possible value and must be
+    /// accepted when the ledger is at any positive time.
+    #[test]
+    fn test_timestamp_zero_accepted() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, subject, client) = setup(&env);
+
+        env.ledger().with_mut(|li| li.timestamp = 1_000);
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        let id = client.import_attestation(
+            &admin, &issuer, &subject, &claim, &0u64, &None,
+        );
+
+        let att = client.get_attestation(&id);
+        assert_eq!(att.timestamp, 0, "epoch timestamp must be stored as-is");
+    }
+
+    /// A historical timestamp with a valid expiration (expiration > timestamp
+    /// and expiration > ledger time) must be accepted.
+    #[test]
+    fn test_historical_timestamp_with_future_expiration_accepted() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, subject, client) = setup(&env);
+
+        env.ledger().with_mut(|li| li.timestamp = 5_000);
+        let historical_ts: u64 = 1_000;
+        let future_expiry: u64 = 20_000; // > ledger time and > historical_ts
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        let id = client.import_attestation(
+            &admin, &issuer, &subject, &claim, &historical_ts, &Some(future_expiry),
+        );
+
+        let att = client.get_attestation(&id);
+        assert_eq!(att.timestamp, historical_ts);
+        assert_eq!(att.expiration, Some(future_expiry));
+    }
+
+    // -------------------------------------------------------------------------
+    // 2. Future timestamp → InvalidTimestamp
+    // -------------------------------------------------------------------------
+
+    /// A timestamp one second ahead of the current ledger must be rejected.
+    #[test]
+    fn test_future_timestamp_rejected() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, subject, client) = setup(&env);
+
+        env.ledger().with_mut(|li| li.timestamp = 5_000);
+        let future_ts: u64 = 5_001; // one second in the future
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        let result = client.try_import_attestation(
+            &admin, &issuer, &subject, &claim, &future_ts, &None,
+        );
+        assert_eq!(
+            result,
+            Err(Ok(types::Error::InvalidTimestamp)),
+            "timestamp one second ahead of ledger must return InvalidTimestamp"
+        );
+    }
+
+    /// A timestamp far in the future must also be rejected.
+    #[test]
+    fn test_far_future_timestamp_rejected() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, subject, client) = setup(&env);
+
+        env.ledger().with_mut(|li| li.timestamp = 1_000);
+        let far_future: u64 = u64::MAX;
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        let result = client.try_import_attestation(
+            &admin, &issuer, &subject, &claim, &far_future, &None,
+        );
+        assert_eq!(
+            result,
+            Err(Ok(types::Error::InvalidTimestamp)),
+            "u64::MAX timestamp must return InvalidTimestamp"
+        );
+    }
+
+    /// A future-timestamp rejection must leave no attestation in storage.
+    #[test]
+    fn test_future_timestamp_leaves_no_state() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, subject, client) = setup(&env);
+
+        env.ledger().with_mut(|li| li.timestamp = 3_000);
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        let _ = client.try_import_attestation(
+            &admin, &issuer, &subject, &claim, &9_999, &None,
+        );
+
+        assert_eq!(
+            client.get_subject_attestations(&subject, &0, &10).len(),
+            0,
+            "failed import must not write any attestation to the subject index"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // 3. Expiration before timestamp → InvalidExpiration
+    // -------------------------------------------------------------------------
+
+    /// Expiration equal to the historical timestamp must be rejected — the
+    /// attestation would be expired at the moment it was issued.
+    #[test]
+    fn test_expiration_equal_to_timestamp_rejected() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, subject, client) = setup(&env);
+
+        env.ledger().with_mut(|li| li.timestamp = 10_000);
+        let ts: u64 = 5_000;
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        let result = client.try_import_attestation(
+            &admin, &issuer, &subject, &claim, &ts, &Some(ts), // expiry == ts
+        );
+        assert_eq!(
+            result,
+            Err(Ok(types::Error::InvalidExpiration)),
+            "expiration equal to timestamp must return InvalidExpiration"
+        );
+    }
+
+    /// Expiration one second before the historical timestamp must be rejected.
+    #[test]
+    fn test_expiration_before_timestamp_rejected() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, subject, client) = setup(&env);
+
+        env.ledger().with_mut(|li| li.timestamp = 10_000);
+        let ts: u64 = 5_000;
+        let expiry: u64 = 4_999; // one second before ts
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        let result = client.try_import_attestation(
+            &admin, &issuer, &subject, &claim, &ts, &Some(expiry),
+        );
+        assert_eq!(
+            result,
+            Err(Ok(types::Error::InvalidExpiration)),
+            "expiration before timestamp must return InvalidExpiration"
+        );
+    }
+
+    /// Expiration one second after the historical timestamp is the minimum
+    /// valid value and must be accepted.
+    #[test]
+    fn test_expiration_one_second_after_timestamp_accepted() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, subject, client) = setup(&env);
+
+        env.ledger().with_mut(|li| li.timestamp = 10_000);
+        let ts: u64 = 5_000;
+        let expiry: u64 = 5_001; // one second after ts — minimum valid
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        let result = client.try_import_attestation(
+            &admin, &issuer, &subject, &claim, &ts, &Some(expiry),
+        );
+        assert!(
+            result.is_ok(),
+            "expiration one second after timestamp must be accepted"
+        );
+    }
+
+    /// An expiration-before-timestamp rejection must leave no attestation in
+    /// storage.
+    #[test]
+    fn test_expiration_before_timestamp_leaves_no_state() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, subject, client) = setup(&env);
+
+        env.ledger().with_mut(|li| li.timestamp = 10_000);
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        let _ = client.try_import_attestation(
+            &admin, &issuer, &subject, &claim, &5_000, &Some(3_000),
+        );
+
+        assert_eq!(
+            client.get_subject_attestations(&subject, &0, &10).len(),
+            0,
+            "failed import must not write any attestation to the subject index"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // 4. Imported flag is set (origin == AttestationOrigin::Imported)
+    // -------------------------------------------------------------------------
+
+    /// The origin field must be exactly `Imported` — not `Native` or `Bridged`.
+    #[test]
+    fn test_imported_origin_is_set() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, subject, client) = setup(&env);
+
+        env.ledger().with_mut(|li| li.timestamp = 5_000);
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        let id = client.import_attestation(
+            &admin, &issuer, &subject, &claim, &1_000, &None,
+        );
+
+        let att = client.get_attestation(&id);
+        assert_eq!(
+            att.origin,
+            types::AttestationOrigin::Imported,
+            "import_attestation must set origin to Imported"
+        );
+    }
+
+    /// Imported origin must be distinct from Native — a natively created
+    /// attestation for the same subject must carry `Native`, not `Imported`.
+    #[test]
+    fn test_imported_origin_differs_from_native() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, subject, client) = setup(&env);
+
+        env.ledger().with_mut(|li| li.timestamp = 5_000);
+        let claim_import = String::from_str(&env, "KYC_IMPORT");
+        let claim_native = String::from_str(&env, "KYC_NATIVE");
+
+        let import_id = client.import_attestation(
+            &admin, &issuer, &subject, &claim_import, &1_000, &None,
+        );
+        let native_id = client.create_attestation(
+            &issuer, &subject, &claim_native, &None, &None, &None,
+        );
+
+        assert_eq!(
+            client.get_attestation(&import_id).origin,
+            types::AttestationOrigin::Imported,
+        );
+        assert_eq!(
+            client.get_attestation(&native_id).origin,
+            types::AttestationOrigin::Native,
+            "create_attestation must produce Native origin, not Imported"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // 5. Bridged flag is false for imports (source_chain / source_tx are None)
+    // -------------------------------------------------------------------------
+
+    /// An imported attestation must have no source_chain and no source_tx —
+    /// those fields are exclusive to bridged attestations.
+    #[test]
+    fn test_imported_attestation_has_no_bridge_fields() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, subject, client) = setup(&env);
+
+        env.ledger().with_mut(|li| li.timestamp = 5_000);
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        let id = client.import_attestation(
+            &admin, &issuer, &subject, &claim, &1_000, &None,
+        );
+
+        let att = client.get_attestation(&id);
+        assert_eq!(
+            att.source_chain, None,
+            "imported attestation must have source_chain == None"
+        );
+        assert_eq!(
+            att.source_tx, None,
+            "imported attestation must have source_tx == None"
+        );
+        assert_ne!(
+            att.origin,
+            types::AttestationOrigin::Bridged,
+            "imported attestation must not carry Bridged origin"
+        );
+    }
+
+    /// Contrast: a bridged attestation must carry source_chain, source_tx, and
+    /// `Bridged` origin — confirming the fields are mutually exclusive.
+    #[test]
+    fn test_bridged_attestation_has_bridge_fields_not_imported() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, _issuer, subject, client) = setup(&env);
+
+        let bridge = Address::generate(&env);
+        client.register_bridge(&admin, &bridge);
+
+        let claim = String::from_str(&env, "KYC_PASSED");
+        let source_chain = String::from_str(&env, "ethereum");
+        let source_tx = String::from_str(&env, "0xabc123");
+
+        let id = client.bridge_attestation(
+            &bridge, &subject, &claim, &source_chain, &source_tx,
+        );
+
+        let att = client.get_attestation(&id);
+        assert_eq!(att.origin, types::AttestationOrigin::Bridged);
+        assert_eq!(att.source_chain, Some(source_chain));
+        assert_eq!(att.source_tx, Some(source_tx));
+        assert_ne!(
+            att.origin,
+            types::AttestationOrigin::Imported,
+            "bridged attestation must not carry Imported origin"
+        );
+    }
+}
