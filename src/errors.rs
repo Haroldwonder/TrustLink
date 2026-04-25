@@ -53,4 +53,14 @@ pub enum Error {
     LastAdminCannotBeRemoved = 29,
     /// Issuer is rate-limited and must wait before creating another attestation.
     RateLimited = 30,
+    /// Claim type identifier is empty, too long, or contains invalid characters.
+    InvalidClaimType = 31,
+    /// Jurisdiction code is not a valid ISO 3166-1 alpha-2 code.
+    InvalidJurisdiction = 32,
+    /// Issuer or subject attestation count has reached the configured limit.
+    LimitExceeded = 33,
+    /// Batch size exceeds the maximum allowed (50).
+    BatchTooLarge = 34,
+    /// source_chain exceeds 32 chars or source_tx exceeds 128 chars in bridge_attestation.
+    SourceRefTooLong = 35,
 }
