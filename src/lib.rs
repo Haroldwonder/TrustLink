@@ -510,24 +510,177 @@ impl TrustLinkContract {
     }
 
     // -----------------------------------------------------------------------
-    // Storage limits
+    // Council Quorum — M-of-N approval for sensitive admin operations
+    //
+    // The following operations require a quorum of admin council members to
+    // approve before they execute:
+    //   - pause        (disables all write operations)
+    //   - unpause      (re-enables write operations)
+    //   - set_fee      (changes the attestation fee)
+    //   - remove_issuer (de-registers an issuer)
+    //
+    // Workflow:
+    //   1. Any admin calls `propose_council_action` to create a proposal.
+    //      The proposer's approval is counted automatically.
+    //   2. Other admins call `approve_council_action` with the proposal ID.
+    //   3. When approvals >= threshold the action executes atomically.
+    //
+    // The quorum threshold is ceil(council_size / 2) + 1 (strict majority),
+    // computed at proposal creation time from the live council size.
     // -----------------------------------------------------------------------
 
-    pub fn set_limits(env: Env, admin: Address, max_attestations_per_issuer: u32, max_attestations_per_subject: u32) -> Result<(), Error> {
-        admin.require_auth();
-        Validation::require_admin(&env, &admin)?;
-        Storage::set_limits(&env, &StorageLimits { max_attestations_per_issuer, max_attestations_per_subject });
+    /// Propose a sensitive admin action for council quorum approval.
+    ///
+    /// The proposer's approval is counted automatically. If the council has
+    /// only one member the action executes immediately (1-of-1).
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — caller is not an admin.
+    pub fn propose_council_action(
+        env: Env,
+        proposer: Address,
+        action: CouncilAction,
+    ) -> Result<String, Error> {
+        proposer.require_auth();
+        Validation::require_admin(&env, &proposer)?;
+
+        let council = Storage::get_admin_council(&env)?;
+        let council_size = council.len();
+        // Strict majority: floor(council_size / 2) + 1
+        let threshold = (council_size / 2) + 1;
+
+        let timestamp = env.ledger().timestamp();
+        // Deterministic ID: hash of proposer | timestamp using existing ID generation
+        let proposal_id = Attestation::generate_id(
+            &env,
+            &proposer,
+            &proposer,
+            &String::from_str(&env, "council_proposal"),
+            timestamp,
+        );
+
+        if Storage::get_council_proposal(&env, &proposal_id).is_ok() {
+            return Err(Error::CouncilProposalExists);
+        }
+
+        let mut approvals: Vec<Address> = Vec::new(&env);
+        approvals.push_back(proposer.clone());
+
+        let proposal = CouncilProposal {
+            id: proposal_id.clone(),
+            action: action.clone(),
+            proposer: proposer.clone(),
+            approvals,
+            threshold,
+            expires_at: timestamp + COUNCIL_PROPOSAL_TTL_SECS,
+            executed: false,
+        };
+
+        // If 1-of-1 council, execute immediately.
+        if threshold <= 1 {
+            Self::execute_council_action(&env, &action, &proposer)?;
+            let mut executed_proposal = proposal;
+            executed_proposal.executed = true;
+            Storage::set_council_proposal(&env, &executed_proposal);
+            Events::council_proposal_executed(&env, &proposal_id);
+        } else {
+            Storage::set_council_proposal(&env, &proposal);
+            Events::council_proposal_created(&env, &proposal_id, &proposer, threshold);
+        }
+
+        Ok(proposal_id)
+    }
+
+    /// Approve a pending council quorum proposal.
+    ///
+    /// When approvals reach the threshold the action executes atomically.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — caller is not an admin.
+    /// - [`Error::NotFound`] — proposal does not exist.
+    /// - [`Error::CouncilProposalExecuted`] — proposal already executed.
+    /// - [`Error::CouncilProposalExpired`] — proposal window has passed.
+    /// - [`Error::AlreadyApproved`] — caller already approved this proposal.
+    pub fn approve_council_action(
+        env: Env,
+        approver: Address,
+        proposal_id: String,
+    ) -> Result<(), Error> {
+        approver.require_auth();
+        Validation::require_admin(&env, &approver)?;
+
+        let mut proposal = Storage::get_council_proposal(&env, &proposal_id)?;
+
+        if proposal.executed {
+            return Err(Error::CouncilProposalExecuted);
+        }
+
+        let current_time = env.ledger().timestamp();
+        if current_time >= proposal.expires_at {
+            return Err(Error::CouncilProposalExpired);
+        }
+
+        // Check for duplicate approval.
+        for existing in proposal.approvals.iter() {
+            if existing == approver {
+                return Err(Error::AlreadyApproved);
+            }
+        }
+
+        proposal.approvals.push_back(approver.clone());
+        let approval_count = proposal.approvals.len();
+
+        Events::council_proposal_approved(
+            &env,
+            &proposal_id,
+            &approver,
+            approval_count,
+            proposal.threshold,
+        );
+
+        if approval_count >= proposal.threshold {
+            Self::execute_council_action(&env, &proposal.action, &proposal.proposer)?;
+            proposal.executed = true;
+            Storage::set_council_proposal(&env, &proposal);
+            Events::council_proposal_executed(&env, &proposal_id);
+        } else {
+            Storage::set_council_proposal(&env, &proposal);
+        }
+
         Ok(())
     }
 
-    pub fn get_limits(env: Env) -> StorageLimits {
-        Storage::get_limits(&env)
+    /// Retrieve a council quorum proposal by ID.
+    pub fn get_council_proposal(env: Env, proposal_id: String) -> Result<CouncilProposal, Error> {
+        Storage::get_council_proposal(&env, &proposal_id)
     }
 
-    // -----------------------------------------------------------------------
-    // Attestation creation
-    // -----------------------------------------------------------------------
-
+    /// Internal: execute the action encoded in a council proposal.
+    fn execute_council_action(
+        env: &Env,
+        action: &CouncilAction,
+        proposer: &Address,
+    ) -> Result<(), Error> {
+        match action {
+            CouncilAction::Pause => {
+                Storage::set_paused(env, true);
+                Events::contract_paused(env, proposer, env.ledger().timestamp());
+            }
+            CouncilAction::Unpause => {
+                Storage::set_paused(env, false);
+                Events::contract_unpaused(env, proposer, env.ledger().timestamp());
+            }
+            CouncilAction::SetFee(fee_config) => {
+                Storage::set_fee_config(env, fee_config);
+            }
+            CouncilAction::RemoveIssuer(issuer) => {
+                Storage::remove_issuer(env, issuer);
+                Storage::decrement_total_issuers(env);
+                Events::issuer_removed(env, issuer, proposer, env.ledger().timestamp());
+            }
+        }
+        Ok(())
+    }
     fn create_attestation_internal(
         env: &Env,
         issuer: Address,
