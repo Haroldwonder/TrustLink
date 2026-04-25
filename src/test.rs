@@ -3510,3 +3510,243 @@ fn test_admin_raises_limit_allows_issuance_again() {
     // Verify issuer now has 3 attestations
     assert_eq!(client.get_issuer_attestations(&issuer, &0, &10).len(), 3);
 }
+
+// =============================================================================
+// TTL refresh on attestation lifecycle events
+//
+// Strategy: use the Soroban SDK v21 `get_ttl` test utility together with
+// `env.ledger().with_mut(|li| li.sequence_number = ...)` to simulate ledger
+// advancement.  After advancing the sequence number the remaining TTL of the
+// attestation entry drops.  Calling a lifecycle write operation must call
+// `Storage::set_attestation`, which in turn calls `extend_ttl`, restoring the
+// TTL back to the configured maximum.
+//
+// Constants (from storage.rs):
+//   DAY_IN_LEDGERS  = 17_280
+//   DEFAULT_TTL_DAYS = 30
+//   FULL_TTL        = 17_280 * 30 = 518_400 ledgers
+//
+// Test ledger setup:
+//   sequence_number      = 100_000   (arbitrary starting point)
+//   min_persistent_entry_ttl = 518_400  (matches contract default so the
+//                                         initial TTL equals FULL_TTL - 1)
+//   max_entry_ttl        = 518_401   (must be > min_persistent_entry_ttl)
+// =============================================================================
+
+const FULL_TTL: u32 = 17_280 * 30; // 518_400 ledgers
+
+/// Build an `Env` whose ledger settings match the contract's default TTL so
+/// that `get_ttl` returns predictable values.
+fn ttl_env() -> Env {
+    let env = Env::default();
+    env.ledger().with_mut(|li| {
+        li.sequence_number = 100_000;
+        li.min_persistent_entry_ttl = FULL_TTL;
+        li.max_entry_ttl = FULL_TTL + 1;
+    });
+    env
+}
+
+/// Advance the ledger sequence by `delta` ledgers, reducing all entry TTLs by
+/// the same amount.
+fn advance_ledger(env: &Env, delta: u32) {
+    env.ledger().with_mut(|li| {
+        li.sequence_number += delta as u64;
+    });
+}
+
+#[test]
+fn test_ttl_refreshed_on_revocation() {
+    let env = ttl_env();
+    env.mock_all_auths();
+
+    let (contract_id, client) = create_test_contract(&env);
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    client.initialize(&admin, &None);
+    client.register_issuer(&admin, &issuer);
+
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+
+    // Decay the TTL by advancing 10_000 ledgers.
+    let decay: u32 = 10_000;
+    advance_ledger(&env, decay);
+
+    // Confirm TTL has dropped.
+    let ttl_before = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get_ttl(&crate::storage::StorageKey::Attestation(id.clone()))
+    });
+    assert!(
+        ttl_before < FULL_TTL,
+        "TTL should have decayed before revocation"
+    );
+
+    // Revoke — this must call set_attestation → extend_ttl.
+    client.revoke_attestation(&issuer, &id, &None);
+
+    let ttl_after = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get_ttl(&crate::storage::StorageKey::Attestation(id.clone()))
+    });
+    assert_eq!(
+        ttl_after, FULL_TTL,
+        "TTL must be restored to FULL_TTL after revocation"
+    );
+}
+
+#[test]
+fn test_ttl_refreshed_on_renewal() {
+    let env = ttl_env();
+    env.mock_all_auths();
+
+    let (contract_id, client) = create_test_contract(&env);
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    client.initialize(&admin, &None);
+    client.register_issuer(&admin, &issuer);
+
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+
+    let decay: u32 = 10_000;
+    advance_ledger(&env, decay);
+
+    let ttl_before = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get_ttl(&crate::storage::StorageKey::Attestation(id.clone()))
+    });
+    assert!(ttl_before < FULL_TTL, "TTL should have decayed before renewal");
+
+    // Renew with a new expiration in the future.
+    let new_expiration = env.ledger().timestamp() + 86_400 * 365;
+    client.renew_attestation(&issuer, &id, &Some(new_expiration));
+
+    let ttl_after = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get_ttl(&crate::storage::StorageKey::Attestation(id.clone()))
+    });
+    assert_eq!(
+        ttl_after, FULL_TTL,
+        "TTL must be restored to FULL_TTL after renewal"
+    );
+}
+
+#[test]
+fn test_ttl_refreshed_on_expiration_update() {
+    // renew_attestation with None clears the expiration — this is the
+    // "expiration updated" path distinct from setting a new future date.
+    let env = ttl_env();
+    env.mock_all_auths();
+
+    let (contract_id, client) = create_test_contract(&env);
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    client.initialize(&admin, &None);
+    client.register_issuer(&admin, &issuer);
+
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    // Create with a future expiration so the attestation is valid.
+    let initial_expiration = env.ledger().timestamp() + 86_400 * 30;
+    let id = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &Some(initial_expiration),
+        &None,
+        &None,
+    );
+
+    let decay: u32 = 10_000;
+    advance_ledger(&env, decay);
+
+    let ttl_before = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get_ttl(&crate::storage::StorageKey::Attestation(id.clone()))
+    });
+    assert!(
+        ttl_before < FULL_TTL,
+        "TTL should have decayed before expiration update"
+    );
+
+    // Update expiration to None (remove expiration) — still a set_attestation write.
+    client.renew_attestation(&issuer, &id, &None);
+
+    let ttl_after = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get_ttl(&crate::storage::StorageKey::Attestation(id.clone()))
+    });
+    assert_eq!(
+        ttl_after, FULL_TTL,
+        "TTL must be restored to FULL_TTL after expiration update"
+    );
+
+    // Confirm the expiration was actually cleared.
+    assert_eq!(client.get_attestation(&id).expiration, None);
+}
+
+#[test]
+fn test_ttl_refreshed_on_deletion_request() {
+    // request_deletion is the subject-initiated soft-delete write path.
+    // It calls set_attestation (deleted = true) which must extend_ttl so the
+    // record remains accessible for compliance audit purposes.
+    let env = ttl_env();
+    env.mock_all_auths();
+
+    let (contract_id, client) = create_test_contract(&env);
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    client.initialize(&admin, &None);
+    client.register_issuer(&admin, &issuer);
+
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+
+    let decay: u32 = 10_000;
+    advance_ledger(&env, decay);
+
+    let ttl_before = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get_ttl(&crate::storage::StorageKey::Attestation(id.clone()))
+    });
+    assert!(
+        ttl_before < FULL_TTL,
+        "TTL should have decayed before deletion request"
+    );
+
+    // Subject requests deletion — calls set_attestation → extend_ttl.
+    client.request_deletion(&subject, &id);
+
+    let ttl_after = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get_ttl(&crate::storage::StorageKey::Attestation(id.clone()))
+    });
+    assert_eq!(
+        ttl_after, FULL_TTL,
+        "TTL must be restored to FULL_TTL after deletion request"
+    );
+
+    // Confirm the record is marked deleted.
+    // get_attestation filters deleted records, so we read storage directly.
+    let raw: crate::types::Attestation = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get(&crate::storage::StorageKey::Attestation(id.clone()))
+            .unwrap()
+    });
+    assert!(raw.deleted, "attestation must be marked deleted");
+}
