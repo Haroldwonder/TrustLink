@@ -12,14 +12,15 @@ export interface Attestation {
   revoked: boolean;
   metadata: string | null;
   valid_from: bigint | null;
-  imported: boolean;
-  bridged: boolean;
+  origin: AttestationOrigin;
   source_chain: string | null;
   source_tx: string | null;
   tags: string[] | null;
   revocation_reason: string | null;
   deleted: boolean;
 }
+
+export type AttestationOrigin = "Native" | "Imported" | "Bridged";
 
 export type AttestationStatus = "Valid" | "Expired" | "Revoked" | "Pending";
 
