@@ -257,6 +257,22 @@ pub struct MultiSigProposal {
     pub finalized: bool,
 }
 
+/// A multi-sig attestation proposal requiring M-of-N issuer signatures.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MultiSigProposal {
+    pub id: String,
+    pub proposer: Address,
+    pub subject: Address,
+    pub claim_type: String,
+    pub required_signers: Vec<Address>,
+    pub threshold: u32,
+    pub signers: Vec<Address>,
+    pub created_at: u64,
+    pub expires_at: u64,
+    pub finalized: bool,
+}
+
 pub type AdminCouncil = Vec<Address>;
 
 impl Attestation {

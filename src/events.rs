@@ -2,42 +2,6 @@ use soroban_sdk::{symbol_short, Address, Env, String};
 
 use crate::types::{Attestation, IssuerTier};
 
-// ---------------------------------------------------------------------------
-// Event topic string constants
-// ---------------------------------------------------------------------------
-
-const TOPIC_ADM_INIT: &str = "adm_init";
-const TOPIC_CREATED: &str = "created";
-const TOPIC_IMPORTED: &str = "imported";
-const TOPIC_BRIDGED: &str = "bridged";
-const TOPIC_REVOKED: &str = "revoked";
-const TOPIC_RENEWED: &str = "renewed";
-const TOPIC_UPDATED: &str = "updated";
-const TOPIC_EXPIRED: &str = "expired";
-const TOPIC_DEL_REQ: &str = "del_req";
-const TOPIC_ISS_REG: &str = "iss_reg";
-const TOPIC_ISS_REM: &str = "iss_rem";
-const TOPIC_ISS_TIER: &str = "iss_tier";
-const TOPIC_CLMTYPE: &str = "clmtype";
-const TOPIC_MS_PROP: &str = "ms_prop";
-const TOPIC_MS_SIGN: &str = "ms_sign";
-const TOPIC_MS_ACTV: &str = "ms_actv";
-const TOPIC_ADM_XFER: &str = "adm_xfer";
-const TOPIC_ADM_ADD: &str = "adm_add";
-const TOPIC_ADM_REM: &str = "adm_rem";
-const TOPIC_ENDORSED: &str = "endorsed";
-const TOPIC_EXP_HOOK: &str = "exp_hook";
-const TOPIC_PAUSED: &str = "paused";
-const TOPIC_UNPAUSED: &str = "unpaused";
-const TOPIC_REQ: &str = "req";
-const TOPIC_REQ_OK: &str = "req_ok";
-const TOPIC_REQ_NO: &str = "req_no";
-const TOPIC_DEL_CREATED: &str = "del_created";
-const TOPIC_DEL_REVOKED: &str = "del_revoked";
-const TOPIC_WL_ON: &str = "wl_on";
-const TOPIC_WL_ADD: &str = "wl_add";
-const TOPIC_WL_REM: &str = "wl_rem";
-
 pub struct Events;
 
 impl Events {
