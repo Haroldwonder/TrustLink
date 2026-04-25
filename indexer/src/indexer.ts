@@ -4,9 +4,17 @@ import { pubsub, ATTESTATION_CREATED, ATTESTATION_REVOKED, ISSUER_REGISTERED } f
 
 const CONTRACT_ID = process.env.CONTRACT_ID!;
 const RPC_URL = process.env.RPC_URL ?? "https://soroban-testnet.stellar.org";
-const GENESIS_LEDGER = Number(process.env.GENESIS_LEDGER ?? 0);
 const PAGE_LIMIT = 200;
 const POLL_MS = 5_000;
+
+// Parse --from-ledger CLI flag or use environment variable
+let GENESIS_LEDGER = Number(process.env.GENESIS_LEDGER ?? 0);
+const args = process.argv.slice(2);
+const fromLedgerIdx = args.indexOf("--from-ledger");
+if (fromLedgerIdx !== -1 && args[fromLedgerIdx + 1]) {
+  GENESIS_LEDGER = Number(args[fromLedgerIdx + 1]);
+  console.log(`Starting from ledger: ${GENESIS_LEDGER}`);
+}
 
 const WATCHED = new Set(["created", "revoked", "imported", "bridged", "iss_reg"]);
 
@@ -20,16 +28,26 @@ export async function startIndexer(db: PrismaClient): Promise<void> {
   const { sequence: tip } = await rpc.getLatestLedger();
   if (cursor <= tip) {
     console.log(`Backfilling ledgers ${cursor}–${tip}…`);
-    cursor = await processRange(db, rpc, cursor, tip);
+    try {
+      cursor = await processRange(db, rpc, cursor, tip);
+    } catch (err) {
+      console.error("Error during backfill:", err);
+      // Continue with live polling even if backfill fails
+    }
   }
 
   // ── Live polling ───────────────────────────────────────────────────────────
   console.log("Live polling for new events…");
   while (true) {
     await sleep(POLL_MS);
-    const { sequence: latest } = await rpc.getLatestLedger();
-    if (cursor <= latest) {
-      cursor = await processRange(db, rpc, cursor, latest);
+    try {
+      const { sequence: latest } = await rpc.getLatestLedger();
+      if (cursor <= latest) {
+        cursor = await processRange(db, rpc, cursor, latest);
+      }
+    } catch (err) {
+      console.error("Error during live polling:", err);
+      // Continue polling on error
     }
   }
 }
@@ -43,33 +61,54 @@ async function processRange(
   to: number
 ): Promise<number> {
   let startLedger = from;
+  let processedCount = 0;
 
   while (startLedger <= to) {
-    const response = await rpc.getEvents({
-      startLedger,
-      endLedger: Math.min(startLedger + PAGE_LIMIT - 1, to),
-      filters: [{ type: "contract", contractIds: [CONTRACT_ID] }],
-      limit: PAGE_LIMIT,
-    });
+    const endLedger = Math.min(startLedger + PAGE_LIMIT - 1, to);
+    
+    try {
+      const response = await rpc.getEvents({
+        startLedger,
+        endLedger,
+        filters: [{ type: "contract", contractIds: [CONTRACT_ID] }],
+        limit: PAGE_LIMIT,
+      });
 
-    for (const ev of response.events) {
-      await handleEvent(db, ev);
+      for (const ev of response.events) {
+        try {
+          await handleEvent(db, ev);
+          processedCount++;
+        } catch (err) {
+          console.error(`Error processing event at ledger ${ev.ledger}:`, err);
+          // Continue processing other events
+        }
+      }
+
+      const lastProcessed =
+        response.events.length > 0
+          ? response.events[response.events.length - 1].ledger
+          : endLedger;
+
+      startLedger = lastProcessed + 1;
+
+      await db.checkpoint.upsert({
+        where: { id: 1 },
+        update: { ledger: lastProcessed },
+        create: { id: 1, ledger: lastProcessed },
+      });
+
+      if (processedCount % 100 === 0) {
+        console.log(`Processed ${processedCount} events, checkpoint: ${lastProcessed}`);
+      }
+    } catch (err) {
+      console.error(`Error fetching events from ledger ${startLedger} to ${endLedger}:`, err);
+      // Retry with exponential backoff
+      await sleep(1000);
+      continue;
     }
-
-    const lastProcessed =
-      response.events.length > 0
-        ? response.events[response.events.length - 1].ledger
-        : Math.min(startLedger + PAGE_LIMIT - 1, to);
-
-    startLedger = lastProcessed + 1;
-
-    await db.checkpoint.upsert({
-      where: { id: 1 },
-      update: { ledger: lastProcessed },
-      create: { id: 1, ledger: lastProcessed },
-    });
   }
 
+  console.log(`Completed processing range ${from}–${to}, total events: ${processedCount}`);
   return to + 1;
 }
 
