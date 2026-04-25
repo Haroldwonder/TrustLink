@@ -3415,6 +3415,81 @@ fn test_whitelist_check_before_storage_write() {
     client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
 }
 #[test]
+fn test_create_attestations_batch_empty_subjects_is_noop() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let subjects: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(&env);
+
+    let ids = client.create_attestations_batch(&issuer, &subjects, &claim_type, &None);
+
+    assert_eq!(ids.len(), 0);
+    assert_eq!(client.get_issuer_attestations(&issuer, &0, &10).len(), 0);
+}
+
+#[test]
+fn test_create_attestations_batch_duplicate_subject_rolls_back_all() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let subject = Address::generate(&env);
+
+    let mut subjects = soroban_sdk::Vec::new(&env);
+    subjects.push_back(subject.clone());
+    subjects.push_back(subject.clone());
+
+    let result = client.try_create_attestations_batch(&issuer, &subjects, &claim_type, &None);
+    assert_eq!(result, Err(Ok(types::Error::DuplicateAttestation)));
+    assert_eq!(client.get_issuer_attestations(&issuer, &0, &10).len(), 0);
+    assert_eq!(client.get_subject_attestations(&subject, &0, &10).len(), 0);
+}
+
+#[test]
+fn test_create_attestations_batch_subject_at_limit_rolls_back_all() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, client) = setup(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    client.set_limits(&admin, &10_000, &1);
+
+    let subject_at_limit = Address::generate(&env);
+    client.create_attestation(&issuer, &subject_at_limit, &claim_type, &None, &None, &None);
+
+    let fresh_subject = Address::generate(&env);
+    let mut subjects = soroban_sdk::Vec::new(&env);
+    subjects.push_back(fresh_subject.clone());
+    subjects.push_back(subject_at_limit.clone());
+
+    env.ledger().set_timestamp(env.ledger().timestamp() + 1);
+    let result = client.try_create_attestations_batch(&issuer, &subjects, &claim_type, &None);
+    assert_eq!(result, Err(Ok(types::Error::LimitExceeded)));
+    assert_eq!(client.get_subject_attestations(&fresh_subject, &0, &10).len(), 0);
+}
+
+#[test]
+fn test_create_attestations_batch_exactly_max_issuer_size_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, client) = setup(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let max: u32 = 5;
+
+    client.set_limits(&admin, &max, &10_000);
+
+    let mut subjects = soroban_sdk::Vec::new(&env);
+    for _ in 0..max {
+        subjects.push_back(Address::generate(&env));
+    }
+
+    let ids = client.create_attestations_batch(&issuer, &subjects, &claim_type, &None);
+    assert_eq!(ids.len(), max);
+    assert_eq!(client.get_issuer_attestations(&issuer, &0, &(max + 1)).len(), max);
+}
+
+#[test]
 fn test_issuer_limit_exceeded_returns_error() {
     let env = Env::default();
     env.mock_all_auths();
