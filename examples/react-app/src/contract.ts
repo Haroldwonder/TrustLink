@@ -141,3 +141,139 @@ export async function revokeAttestation(
 ): Promise<void> {
   return invoke(issuer, "revoke_attestation", addr(issuer), str(attestationId), optStr(reason));
 }
+
+// ── attestation requests ─────────────────────────────────────────────────────
+
+export interface AttestationRequest {
+  id: string;
+  subject: string;
+  issuer: string;
+  claim_type: string;
+  status: "pending" | "fulfilled" | "rejected";
+  created_at: bigint;
+  fulfilled_at: bigint | null;
+}
+
+export async function submitAttestationRequest(
+  subject: string,
+  issuer: string,
+  claimType: string
+): Promise<void> {
+  return invoke(
+    subject,
+    "submit_attestation_request",
+    addr(subject),
+    addr(issuer),
+    str(claimType)
+  );
+}
+
+export async function getSubjectRequests(subject: string): Promise<AttestationRequest[]> {
+  return simulate("get_subject_requests", addr(subject), nativeToScVal(0, { type: "u32" }), nativeToScVal(50, { type: "u32" }));
+}
+
+export async function getIssuerRequests(issuer: string): Promise<AttestationRequest[]> {
+  return simulate("get_issuer_requests", addr(issuer), nativeToScVal(0, { type: "u32" }), nativeToScVal(50, { type: "u32" }));
+}
+
+export async function fulfillRequest(
+  issuer: string,
+  requestId: string,
+  expiration: bigint | null
+): Promise<void> {
+  return invoke(
+    issuer,
+    "fulfill_request",
+    addr(issuer),
+    str(requestId),
+    optU64(expiration)
+  );
+}
+
+export async function rejectRequest(
+  issuer: string,
+  requestId: string,
+  reason: string | null
+): Promise<void> {
+  return invoke(
+    issuer,
+    "reject_request",
+    addr(issuer),
+    str(requestId),
+    optStr(reason)
+  );
+}
+
+// ── multi-sig proposals ──────────────────────────────────────────────────────
+
+export interface MultiSigProposal {
+  id: string;
+  proposer: string;
+  subject: string;
+  claim_type: string;
+  required_signers: string[];
+  signers: string[];
+  threshold: number;
+  expires_at: bigint;
+  finalized: boolean;
+}
+
+export async function proposeAttestation(
+  proposer: string,
+  subject: string,
+  claimType: string,
+  requiredSigners: string[],
+  threshold: number
+): Promise<string> {
+  return invoke(
+    proposer,
+    "propose_attestation",
+    addr(proposer),
+    addr(subject),
+    str(claimType),
+    nativeToScVal(requiredSigners.map((s) => Address.fromString(s).toScVal()), { type: "vec" }),
+    nativeToScVal(threshold, { type: "u32" })
+  );
+}
+
+export async function cosignAttestation(
+  signer: string,
+  proposalId: string
+): Promise<void> {
+  return invoke(
+    signer,
+    "cosign_attestation",
+    addr(signer),
+    str(proposalId)
+  );
+}
+
+export async function getMultiSigProposal(proposalId: string): Promise<MultiSigProposal> {
+  return simulate("get_multisig_proposal", str(proposalId));
+}
+
+// ── issuer stats ─────────────────────────────────────────────────────────────
+
+export interface IssuerStats {
+  total_issued: number;
+  active: number;
+  revoked: number;
+  expired: number;
+}
+
+export async function getIssuerStats(issuer: string): Promise<IssuerStats> {
+  return simulate("get_issuer_stats", addr(issuer));
+}
+
+export async function getExpiringAttestations(
+  issuer: string,
+  daysWindow: number
+): Promise<Attestation[]> {
+  return simulate(
+    "get_issuer_expiring_attestations",
+    addr(issuer),
+    nativeToScVal(daysWindow, { type: "u32" }),
+    nativeToScVal(0, { type: "u32" }),
+    nativeToScVal(50, { type: "u32" })
+  );
+}

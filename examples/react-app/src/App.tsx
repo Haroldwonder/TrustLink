@@ -4,8 +4,10 @@ import AdminPanel from "./panels/AdminPanel";
 import IssuerPanel from "./panels/IssuerPanel";
 import UserPanel from "./panels/UserPanel";
 import VerifierPanel from "./panels/VerifierPanel";
+import AttestationRequestPanel from "./panels/AttestationRequestPanel";
+import MultiSigPanel from "./panels/MultiSigPanel";
 
-type Tab = "admin" | "issuer" | "user" | "verifier";
+type Tab = "admin" | "issuer" | "user" | "verifier" | "requests" | "multisig";
 
 export default function App() {
   const [address, setAddress] = useState<string | null>(null);
@@ -54,6 +56,8 @@ export default function App() {
 
   const TABS: { id: Tab; label: string }[] = [
     { id: "user", label: "My Attestations" },
+    { id: "requests", label: "Requests" },
+    { id: "multisig", label: "Multi-Sig" },
     { id: "issuer", label: "Issuer" },
     { id: "verifier", label: "Verifier" },
     { id: "admin", label: "Admin" },
@@ -80,6 +84,8 @@ export default function App() {
       </nav>
 
       {tab === "user" && <UserPanel address={address} />}
+      {tab === "requests" && <AttestationRequestPanel address={address} />}
+      {tab === "multisig" && <MultiSigPanel address={address} />}
       {tab === "issuer" && <IssuerPanel address={address} />}
       {tab === "verifier" && <VerifierPanel />}
       {tab === "admin" && <AdminPanel address={address} />}
