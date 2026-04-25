@@ -1,0 +1,3 @@
+requirements.txt
+stellar-sdk>=21.0.0
+requests>=2.31.0

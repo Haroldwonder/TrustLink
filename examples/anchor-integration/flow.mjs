@@ -94,6 +94,7 @@ async function main() {
 
   const claimType = "KYC_PASSED";
 
+  console.log("\\n=== ANCHOR INTEGRATION FLOW ===");
   console.log("\\n1) Anchor issuer registration check");
   const isIssuerOp = contract.call(
     "is_issuer",
@@ -106,15 +107,19 @@ async function main() {
     cfg.networkPassphrase
   );
   const isIssuer = issuerRet ? scValToNative(issuerRet) : false;
-  console.log("Anchor registered as issuer:", isIssuer);
+  console.log("✓ Anchor registered as issuer:", isIssuer);
   if (!isIssuer) {
     console.log(
-      "Register this anchor from admin first: register_issuer(admin, anchorAddress)"
+      "⚠ Register this anchor from admin first: register_issuer(admin, anchorAddress)"
     );
     return;
   }
 
-  console.log("\\n2) Anchor creates KYC attestation after off-chain verification");
+  console.log("\\n2) User completes KYC off-chain");
+  console.log("✓ User submitted KYC documents");
+  console.log("✓ Anchor verified identity and compliance");
+
+  console.log("\\n3) Anchor issues KYC_PASSED attestation");
   const expiration = Math.floor(Date.now() / 1000) + 180 * 24 * 60 * 60;
   const metadata = JSON.stringify({
     provider: "Example Anchor",
@@ -141,15 +146,16 @@ async function main() {
     );
     attestationId = writeRes.returnValue ? scValToNative(writeRes.returnValue) : null;
   } catch (err) {
-    console.log("Could not create new attestation (possibly already exists or fee setup missing).");
-    console.log("Reason:", err.message);
+    console.log("⚠ Could not create new attestation (possibly already exists or fee setup missing).");
+    console.log("  Reason:", err.message);
   }
 
   if (attestationId) {
-    console.log("Created attestation id:", attestationId);
+    console.log("✓ Created attestation id:", attestationId);
+    console.log("✓ Attestation expires at:", new Date(expiration * 1000).toISOString());
   }
 
-  console.log("\\n3) DeFi protocol verifies anchor-issued KYC");
+  console.log("\\n4) DeFi contract verifies attestation before allowing deposit");
   const verifyOp = contract.call(
     "has_valid_claim_from_issuer",
     nativeToScVal(Address.fromString(cfg.userAddress), { type: "address" }),
@@ -164,12 +170,35 @@ async function main() {
   );
   const verified = verifiedRet ? scValToNative(verifiedRet) : false;
 
-  console.log("DeFi verification result:", verified);
+  console.log("✓ DeFi verification result:", verified);
   if (verified) {
-    console.log("Action: allow access to regulated DeFi feature.");
+    console.log("✓ Action: ALLOW deposit - user has valid KYC attestation");
   } else {
-    console.log("Action: deny access until KYC attestation is valid.");
+    console.log("✗ Action: DENY deposit - KYC attestation not valid");
   }
+
+  console.log("\\n5) Simulate KYC expiration scenario");
+  console.log("⏱ Checking attestation status...");
+  const statusOp = contract.call(
+    "get_attestation_status",
+    nativeToScVal(attestationId, { type: "string" })
+  );
+  const statusRet = await simulateRead(
+    server,
+    defiCaller.publicKey(),
+    statusOp,
+    cfg.networkPassphrase
+  );
+  const status = statusRet ? scValToNative(statusRet) : null;
+  console.log("✓ Current attestation status:", status);
+
+  if (status === "Valid") {
+    console.log("✓ Attestation is currently valid");
+    console.log("⏱ After expiration date, status will become 'Expired'");
+    console.log("✗ DeFi contract will then DENY deposits until KYC is renewed");
+  }
+
+  console.log("\\n=== FLOW COMPLETE ===");
 }
 
 main().catch((err) => {
