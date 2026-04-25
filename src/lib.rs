@@ -644,6 +644,15 @@ impl TrustLinkContract {
 
         // Generate deterministic ID from attestation data
 
+        // Enforce storage limits
+        let limits = Storage::get_limits(env);
+        if Storage::get_issuer_attestations(env, &issuer).len() >= limits.max_attestations_per_issuer {
+            return Err(Error::LimitExceeded);
+        }
+        if Storage::get_subject_attestations(env, &subject).len() >= limits.max_attestations_per_subject {
+            return Err(Error::LimitExceeded);
+        }
+
         // Validate claim_type length (enforce max 64 characters)
         let claim_type_len = claim_type.len();
         if claim_type_len > 64 {
@@ -755,6 +764,15 @@ impl TrustLinkContract {
 
         if Storage::has_attestation(&env, &attestation_id) {
             return Err(Error::DuplicateAttestation);
+        }
+
+        // Enforce storage limits
+        let limits = Storage::get_limits(&env);
+        if Storage::get_issuer_attestations(&env, &issuer).len() >= limits.max_attestations_per_issuer {
+            return Err(Error::LimitExceeded);
+        }
+        if Storage::get_subject_attestations(&env, &subject).len() >= limits.max_attestations_per_subject {
+            return Err(Error::LimitExceeded);
         }
 
         let attestation = Attestation {

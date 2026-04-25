@@ -3413,3 +3413,51 @@ fn test_whitelist_check_before_storage_write() {
     // This must panic — no attestation should be stored
     client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
 }
+
+#[test]
+#[should_panic(expected = "Error(Contract, #10)")]
+fn test_import_attestation_issuer_limit_exceeded() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let (_, client) = create_test_contract(&env);
+    client.initialize(&admin);
+    client.register_issuer(&admin, &issuer);
+
+    // Set issuer limit to 1
+    client.set_limits(&admin, &1, &1000);
+
+    let claim = String::from_str(&env, "KYC_PASSED");
+    let ts: u64 = 1_700_000_000;
+
+    // First import succeeds
+    client.import_attestation(&admin, &issuer, &Address::generate(&env), &claim, &ts, &None);
+
+    // Second import should hit LimitExceeded (#10)
+    client.import_attestation(&admin, &issuer, &Address::generate(&env), &claim, &(ts + 1), &None);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #10)")]
+fn test_import_attestation_subject_limit_exceeded() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let (_, client) = create_test_contract(&env);
+    client.initialize(&admin);
+    client.register_issuer(&admin, &issuer);
+
+    // Set subject limit to 1
+    client.set_limits(&admin, &10_000, &1);
+
+    let ts: u64 = 1_700_000_000;
+
+    // First import succeeds
+    client.import_attestation(&admin, &issuer, &subject, &String::from_str(&env, "KYC_PASSED"), &ts, &None);
+
+    // Second import on same subject should hit LimitExceeded (#10)
+    client.import_attestation(&admin, &issuer, &subject, &String::from_str(&env, "AML_CLEARED"), &(ts + 1), &None);
+}
