@@ -53,16 +53,8 @@ pub enum Error {
     LastAdminCannotBeRemoved = 29,
     /// Issuer is rate-limited and must wait before creating another attestation.
     RateLimited = 30,
-    /// A request with the same subject/issuer/claim_type already exists and is pending.
-    DuplicateRequest = 31,
-    /// The request has already been fulfilled or rejected.
-    RequestAlreadyProcessed = 32,
-    /// The request TTL has elapsed without being acted on.
-    RequestExpired = 33,
-    /// Claim type is empty, too long, or contains invalid characters.
-    InvalidClaimType = 34,
-    /// Jurisdiction code is not a valid ISO 3166-1 alpha-2 code.
-    InvalidJurisdiction = 35,
-    /// Issuer or subject attestation count has reached the configured limit.
-    LimitExceeded = 36,
+    InvalidClaimType = 31,
+    InvalidJurisdiction = 32,
+    LimitExceeded = 33,
+    BatchTooLarge = 34,
 }
