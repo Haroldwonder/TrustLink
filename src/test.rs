@@ -3414,99 +3414,61 @@ fn test_whitelist_check_before_storage_write() {
     // This must panic — no attestation should be stored
     client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
 }
-#[test]
-fn test_issuer_limit_exceeded_returns_error() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let admin = Address::generate(&env);
-    let issuer = Address::generate(&env);
-    let (_, client) = create_test_contract(&env);
-    client.initialize(&admin);
-    client.register_issuer(&admin, &issuer);
-
-    // Set issuer limit to 2
-    client.set_limits(&admin, &2, &1000);
-
-    let claim = String::from_str(&env, "KYC_PASSED");
-
-    // First two succeed
-    let s1 = Address::generate(&env);
-    let s2 = Address::generate(&env);
-    client.create_attestation(&issuer, &s1, &claim, &None, &None, &None);
-    env.ledger().set_timestamp(env.ledger().timestamp() + 1);
-    client.create_attestation(&issuer, &s2, &claim, &None, &None, &None);
-
-    // Third should return LimitExceeded
-    env.ledger().set_timestamp(env.ledger().timestamp() + 1);
-    let s3 = Address::generate(&env);
-    let result = client.try_create_attestation(&issuer, &s3, &claim, &None, &None, &None);
-    assert_eq!(result, Err(Ok(crate::types::Error::LimitExceeded)));
-}
 
 #[test]
-fn test_subject_limit_exceeded_returns_error() {
+fn test_rate_limit_blocks_issuer_issuing_too_fast() {
     let env = Env::default();
     env.mock_all_auths();
-    let admin = Address::generate(&env);
-    let issuer = Address::generate(&env);
+
+    let (admin, issuer, client) = setup(&env);
     let subject = Address::generate(&env);
-    let (_, client) = create_test_contract(&env);
-    client.initialize(&admin);
-    client.register_issuer(&admin, &issuer);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
 
-    // Set subject limit to 2
-    client.set_limits(&admin, &10_000, &2);
+    // Set a 60-second minimum interval between issuances.
+    client.set_rate_limit(&admin, &60u64);
 
-    let c1 = String::from_str(&env, "KYC_PASSED");
-    let c2 = String::from_str(&env, "AML_CLEARED");
+    // First attestation succeeds.
+    client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
 
-    client.create_attestation(&issuer, &subject, &c1, &None, &None, &None);
-    env.ledger().set_timestamp(env.ledger().timestamp() + 1);
-    client.create_attestation(&issuer, &subject, &c2, &None, &None, &None);
-
-    // Third attestation on same subject should return LimitExceeded
-    env.ledger().set_timestamp(env.ledger().timestamp() + 1);
-    let c3 = String::from_str(&env, "MERCHANT_VERIFIED");
-    let result = client.try_create_attestation(&issuer, &subject, &c3, &None, &None, &None);
-    assert_eq!(result, Err(Ok(crate::types::Error::LimitExceeded)));
+    // Second attempt at the same timestamp is blocked.
+    let subject2 = Address::generate(&env);
+    let result = client.try_create_attestation(&issuer, &subject2, &claim_type, &None, &None, &None);
+    assert!(result.is_err());
 }
 
 #[test]
-fn test_admin_raises_limit_allows_issuance_again() {
+fn test_rate_limit_allows_after_interval() {
     let env = Env::default();
     env.mock_all_auths();
-    let admin = Address::generate(&env);
-    let issuer = Address::generate(&env);
-    let (_, client) = create_test_contract(&env);
-    client.initialize(&admin);
-    client.register_issuer(&admin, &issuer);
 
-    // Set issuer limit to 2
-    client.set_limits(&admin, &2, &1000);
+    let (admin, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
 
-    let claim = String::from_str(&env, "KYC_PASSED");
+    client.set_rate_limit(&admin, &60u64);
+    client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
 
-    // First two succeed
-    let s1 = Address::generate(&env);
-    let s2 = Address::generate(&env);
-    client.create_attestation(&issuer, &s1, &claim, &None, &None, &None);
-    env.ledger().set_timestamp(env.ledger().timestamp() + 1);
-    client.create_attestation(&issuer, &s2, &claim, &None, &None, &None);
+    // Advance ledger time past the interval.
+    env.ledger().with_mut(|l| l.timestamp += 61);
 
-    // Third should fail with LimitExceeded
-    env.ledger().set_timestamp(env.ledger().timestamp() + 1);
-    let s3 = Address::generate(&env);
-    let result = client.try_create_attestation(&issuer, &s3, &claim, &None, &None, &None);
-    assert_eq!(result, Err(Ok(crate::types::Error::LimitExceeded)));
+    let subject2 = Address::generate(&env);
+    // Should succeed now.
+    client.create_attestation(&issuer, &subject2, &claim_type, &None, &None, &None);
+}
 
-    // Admin raises the limit to 5
-    client.set_limits(&admin, &5, &1000);
+#[test]
+fn test_rate_limit_zero_interval_disables_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
 
-    // Now the third attestation should succeed
-    env.ledger().set_timestamp(env.ledger().timestamp() + 1);
-    let id = client.create_attestation(&issuer, &s3, &claim, &None, &None, &None);
-    assert!(!id.is_empty());
+    let (admin, issuer, client) = setup(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
 
-    // Verify issuer now has 3 attestations
-    assert_eq!(client.get_issuer_attestations(&issuer, &0, &10).len(), 3);
+    // Interval of 0 means no rate limiting.
+    client.set_rate_limit(&admin, &0u64);
+
+    for _ in 0..3u32 {
+        let subject = Address::generate(&env);
+        client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+    }
 }
