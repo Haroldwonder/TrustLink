@@ -68,34 +68,8 @@ pub enum StorageKey {
     IssuerWhitelistMode(Address),
     /// Whether a subject is whitelisted for a specific issuer.
     IssuerWhitelist(Address, Address),
-    /// Global contract statistics.
-    GlobalStats,
-    /// Per-issuer statistics.
-    IssuerStats(Address),
-    /// Issuer trust tier.
-    IssuerTier(Address),
-    /// Audit log for an attestation.
-    AuditLog(String),
-    /// Endorsements for an attestation.
-    Endorsements(String),
-    /// Expiration hook for a subject.
-    ExpirationHook(Address),
-    /// Multi-sig proposal.
-    MultiSigProposal(String),
-    /// Attestation request.
-    AttestationRequest(String),
-    /// Pending request IDs for an issuer.
-    PendingRequests(Address),
-    /// Rate limit config.
-    RateLimitConfig,
-    /// Last issuance timestamp for an issuer.
-    LastIssuanceTime(Address),
-    /// Storage limits.
-    StorageLimits,
-    /// Contract paused flag.
-    Paused,
-    /// Delegation key (delegator, delegate, claim_type).
-    Delegation(Address, Address, String),
+    /// Configurable storage exhaustion limits.
+    Limits,
 }
 
 const DAY_IN_LEDGERS: u32 = 17280;
@@ -819,5 +793,17 @@ where
             result.push_back(item);
         }
     }
-    result
+
+    /// Persist storage exhaustion limits.
+    pub fn set_limits(env: &Env, limits: &StorageLimits) {
+        env.storage().instance().set(&StorageKey::Limits, limits);
+    }
+
+    /// Return the current storage limits, falling back to [`StorageLimits::default`] if not set.
+    pub fn get_limits(env: &Env) -> StorageLimits {
+        env.storage()
+            .instance()
+            .get(&StorageKey::Limits)
+            .unwrap_or_default()
+    }
 }
