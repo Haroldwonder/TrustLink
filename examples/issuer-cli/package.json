@@ -1,0 +1,15 @@
+{
+  "name": "trustlink-issuer-cli",
+  "version": "1.0.0",
+  "description": "CLI tool for TrustLink issuers to manage attestations",
+  "type": "module",
+  "bin": {
+    "issuer-cli": "./issuer-cli.mjs"
+  },
+  "scripts": {
+    "start": "node issuer-cli.mjs"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^12.0.0"
+  }
+}
