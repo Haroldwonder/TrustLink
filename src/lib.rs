@@ -1650,6 +1650,49 @@ impl TrustLinkContract {
         Storage::get_issuer_metadata(&env, &issuer)
     }
 
+    /// Register a callback contract to be notified before an attestation expires.
+    ///
+    /// Only the subject may register or overwrite their own hook.
+    /// Re-registering overwrites the previous hook.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — caller is not `subject`.
+    pub fn register_expiration_hook(
+        env: Env,
+        subject: Address,
+        callback_contract: Address,
+        notify_days_before: u32,
+    ) -> Result<(), Error> {
+        subject.require_auth();
+        Storage::set_expiration_hook(
+            &env,
+            &subject,
+            &crate::types::ExpirationHook { callback_contract, notify_days_before },
+        );
+        Ok(())
+    }
+
+    /// Return the expiration hook registered by `subject`, or `None`.
+    #[must_use]
+    pub fn get_expiration_hook(
+        env: Env,
+        subject: Address,
+    ) -> Option<crate::types::ExpirationHook> {
+        Storage::get_expiration_hook(&env, &subject)
+    }
+
+    /// Remove the expiration hook for `subject`.
+    ///
+    /// Only the subject may remove their own hook.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — caller is not `subject`.
+    pub fn remove_expiration_hook(env: Env, subject: Address) -> Result<(), Error> {
+        subject.require_auth();
+        Storage::remove_expiration_hook(&env, &subject);
+        Ok(())
+    }
+
     #[must_use]
     pub fn get_admin(env: Env) -> Result<Address, Error> {
         Storage::get_admin(&env)
