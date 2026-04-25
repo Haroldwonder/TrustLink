@@ -243,7 +243,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "IssuerRequests"
+                  "symbol": "PendingRequests"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -263,7 +263,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "IssuerRequests"
+                      "symbol": "PendingRequests"
                     },
                     {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -312,12 +312,16 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "Admin"
+                              "symbol": "AdminCouncil"
                             }
                           ]
                         },
                         "val": {
-                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                          "vec": [
+                            {
+                              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                            }
+                          ]
                         }
                       },
                       {
@@ -872,7 +876,7 @@
             ],
             "data": {
               "error": {
-                "contract": 27
+                "contract": 35
               }
             }
           }
@@ -893,7 +897,7 @@
               },
               {
                 "error": {
-                  "contract": 27
+                  "contract": 35
                 }
               }
             ],
@@ -918,7 +922,7 @@
               },
               {
                 "error": {
-                  "contract": 27
+                  "contract": 35
                 }
               }
             ],

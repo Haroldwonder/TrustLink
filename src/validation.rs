@@ -28,7 +28,16 @@ impl Validation {
     /// - [`Error::NotInitialized`] — council not initialized.
     /// - [`Error::Unauthorized`] — `caller` not in council.
     pub fn require_admin(env: &Env, caller: &Address) -> Result<(), Error> {
-        if !Storage::is_admin(env, caller) {
+        // Return NotInitialized if the council has never been set up.
+        let council = Storage::get_admin_council(env)?;
+        let mut found = false;
+        for admin in council.iter() {
+            if &admin == caller {
+                found = true;
+                break;
+            }
+        }
+        if !found {
             return Err(Error::Unauthorized);
         }
         Ok(())
@@ -91,7 +100,7 @@ impl Validation {
     /// - [`Error::InvalidClaimType`] — length exceeds 64 or contains disallowed characters.
     pub fn validate_claim_type(claim_type: &String) -> Result<(), Error> {
         let len = claim_type.len();
-        if len > 64 {
+        if len == 0 || len > 64 {
             return Err(Error::InvalidClaimType);
         }
         // Copy bytes out of the host-side String for inspection.
