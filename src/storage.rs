@@ -96,6 +96,14 @@ pub enum StorageKey {
     AttestationRequest(String),
     /// Ordered list of pending request IDs for an issuer.
     IssuerPendingRequests(Address),
+    /// Delegation record.
+    Delegation(Address, Address, String),
+    /// Pending requests for an issuer (alias).
+    PendingRequests(Address),
+    /// Last issuance timestamp for rate limiting (alias).
+    LastIssuanceTime(Address),
+    /// Storage limits configuration (alias).
+    Limits,
 }
 
 const DAY_IN_LEDGERS: u32 = 17280;
@@ -451,11 +459,40 @@ impl Storage {
         Self::is_whitelist_mode(env, issuer)
     }
 
-    /// Add `subject` to `issuer`'s whitelist.
-    pub fn add_to_whitelist(env: &Env, issuer: &Address, subject: &Address) {
-        let key = StorageKey::IssuerWhitelist(issuer.clone(), subject.clone());
+    /// Return `true` if whitelist mode is enabled for `issuer`.
+    pub fn is_whitelist_mode(env: &Env, issuer: &Address) -> bool {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::IssuerWhitelistMode(issuer.clone()))
+            .unwrap_or(false)
+    }
+
+    /// Remove `subject` from `issuer`'s whitelist.
+    pub fn remove_from_whitelist(env: &Env, issuer: &Address, subject: &Address) {
+        env.storage()
+            .persistent()
+            .remove(&StorageKey::IssuerWhitelist(issuer.clone(), subject.clone()));
+    }
+
+    /// Return `true` if `subject` is whitelisted for `issuer`.
+    pub fn is_whitelisted(env: &Env, issuer: &Address, subject: &Address) -> bool {
+        env.storage()
+            .persistent()
+            .has(&StorageKey::IssuerWhitelist(issuer.clone(), subject.clone()))
+    }
+
+    /// Remove `attestation_id` from `issuer`'s attestation index.
+    pub fn remove_issuer_attestation(env: &Env, issuer: &Address, attestation_id: &String) {
+        let key = StorageKey::IssuerAttestations(issuer.clone());
         let ttl = get_ttl_lifetime(env);
-        env.storage().persistent().set(&key, &true);
+        let existing = Self::get_issuer_attestations(env, issuer);
+        let mut updated = Vec::new(env);
+        for id in existing.iter() {
+            if &id != attestation_id {
+                updated.push_back(id);
+            }
+        }
+        env.storage().persistent().set(&key, &updated);
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 

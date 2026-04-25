@@ -296,18 +296,32 @@ impl TrustLinkContract {
         Ok(())
     }
 
-    /// Enable or disable whitelist mode for the calling issuer.
-    ///
-    /// When enabled, `create_attestation` will reject any subject not present
-    /// in the issuer's whitelist. Disabled by default.
-    ///
-    /// # Errors
-    /// - [`Error::Unauthorized`] — `issuer` is not a registered issuer.
-    pub fn set_whitelist_enabled(env: Env, issuer: Address, enabled: bool) -> Result<(), Error> {
+    /// Add `subject` to `issuer`'s whitelist.
+    pub fn add_to_whitelist(env: Env, issuer: Address, subject: Address) -> Result<(), Error> {
         issuer.require_auth();
         Validation::require_issuer(&env, &issuer)?;
-        Storage::set_whitelist_enabled(&env, &issuer, enabled);
+        Storage::add_to_whitelist(&env, &issuer, &subject);
         Ok(())
+    }
+
+    /// Remove `subject` from `issuer`'s whitelist.
+    pub fn remove_from_whitelist(env: Env, issuer: Address, subject: Address) -> Result<(), Error> {
+        issuer.require_auth();
+        Validation::require_issuer(&env, &issuer)?;
+        Storage::remove_from_whitelist(&env, &issuer, &subject);
+        Ok(())
+    }
+
+    /// Return `true` if `subject` is whitelisted for `issuer`.
+    #[must_use]
+    pub fn is_whitelisted(env: Env, issuer: Address, subject: Address) -> bool {
+        Storage::is_whitelisted(&env, &issuer, &subject)
+    }
+
+    /// Return `true` if whitelist mode is enabled for `issuer`.
+    #[must_use]
+    pub fn is_whitelist_enabled(env: Env, issuer: Address) -> bool {
+        Storage::is_whitelist_enabled(&env, &issuer)
     }
 
     /// Update the trust tier of an already-registered issuer.
@@ -1011,11 +1025,6 @@ impl TrustLinkContract {
         if claim_types.is_empty() {
             return false;
         }
-        false
-    }
-
-    pub fn has_any_claim(env: Env, subject: Address, claim_types: Vec<String>) -> bool {
-        if claim_types.is_empty() { return false; }
         let attestation_ids = Storage::get_subject_attestations(&env, &subject);
         let current_time = env.ledger().timestamp();
         for claim_type in claim_types.iter() {
@@ -1337,6 +1346,17 @@ impl TrustLinkContract {
         Storage::set_attestation(&env, &attestation);
         Storage::remove_subject_attestation(&env, &subject, &attestation_id);
         Events::deletion_requested(&env, &subject, &attestation_id, env.ledger().timestamp());
+        Ok(())
+    }
+
+    pub fn set_issuer_metadata(
+        env: Env,
+        issuer: Address,
+        metadata: IssuerMetadata,
+    ) -> Result<(), Error> {
+        issuer.require_auth();
+        Validation::require_issuer(&env, &issuer)?;
+        Storage::set_issuer_metadata(&env, &issuer, &metadata);
         Ok(())
     }
 

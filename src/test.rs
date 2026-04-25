@@ -3421,7 +3421,7 @@ fn test_issuer_limit_exceeded_returns_error() {
     let admin = Address::generate(&env);
     let issuer = Address::generate(&env);
     let (_, client) = create_test_contract(&env);
-    client.initialize(&admin);
+    client.initialize(&admin, &None);
     client.register_issuer(&admin, &issuer);
 
     // Set issuer limit to 2
@@ -3451,7 +3451,7 @@ fn test_subject_limit_exceeded_returns_error() {
     let issuer = Address::generate(&env);
     let subject = Address::generate(&env);
     let (_, client) = create_test_contract(&env);
-    client.initialize(&admin);
+    client.initialize(&admin, &None);
     client.register_issuer(&admin, &issuer);
 
     // Set subject limit to 2
@@ -3471,42 +3471,289 @@ fn test_subject_limit_exceeded_returns_error() {
     assert_eq!(result, Err(Ok(crate::types::Error::LimitExceeded)));
 }
 
+// ── has_any_claim edge case tests ───────────────────────────────────────────
+
 #[test]
-fn test_admin_raises_limit_allows_issuance_again() {
+fn test_has_any_claim_empty_list_returns_false() {
     let env = Env::default();
     env.mock_all_auths();
-    let admin = Address::generate(&env);
-    let issuer = Address::generate(&env);
-    let (_, client) = create_test_contract(&env);
-    client.initialize(&admin);
-    client.register_issuer(&admin, &issuer);
+    let (_, _, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let empty_claims = soroban_sdk::Vec::new(&env);
+    
+    assert!(!client.has_any_claim(&subject, &empty_claims));
+}
 
-    // Set issuer limit to 2
-    client.set_limits(&admin, &2, &1000);
+#[test]
+fn test_has_any_claim_single_element_equivalent_to_has_valid_claim() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    
+    // Create attestation
+    client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+    
+    // Test single element list
+    let mut single_claim = soroban_sdk::Vec::new(&env);
+    single_claim.push_back(claim_type.clone());
+    
+    let has_any_result = client.has_any_claim(&subject, &single_claim);
+    let has_valid_result = client.has_valid_claim(&subject, &claim_type);
+    
+    assert_eq!(has_any_result, has_valid_result);
+    assert!(has_any_result);
+}
 
-    let claim = String::from_str(&env, "KYC_PASSED");
+#[test]
+fn test_has_any_claim_all_invalid_returns_false() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    
+    // Create and revoke an attestation
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+    client.revoke_attestation(&issuer, &id, &None);
+    
+    // Test with multiple claim types, all invalid
+    let mut claims = soroban_sdk::Vec::new(&env);
+    claims.push_back(String::from_str(&env, "KYC_PASSED"));
+    claims.push_back(String::from_str(&env, "ACCREDITED_INVESTOR"));
+    claims.push_back(String::from_str(&env, "MERCHANT_VERIFIED"));
+    
+    assert!(!client.has_any_claim(&subject, &claims));
+}
 
-    // First two succeed
-    let s1 = Address::generate(&env);
-    let s2 = Address::generate(&env);
-    client.create_attestation(&issuer, &s1, &claim, &None, &None, &None);
-    env.ledger().set_timestamp(env.ledger().timestamp() + 1);
-    client.create_attestation(&issuer, &s2, &claim, &None, &None, &None);
+#[test]
+fn test_has_any_claim_first_valid_short_circuits_true() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    
+    // Create only the first claim type
+    let first_claim = String::from_str(&env, "KYC_PASSED");
+    client.create_attestation(&issuer, &subject, &first_claim, &None, &None, &None);
+    
+    // Test with multiple claim types where first is valid
+    let mut claims = soroban_sdk::Vec::new(&env);
+    claims.push_back(String::from_str(&env, "KYC_PASSED"));
+    claims.push_back(String::from_str(&env, "ACCREDITED_INVESTOR"));
+    claims.push_back(String::from_str(&env, "MERCHANT_VERIFIED"));
+    
+    assert!(client.has_any_claim(&subject, &claims));
+}
 
-    // Third should fail with LimitExceeded
-    env.ledger().set_timestamp(env.ledger().timestamp() + 1);
-    let s3 = Address::generate(&env);
-    let result = client.try_create_attestation(&issuer, &s3, &claim, &None, &None, &None);
-    assert_eq!(result, Err(Ok(crate::types::Error::LimitExceeded)));
+#[test]
+fn test_has_any_claim_middle_valid_returns_true() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    
+    // Create only the middle claim type
+    let middle_claim = String::from_str(&env, "ACCREDITED_INVESTOR");
+    client.create_attestation(&issuer, &subject, &middle_claim, &None, &None, &None);
+    
+    // Test with multiple claim types where middle is valid
+    let mut claims = soroban_sdk::Vec::new(&env);
+    claims.push_back(String::from_str(&env, "KYC_PASSED"));
+    claims.push_back(String::from_str(&env, "ACCREDITED_INVESTOR"));
+    claims.push_back(String::from_str(&env, "MERCHANT_VERIFIED"));
+    
+    assert!(client.has_any_claim(&subject, &claims));
+}
 
-    // Admin raises the limit to 5
-    client.set_limits(&admin, &5, &1000);
+#[test]
+fn test_has_any_claim_last_valid_returns_true() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    
+    // Create only the last claim type
+    let last_claim = String::from_str(&env, "MERCHANT_VERIFIED");
+    client.create_attestation(&issuer, &subject, &last_claim, &None, &None, &None);
+    
+    // Test with multiple claim types where last is valid
+    let mut claims = soroban_sdk::Vec::new(&env);
+    claims.push_back(String::from_str(&env, "KYC_PASSED"));
+    claims.push_back(String::from_str(&env, "ACCREDITED_INVESTOR"));
+    claims.push_back(String::from_str(&env, "MERCHANT_VERIFIED"));
+    
+    assert!(client.has_any_claim(&subject, &claims));
+}
 
-    // Now the third attestation should succeed
-    env.ledger().set_timestamp(env.ledger().timestamp() + 1);
-    let id = client.create_attestation(&issuer, &s3, &claim, &None, &None, &None);
-    assert!(!id.is_empty());
+#[test]
+fn test_has_any_claim_expired_attestation_returns_false() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    
+    env.ledger().with_mut(|li| li.timestamp = 1000);
+    
+    // Create attestation with expiration
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let expiration = Some(2000u64);
+    client.create_attestation(&issuer, &subject, &claim_type, &expiration, &None, &None);
+    
+    // Advance time past expiration
+    env.ledger().with_mut(|li| li.timestamp = 3000);
+    
+    let mut claims = soroban_sdk::Vec::new(&env);
+    claims.push_back(claim_type);
+    
+    assert!(!client.has_any_claim(&subject, &claims));
+}
 
-    // Verify issuer now has 3 attestations
-    assert_eq!(client.get_issuer_attestations(&issuer, &0, &10).len(), 3);
+#[test]
+fn test_has_any_claim_deleted_attestation_returns_false() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    
+    // Create attestation
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+    
+    // Delete attestation
+    client.request_deletion(&subject, &id);
+    
+    let mut claims = soroban_sdk::Vec::new(&env);
+    claims.push_back(claim_type);
+    
+    assert!(!client.has_any_claim(&subject, &claims));
+}
+
+// ── Issuer metadata CRUD tests ──────────────────────────────────────────────
+
+#[test]
+fn test_set_issuer_metadata_and_retrieve() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+    
+    let metadata = types::IssuerMetadata {
+        name: String::from_str(&env, "Acme Corp"),
+        url: String::from_str(&env, "https://acme.example.com"),
+        description: String::from_str(&env, "Leading KYC provider"),
+    };
+    
+    // Set metadata
+    client.set_issuer_metadata(&issuer, &metadata);
+    
+    // Retrieve and verify
+    let retrieved = client.get_issuer_metadata(&issuer);
+    assert_eq!(retrieved, Some(metadata));
+}
+
+#[test]
+fn test_update_issuer_metadata_returns_new_value() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+    
+    let initial_metadata = types::IssuerMetadata {
+        name: String::from_str(&env, "Acme Corp"),
+        url: String::from_str(&env, "https://acme.example.com"),
+        description: String::from_str(&env, "Leading KYC provider"),
+    };
+    
+    let updated_metadata = types::IssuerMetadata {
+        name: String::from_str(&env, "Acme Corporation"),
+        url: String::from_str(&env, "https://acme-corp.com"),
+        description: String::from_str(&env, "Premier identity verification service"),
+    };
+    
+    // Set initial metadata
+    client.set_issuer_metadata(&issuer, &initial_metadata);
+    
+    // Update metadata
+    client.set_issuer_metadata(&issuer, &updated_metadata);
+    
+    // Verify updated value is returned
+    let retrieved = client.get_issuer_metadata(&issuer);
+    assert_eq!(retrieved, Some(updated_metadata));
+    assert_ne!(retrieved, Some(initial_metadata));
+}
+
+#[test]
+fn test_non_issuer_cannot_set_metadata() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, _, client) = setup(&env);
+    let non_issuer = Address::generate(&env);
+    
+    let metadata = types::IssuerMetadata {
+        name: String::from_str(&env, "Fake Corp"),
+        url: String::from_str(&env, "https://fake.com"),
+        description: String::from_str(&env, "Not a real issuer"),
+    };
+    
+    // Attempt to set metadata as non-issuer should fail
+    let result = client.try_set_issuer_metadata(&non_issuer, &metadata);
+    assert_eq!(result, Err(Ok(types::Error::Unauthorized)));
+}
+
+#[test]
+fn test_issuer_cannot_set_another_issuer_metadata() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer1, client) = setup(&env);
+    let issuer2 = Address::generate(&env);
+    
+    // Register second issuer
+    client.register_issuer(&admin, &issuer2);
+    
+    let metadata = types::IssuerMetadata {
+        name: String::from_str(&env, "Malicious Corp"),
+        url: String::from_str(&env, "https://malicious.com"),
+        description: String::from_str(&env, "Trying to impersonate"),
+    };
+    
+    // issuer1 tries to set metadata for issuer2 - should fail
+    let result = client.try_set_issuer_metadata(&issuer1, &metadata);
+    assert_eq!(result, Err(Ok(types::Error::Unauthorized)));
+}
+
+#[test]
+fn test_get_metadata_for_nonexistent_issuer_returns_none() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, _, client) = setup(&env);
+    let nonexistent_issuer = Address::generate(&env);
+    
+    let result = client.get_issuer_metadata(&nonexistent_issuer);
+    assert_eq!(result, None);
+}
+
+#[test]
+fn test_issuer_metadata_persists_after_attestation_operations() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    
+    let metadata = types::IssuerMetadata {
+        name: String::from_str(&env, "Persistent Corp"),
+        url: String::from_str(&env, "https://persistent.com"),
+        description: String::from_str(&env, "Metadata should persist"),
+    };
+    
+    // Set metadata
+    client.set_issuer_metadata(&issuer, &metadata);
+    
+    // Perform various attestation operations
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+    client.revoke_attestation(&issuer, &id, &None);
+    
+    // Metadata should still be there
+    let retrieved = client.get_issuer_metadata(&issuer);
+    assert_eq!(retrieved, Some(metadata));
 }

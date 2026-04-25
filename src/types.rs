@@ -65,6 +65,73 @@ pub struct ContractMetadata {
     pub description: String,
 }
 
+/// Metadata about a registered issuer.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IssuerMetadata {
+    pub name: String,
+    pub url: String,
+    pub description: String,
+}
+
+/// Fee configuration for attestation creation.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FeeConfig {
+    pub attestation_fee: i128,
+    pub fee_collector: Address,
+    pub fee_token: Option<Address>,
+}
+
+/// Global contract statistics.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GlobalStats {
+    pub total_attestations: u64,
+    pub total_revocations: u64,
+    pub total_issuers: u64,
+}
+
+/// Health status for monitoring.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HealthStatus {
+    pub initialized: bool,
+    pub admin_set: bool,
+    pub issuer_count: u64,
+    pub total_attestations: u64,
+}
+
+/// Issuer statistics.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IssuerStats {
+    pub total_issued: u64,
+}
+
+/// TTL configuration.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TtlConfig {
+    pub ttl_days: u32,
+}
+
+/// Rate limiting configuration.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RateLimitConfig {
+    pub min_issuance_interval: u64,
+}
+
+/// Contract configuration.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractConfig {
+    pub ttl_config: TtlConfig,
+    pub limits: StorageLimits,
+    pub fee_config: FeeConfig,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClaimTypeInfo {
@@ -105,9 +172,7 @@ pub enum AttestationOrigin {
     Native,
     Imported,
     Bridged,
-/// Lightweight health status returned by `health_check`.
-///
-/// No authentication required — designed for monitoring dashboards and uptime probes.
+/// Council proposal for sensitive operations.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CouncilProposal {
@@ -225,6 +290,14 @@ impl Default for StorageLimits {
             max_attestations_per_subject: 100,
         }
     }
+}
+
+/// Expiration notification hook configuration.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExpirationHook {
+    pub callback_contract: Address,
+    pub notify_days_before: u32,
 }
 
 /// Delegation from an issuer to a sub-issuer for specific claim types.
