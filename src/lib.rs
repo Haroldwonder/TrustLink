@@ -278,6 +278,24 @@ impl TrustLinkContract {
         Ok(())
     }
 
+    /// Cancel a pending two-step admin transfer.
+    ///
+    /// Only the current admin who proposed the transfer may cancel it.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — caller is not the current admin.
+    /// - [`Error::NotFound`] — no pending transfer exists.
+    pub fn cancel_admin_transfer(env: Env, current_admin: Address) -> Result<(), Error> {
+        current_admin.require_auth();
+        Validation::require_admin(&env, &current_admin)?;
+        let pending = Storage::get_pending_admin_transfer(&env).ok_or(Error::NotFound)?;
+        if pending.proposed_by != current_admin {
+            return Err(Error::Unauthorized);
+        }
+        Storage::remove_pending_admin_transfer(&env);
+        Ok(())
+    }
+
     /// Step 2 of two-step admin transfer: new admin accepts the pending transfer.
     ///
     /// # Errors
@@ -2028,6 +2046,43 @@ impl TrustLinkContract {
     /// - [`Error::CannotEndorseOwn`] — endorser is the attestation's issuer.
     /// - [`Error::AlreadyRevoked`] — attestation has been revoked.
     /// - [`Error::AlreadyEndorsed`] — endorser has already endorsed this attestation.
+    pub fn endorse_attestation(env: Env, endorser: Address, attestation_id: String) -> Result<(), Error> {
+        endorser.require_auth();
+        Validation::require_issuer(&env, &endorser)?;
+        Validation::require_not_paused(&env)?;
+
+        let attestation = Storage::get_attestation(&env, &attestation_id)?;
+
+        if attestation.issuer == endorser {
+            return Err(Error::CannotEndorseOwn);
+        }
+        if attestation.revoked {
+            return Err(Error::AlreadyRevoked);
+        }
+
+        // Check for duplicate endorsement.
+        let existing = Storage::get_endorsements(&env, &attestation_id);
+        for e in existing.iter() {
+            if e.endorser == endorser {
+                return Err(Error::AlreadyEndorsed);
+            }
+        }
+
+        let endorsement = Endorsement {
+            attestation_id: attestation_id.clone(),
+            endorser: endorser.clone(),
+            timestamp: env.ledger().timestamp(),
+        };
+        Storage::add_endorsement(&env, &attestation_id, &endorsement);
+        Ok(())
+    }
+
+    /// Return the number of endorsements for `attestation_id`.
+    #[must_use]
+    pub fn get_endorsement_count(env: Env, attestation_id: String) -> u32 {
+        Storage::get_endorsements(&env, &attestation_id).len()
+    }
+
     /// Delegate authority to create attestations of `claim_type` to `delegate`.
     ///
     /// # Errors
