@@ -2,11 +2,18 @@
 
 TypeScript SDK for the [TrustLink](https://github.com/afurious/TrustLink) on-chain attestation contract on Stellar.
 
+[![npm version](https://badge.fury.io/js/@trustlink%2Fsdk.svg)](https://badge.fury.io/js/@trustlink%2Fsdk)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 ## Installation
 
 ```bash
 npm install @trustlink/sdk @stellar/stellar-sdk
 ```
+
+**Requirements:**
+- Node.js 16.0.0 or higher
+- @stellar/stellar-sdk 12.0.0 or higher
 
 ## Quick Start
 
@@ -185,6 +192,93 @@ TrustLinkError.AlreadyRevoked  // 6
 // ...
 ```
 
+## Error Handling
+
+```typescript
+import { TrustLinkClient, TrustLinkError } from "@trustlink/sdk";
+
+try {
+  const attestation = await client.getAttestation("invalid-id");
+} catch (error) {
+  if (error.code === TrustLinkError.NotFound) {
+    console.log("Attestation not found");
+  } else {
+    console.error("Unexpected error:", error);
+  }
+}
+```
+
+## Examples
+
+### Integration with React
+
+```typescript
+import { useState, useEffect } from 'react';
+import { TrustLinkClient } from '@trustlink/sdk';
+
+function UserVerificationStatus({ userAddress }: { userAddress: string }) {
+  const [hasKyc, setHasKyc] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const client = new TrustLinkClient({
+      contractId: process.env.REACT_APP_TRUSTLINK_CONTRACT_ID!,
+      network: "testnet",
+    });
+
+    client.hasValidClaim(userAddress, "KYC_PASSED")
+      .then(setHasKyc)
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [userAddress]);
+
+  if (loading) return <div>Checking verification status...</div>;
+  
+  return (
+    <div>
+      {hasKyc ? (
+        <span className="verified">✅ KYC Verified</span>
+      ) : (
+        <span className="unverified">❌ Not Verified</span>
+      )}
+    </div>
+  );
+}
+```
+
+### DeFi Integration
+
+```typescript
+import { TrustLinkClient } from '@trustlink/sdk';
+
+class LendingProtocol {
+  private trustlink: TrustLinkClient;
+
+  constructor(contractId: string) {
+    this.trustlink = new TrustLinkClient({
+      contractId,
+      network: "mainnet",
+    });
+  }
+
+  async canBorrow(userAddress: string, amount: bigint): Promise<boolean> {
+    // Check if user has required credentials
+    const hasKyc = await this.trustlink.hasValidClaim(userAddress, "KYC_PASSED");
+    
+    if (amount > 100_000n) {
+      // Large loans require accredited investor status
+      const isAccredited = await this.trustlink.hasValidClaim(
+        userAddress, 
+        "ACCREDITED_INVESTOR"
+      );
+      return hasKyc && isAccredited;
+    }
+    
+    return hasKyc;
+  }
+}
+```
+
 ## Building from Source
 
 ```bash
@@ -195,14 +289,20 @@ npm run build
 
 ## Publishing to npm
 
+The SDK is automatically published to npm when a new release is created on GitHub. To publish manually:
+
 ```bash
 cd sdk/typescript
 npm run build
 npm publish --access public
 ```
 
-> Ensure the `name` field in `package.json` matches your npm org scope (e.g. `@yourorg/trustlink-sdk`).
+> **Note:** Ensure you have the `NPM_TOKEN` secret configured in your repository settings for automated publishing.
+
+## Contributing
+
+See the main [CONTRIBUTING.md](../../CONTRIBUTING.md) for guidelines.
 
 ## License
 
-MIT
+MIT - see [LICENSE](../../LICENSE) for details.
