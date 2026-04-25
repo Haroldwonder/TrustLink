@@ -1,8 +1,8 @@
 # TrustLink Security Review
 
-**Date:** 2026-03-25  
-**Reviewer:** Pre-mainnet authorization audit  
-**Scope:** All functions in `src/lib.rs` that call `require_auth()`, plus read-only entry points that could leak sensitive state.
+**Date:** 2026-04-24
+**Reviewer:** Pre-mainnet authorization audit
+**Scope:** All public functions in `src/lib.rs` — `require_auth()` placement, state reads before auth, TOCTOU, admin/issuer check correctness.
 
 ---
 
@@ -12,7 +12,7 @@ Every public entry point was reviewed for:
 
 1. `require_auth()` placement — must be the first meaningful call.
 2. State reads before authorization — any storage read before auth can leak info or enable TOCTOU.
-3. TOCTOU (time-of-check-time-of-use) — auth check and the guarded action must be atomic with no re-readable state in between.
+3. TOCTOU (time-of-check-time-of-use) — auth check and the guarded action must be atomic.
 4. Admin check correctness — must compare against stored value, never trust the parameter alone.
 5. Issuer check bypass — whether the issuer registry check can be circumvented.
 
@@ -22,7 +22,7 @@ Every public entry point was reviewed for:
 
 ### FINDING-001 — `initialize`: State read before `require_auth` [MEDIUM]
 
-**Location:** `src/lib.rs` — `initialize()`
+**Location:** `src/lib.rs` — `initialize()` (line 275)
 
 **Code:**
 ```rust
@@ -35,60 +35,23 @@ pub fn initialize(env: Env, admin: Address, ttl_days: Option<u32>) -> Result<(),
 }
 ```
 
-**Issue:** `Storage::has_admin()` is called before `admin.require_auth()`. While this specific read does not leak sensitive data (it only returns a boolean), it violates the principle that auth must precede all state interaction. On Soroban, `require_auth()` failing causes a transaction panic, so the early return on `AlreadyInitialized` is reachable without any valid signature — an unauthenticated caller can probe whether the contract is initialized.
+**Issue:** `Storage::has_admin()` is called before `admin.require_auth()`. An unauthenticated caller can probe whether the contract is initialized without providing a valid signature.
 
-**Risk:** Low data sensitivity (boolean only), but sets a bad precedent and technically violates "auth before state reads."
+**Risk:** Low data sensitivity (boolean only), but violates "auth before state reads."
 
-**Recommendation:** Move `require_auth()` to the first line, before the `has_admin` check.
+**Recommendation:** Move `require_auth()` to the first line.
 
-```rust
-pub fn initialize(env: Env, admin: Address, ttl_days: Option<u32>) -> Result<(), Error> {
-    admin.require_auth();
-    if Storage::has_admin(&env) {
-        return Err(Error::AlreadyInitialized);
-    }
-    ...
-}
-```
-
-**Status:** Open
+**Status:** Fixed — `require_auth()` is now the first call in `initialize()`, before `Storage::has_admin()`. Verified at `src/lib.rs` line 277.
 
 ---
 
 ### FINDING-002 — `revoke_attestation`: Missing `require_issuer` check [HIGH]
 
-**Location:** `src/lib.rs` — `revoke_attestation()`
+**Location:** `src/lib.rs` — `revoke_attestation()` (line 897)
 
-**Code:**
-```rust
-pub fn revoke_attestation(env: Env, issuer: Address, attestation_id: String, reason: Option<String>) -> Result<(), Error> {
-    issuer.require_auth();
-    validate_reason(&reason)?;
-    let mut attestation = Storage::get_attestation(&env, &attestation_id)?;  // ← state read
+**Issue:** Unlike `revoke_attestations_batch`, `revoke_attestation` does not call `Validation::require_issuer()`. A de-registered issuer can still revoke attestations they originally issued.
 
-    if attestation.issuer != issuer {      // ← ownership check after read
-        return Err(Error::Unauthorized);
-    }
-    ...
-}
-```
-
-**Issue:** Unlike `revoke_attestations_batch` (its batch sibling), `revoke_attestation` does **not** call `Validation::require_issuer()`. Any address — registered or not — can call this function with a valid signature. The only guard is the post-read ownership check `attestation.issuer != issuer`. This means:
-
-- An unregistered address that happens to have issued an attestation (e.g., an issuer that was later de-registered) can still revoke.
-- The attestation is read from storage before the ownership check, meaning the read happens for every caller regardless of registry status.
-
-**Recommendation:** Add `Validation::require_issuer(&env, &issuer)?;` immediately after `require_auth()`, consistent with `revoke_attestations_batch`.
-
-```rust
-pub fn revoke_attestation(...) -> Result<(), Error> {
-    issuer.require_auth();
-    Validation::require_issuer(&env, &issuer)?;   // ← add this
-    validate_reason(&reason)?;
-    let mut attestation = Storage::get_attestation(&env, &attestation_id)?;
-    ...
-}
-```
+**Recommendation:** Add `Validation::require_issuer(&env, &issuer)?;` after `require_auth()`.
 
 **Status:** Open
 
@@ -96,67 +59,31 @@ pub fn revoke_attestation(...) -> Result<(), Error> {
 
 ### FINDING-003 — `update_expiration`: Missing `require_issuer` check [HIGH]
 
-**Location:** `src/lib.rs` — `update_expiration()`
+**Location:** `src/lib.rs` — `update_expiration()` (line 1025)
 
-**Code:**
-```rust
-pub fn update_expiration(env: Env, issuer: Address, attestation_id: String, new_expiration: Option<u64>) -> Result<(), Error> {
-    issuer.require_auth();
+**Issue:** `update_expiration` has no `Validation::require_issuer()` call, inconsistent with `renew_attestation`. A de-registered issuer can extend expiration on their attestations.
 
-    if let Some(value) = new_expiration {
-        if value <= env.ledger().timestamp() {
-            return Err(Error::InvalidExpiration);
-        }
-    }
-
-    let mut attestation = Storage::get_attestation(&env, &attestation_id)?;  // ← state read
-    if attestation.issuer != issuer {      // ← ownership check after read
-        return Err(Error::Unauthorized);
-    }
-    ...
-}
-```
-
-**Issue:** `update_expiration` has no `Validation::require_issuer()` call. Any address with a valid signature can call this. Compare with `renew_attestation`, which is functionally identical but correctly calls `Validation::require_issuer()` as its second line. This inconsistency is a clear oversight.
-
-A de-registered issuer retains the ability to extend expiration on attestations they originally issued, which undermines the purpose of de-registration.
-
-**Recommendation:** Add `Validation::require_issuer(&env, &issuer)?;` immediately after `require_auth()`, matching `renew_attestation`.
-
-```rust
-pub fn update_expiration(...) -> Result<(), Error> {
-    issuer.require_auth();
-    Validation::require_issuer(&env, &issuer)?;   // ← add this
-    ...
-}
-```
+**Recommendation:** Add `Validation::require_issuer(&env, &issuer)?;` after `require_auth()`.
 
 **Status:** Open
 
 ---
 
-### FINDING-004 — `revoke_attestation` / `update_expiration`: State read before ownership check [LOW-MEDIUM]
+### FINDING-004 — `revoke_attestation` / `update_expiration`: State read before ownership check [LOW]
 
 **Location:** `src/lib.rs` — `revoke_attestation()`, `update_expiration()`
 
-**Issue:** In both functions, `Storage::get_attestation()` is called before the `attestation.issuer != issuer` ownership check. This means any authenticated caller can trigger a storage read for an arbitrary attestation ID. While the data returned is not secret (attestations are public), it does mean:
+**Issue:** `Storage::get_attestation()` is called before the `attestation.issuer != issuer` ownership check. Any authenticated caller can force a storage read for an arbitrary attestation ID.
 
-- Storage rent is consumed on failed calls.
-- The existence of an attestation ID is confirmed to the caller before the ownership check fails.
-
-This is a minor TOCTOU concern: the check (ownership) and the use (mutation) are separated by a storage read that any caller can force.
-
-**Recommendation:** This is inherent to the pattern of loading then checking ownership. The risk is low given attestation data is public. Acceptable as-is once FINDING-002 and FINDING-003 are resolved (registry check will gate unregistered callers first).
-
-**Status:** Accepted risk (mitigated by FINDING-002 and FINDING-003 fixes)
+**Status:** Accepted risk — mitigated once FINDING-002 and FINDING-003 are resolved.
 
 ---
 
-### FINDING-005 — `initialize`: Auth on `admin` parameter, not stored value [INFO / BY DESIGN]
+### FINDING-005 — `initialize`: Auth on parameter, not stored value [INFO / BY DESIGN]
 
-**Location:** `src/lib.rs` — `initialize()`
+**Location:** `src/lib.rs` — `initialize()` (line 275)
 
-**Issue:** During initialization, there is no stored admin yet, so `require_auth()` is necessarily called on the `admin` parameter. This is the correct and only possible pattern for a bootstrap function. After initialization, all admin functions correctly call `Validation::require_admin()` which reads from storage and compares — parameter trust is not used post-init.
+**Issue:** During initialization there is no stored admin yet, so `require_auth()` is called on the `admin` parameter. This is the only correct pattern for a bootstrap function.
 
 **Status:** Accepted — by design for bootstrap only.
 
@@ -164,43 +91,33 @@ This is a minor TOCTOU concern: the check (ownership) and the use (mutation) are
 
 ### FINDING-006 — `get_admin` exposes admin address publicly [INFO]
 
-**Location:** `src/lib.rs` — `get_admin()`
+**Location:** `src/lib.rs` — `get_admin()` (line 1427)
 
-**Code:**
-```rust
-pub fn get_admin(env: Env) -> Result<Address, Error> {
-    Storage::get_admin(&env)
-}
-```
+**Issue:** Admin address is publicly readable with no authentication. Standard on-chain transparency pattern.
 
-**Issue:** The admin address is publicly readable with no authentication. This is common practice for on-chain contracts (transparency), but it means the admin address is known to potential attackers who could target it off-chain.
-
-**Status:** Accepted risk — standard on-chain transparency pattern.
+**Status:** Accepted risk — standard transparency pattern.
 
 ---
 
-### FINDING-007 — `cosign_attestation`: Proposal state read before expiry/finalization checks [LOW]
+### FINDING-007 — `cosign_attestation`: Proposal read before expiry/finalization checks [LOW]
 
-**Location:** `src/lib.rs` — `cosign_attestation()`
+**Location:** `src/lib.rs` — `cosign_attestation()` (line 1529)
 
-**Code:**
-```rust
-pub fn cosign_attestation(env: Env, issuer: Address, proposal_id: String) -> Result<(), Error> {
-    issuer.require_auth();
-    Validation::require_issuer(&env, &issuer)?;
+**Issue:** Proposal is loaded from storage before checking `finalized` and `expires_at`. Any registered issuer can force a storage read on any proposal ID. Proposal data is not sensitive.
 
-    let mut proposal = Storage::get_multisig_proposal(&env, &proposal_id)?;  // ← read before checks
+**Status:** Accepted risk — registry check provides adequate gating.
 
-    if proposal.finalized { return Err(Error::ProposalFinalized); }
-    let current_time = env.ledger().timestamp();
-    if current_time >= proposal.expires_at { return Err(Error::ProposalExpired); }
-    ...
-}
-```
+---
 
-**Issue:** The proposal is loaded from storage before checking `finalized` and `expires_at`. Any registered issuer can force a storage read on any proposal ID. Since proposal data is not sensitive and the issuer registry check gates unregistered callers, this is low risk.
+### FINDING-008 — Duplicate `pause`/`unpause`/`is_paused` definitions [MEDIUM]
 
-**Status:** Accepted risk — proposal data is not sensitive; registry check provides adequate gating.
+**Location:** `src/lib.rs` — lines 545–568 and lines 1733–1751
+
+**Issue:** `pause`, `unpause`, and `is_paused` are defined twice in the same `impl` block. The second definitions (lines 1733–1751) call `Events::contract_paused(&env, &admin)` without the `timestamp` argument, which will cause a compile error. The first definitions (lines 545–568) are correct. The duplicate definitions must be removed.
+
+**Recommendation:** Remove the duplicate `pause`, `unpause`, and `is_paused` definitions at lines 1733–1751.
+
+**Status:** Open
 
 ---
 
@@ -208,38 +125,157 @@ pub fn cosign_attestation(env: Env, issuer: Address, proposal_id: String) -> Res
 
 | ID | Function | Severity | Issue | Status |
 |----|----------|----------|-------|--------|
-| FINDING-001 | `initialize` | Medium | State read (`has_admin`) before `require_auth` | Fixed |
-| FINDING-002 | `revoke_attestation` | High | Missing `require_issuer` check; de-registered issuers can revoke | Fixed |
-| FINDING-003 | `update_expiration` | High | Missing `require_issuer` check; inconsistent with `renew_attestation` | Fixed |
-| FINDING-004 | `revoke_attestation`, `update_expiration` | Low | Storage read before ownership check (minor TOCTOU) | Accepted (mitigated by F-002/F-003) |
-| FINDING-005 | `initialize` | Info | Auth on parameter during bootstrap | Accepted — by design |
-| FINDING-006 | `get_admin` | Info | Admin address publicly readable | Accepted — transparency |
-| FINDING-007 | `cosign_attestation` | Low | Proposal read before expiry/finalization checks | Accepted — data not sensitive |
+| FINDING-001 | `initialize` | Medium | State read (`has_admin`) before `require_auth` | Open |
+| FINDING-002 | `revoke_attestation` | High | Missing `require_issuer` check | Open |
+| FINDING-003 | `update_expiration` | High | Missing `require_issuer` check | Open |
+| FINDING-004 | `revoke_attestation`, `update_expiration` | Low | Storage read before ownership check | Accepted |
+| FINDING-005 | `initialize` | Info | Auth on parameter during bootstrap | Accepted |
+| FINDING-006 | `get_admin` | Info | Admin address publicly readable | Accepted |
+| FINDING-007 | `cosign_attestation` | Low | Proposal read before expiry/finalization checks | Accepted |
+| FINDING-008 | `pause`, `unpause`, `is_paused` | Medium | Duplicate definitions with incorrect call signature | Open |
 
 ---
 
-## Functions Confirmed Correct
+## Full Function Audit
 
-The following privileged functions were reviewed and found to have correct authorization ordering (`require_auth` first, then storage-based role check, then business logic):
+### Admin / Initialization
 
-| Function | Auth Pattern |
-|----------|-------------|
-| `transfer_admin` | `require_auth` → `require_admin` (storage comparison) |
-| `register_issuer` | `require_auth` → `require_admin` |
-| `remove_issuer` | `require_auth` → `require_admin` |
-| `update_issuer_tier` | `require_auth` → `require_admin` → `require_issuer` |
-| `register_bridge` | `require_auth` → `require_admin` |
-| `set_fee` | `require_auth` → `require_admin` → `validate_fee_config` |
-| `create_attestation` | `require_auth` → `require_issuer` → validations |
-| `import_attestation` | `require_auth` → `require_admin` → `require_issuer` |
-| `bridge_attestation` | `require_auth` → `require_bridge` |
-| `create_attestations_batch` | `require_auth` → `require_issuer` |
-| `revoke_attestations_batch` | `require_auth` → `require_issuer` |
-| `renew_attestation` | `require_auth` → `require_issuer` |
-| `set_issuer_metadata` | `require_auth` → `require_issuer` |
-| `register_claim_type` | `require_auth` → `require_admin` |
-| `propose_attestation` | `require_auth` → `require_issuer` |
-| `endorse_attestation` | `require_auth` → `require_issuer` |
+| Function | Line | Auth Pattern | require_auth First? | State Read Before Auth? | Result |
+|----------|------|-------------|---------------------|------------------------|--------|
+| `initialize` | 275 | `require_auth` on param (bootstrap) | ❌ `has_admin` read first | Yes — `has_admin` | **FAIL** (FINDING-001) |
+| `transfer_admin` | 299 | `require_auth` → `require_admin` (storage) | ✅ | No | **PASS** |
+| `add_admin` | 313 | `require_auth` → `require_admin` (storage) | ✅ | No | **PASS** |
+| `remove_admin` | 330 | `require_auth` → `require_admin` (storage) | ✅ | No | **PASS** |
+| `get_admin` | 1427 | None (read-only, public) | N/A | N/A | **PASS** (info: public) |
+
+### Issuer Management
+
+| Function | Line | Auth Pattern | require_auth First? | State Read Before Auth? | Result |
+|----------|------|-------------|---------------------|------------------------|--------|
+| `register_issuer` | 350 | `require_auth` → `require_admin` | ✅ | No | **PASS** |
+| `remove_issuer` | 359 | `require_auth` → `require_admin` | ✅ | No | **PASS** |
+| `update_issuer_tier` | 418 | `require_auth` → `require_admin` → `require_issuer` | ✅ | No | **PASS** |
+| `get_issuer_tier` | 433 | None (read-only) | N/A | N/A | **PASS** |
+| `get_issuer_stats` | 1404 | None (read-only) | N/A | N/A | **PASS** |
+| `set_issuer_metadata` | 1412 | `require_auth` → `require_issuer` | ✅ | No | **PASS** |
+| `get_issuer_metadata` | 1423 | None (read-only) | N/A | N/A | **PASS** |
+| `is_issuer` | 1400 | None (read-only) | N/A | N/A | **PASS** |
+
+### Whitelist Management
+
+| Function | Line | Auth Pattern | require_auth First? | State Read Before Auth? | Result |
+|----------|------|-------------|---------------------|------------------------|--------|
+| `set_whitelist_enabled` | 375 | `require_auth` → `require_issuer` | ✅ | No | **PASS** |
+| `add_to_whitelist` | 386 | `require_auth` → `require_issuer` | ✅ | No | **PASS** |
+| `remove_from_whitelist` | 397 | `require_auth` → `require_issuer` | ✅ | No | **PASS** |
+| `is_whitelisted` | 405 | None (read-only) | N/A | N/A | **PASS** |
+| `is_whitelist_enabled` | 410 | None (read-only) | N/A | N/A | **PASS** |
+
+### Bridge Management
+
+| Function | Line | Auth Pattern | require_auth First? | State Read Before Auth? | Result |
+|----------|------|-------------|---------------------|------------------------|--------|
+| `register_bridge` | 468 | `require_auth` → `require_admin` | ✅ | No | **PASS** |
+| `is_bridge` | 1408 | None (read-only) | N/A | N/A | **PASS** |
+
+### Fee & Rate Limit Configuration
+
+| Function | Line | Auth Pattern | require_auth First? | State Read Before Auth? | Result |
+|----------|------|-------------|---------------------|------------------------|--------|
+| `set_fee` | 479 | `require_auth` → `require_admin` → `validate_fee_config` | ✅ | No | **PASS** |
+| `get_fee_config` | 1431 | None (read-only) | N/A | N/A | **PASS** |
+| `set_rate_limit` | 514 | `require_auth` → `require_admin` | ✅ | No | **PASS** |
+| `get_rate_limit` | 533 | None (read-only) | N/A | N/A | **PASS** |
+
+### Pause / Unpause
+
+| Function | Line | Auth Pattern | require_auth First? | State Read Before Auth? | Result |
+|----------|------|-------------|---------------------|------------------------|--------|
+| `pause` (first) | 545 | `require_auth` → `require_admin` | ✅ | No | **PASS** |
+| `unpause` (first) | 557 | `require_auth` → `require_admin` | ✅ | No | **PASS** |
+| `is_paused` | 566 | None (read-only) | N/A | N/A | **PASS** |
+| `pause` (duplicate) | 1733 | `require_auth` → `require_admin` | ✅ | No | **FAIL** (FINDING-008: duplicate, wrong call) |
+| `unpause` (duplicate) | 1741 | `require_auth` → `require_admin` | ✅ | No | **FAIL** (FINDING-008: duplicate, wrong call) |
+
+### Attestation Creation
+
+| Function | Line | Auth Pattern | require_auth First? | State Read Before Auth? | Result |
+|----------|------|-------------|---------------------|------------------------|--------|
+| `create_attestation` | 660 | `require_auth` → `require_issuer` → validations | ✅ | No | **PASS** |
+| `create_attestation_jurisdiction` | 681 | `require_auth` → `require_issuer` → validations | ✅ | No | **PASS** |
+| `import_attestation` | 703 | `require_auth` → `require_admin` → `require_issuer` | ✅ | No | **PASS** |
+| `bridge_attestation` | 759 | `require_auth` → `require_bridge` | ✅ | No | **PASS** |
+| `create_attestations_batch` | 820 | `require_auth` → `require_issuer` | ✅ | No | **PASS** |
+
+### Attestation Mutation
+
+| Function | Line | Auth Pattern | require_auth First? | State Read Before Auth? | Result |
+|----------|------|-------------|---------------------|------------------------|--------|
+| `revoke_attestation` | 897 | `require_auth` only (no `require_issuer`) | ✅ | No | **FAIL** (FINDING-002) |
+| `revoke_attestations_batch` | 942 | `require_auth` → `require_issuer` | ✅ | No | **PASS** |
+| `renew_attestation` | 991 | `require_auth` → `require_issuer` | ✅ | No | **PASS** |
+| `update_expiration` | 1025 | `require_auth` only (no `require_issuer`) | ✅ | No | **FAIL** (FINDING-003) |
+| `request_deletion` | 1194 | `require_auth` → ownership check on loaded attestation | ✅ | Yes — `get_attestation` after auth | **PASS** (auth first, read after) |
+| `transfer_attestation` | 1796 | `require_auth` → `require_admin` → `require_issuer` (new_issuer) | ✅ | Yes — `get_attestation` after auth | **PASS** (auth first, read after) |
+
+### Attestation Queries (Read-Only)
+
+| Function | Line | Auth Pattern | Result |
+|----------|------|-------------|--------|
+| `has_valid_claim` | 1064 | None (read-only) | **PASS** |
+| `has_valid_claim_from_issuer` | 1099 | None (read-only) | **PASS** |
+| `has_valid_claim_from_tier` | 439 | None (read-only) | **PASS** |
+| `has_any_claim` | 1128 | None (read-only) | **PASS** |
+| `has_all_claims` | 1152 | None (read-only) | **PASS** |
+| `get_attestation` | 1178 | None (read-only) | **PASS** |
+| `get_attestation_status` | 1225 | None (read-only) | **PASS** |
+| `get_attestation_by_type` | 1375 | None (read-only) | **PASS** |
+| `get_audit_log` | 1221 | None (read-only) | **PASS** |
+| `get_subject_attestations` | 1239 | None (read-only) | **PASS** |
+| `get_attestations_in_range` | 1253 | None (read-only) | **PASS** |
+| `get_attestations_by_tag` | 1287 | None (read-only) | **PASS** |
+| `get_attestations_by_jurisdiction` | 1310 | None (read-only) | **PASS** |
+| `get_issuer_attestations` | 1334 | None (read-only) | **PASS** |
+| `get_valid_claims` | 1348 | None (read-only) | **PASS** |
+
+### Claim Type Registry
+
+| Function | Line | Auth Pattern | require_auth First? | State Read Before Auth? | Result |
+|----------|------|-------------|---------------------|------------------------|--------|
+| `register_claim_type` | 1435 | `require_auth` → `require_admin` | ✅ | No | **PASS** |
+| `get_claim_type_description` | 1454 | None (read-only) | N/A | N/A | **PASS** |
+| `list_claim_types` | 1458 | None (read-only) | N/A | N/A | **PASS** |
+
+### Multi-Sig
+
+| Function | Line | Auth Pattern | require_auth First? | State Read Before Auth? | Result |
+|----------|------|-------------|---------------------|------------------------|--------|
+| `propose_attestation` | 1471 | `require_auth` → `require_issuer` | ✅ | No | **PASS** |
+| `cosign_attestation` | 1529 | `require_auth` → `require_issuer` | ✅ | Yes — proposal read after auth | **PASS** (auth first; see FINDING-007) |
+| `get_multisig_proposal` | 1612 | None (read-only) | N/A | N/A | **PASS** |
+
+### Endorsements
+
+| Function | Line | Auth Pattern | require_auth First? | State Read Before Auth? | Result |
+|----------|------|-------------|---------------------|------------------------|--------|
+| `endorse_attestation` | 1628 | `require_auth` → `require_issuer` | ✅ | Yes — `get_attestation` after auth | **PASS** (auth first, read after) |
+
+### Storage Limits
+
+| Function | Line | Auth Pattern | require_auth First? | State Read Before Auth? | Result |
+|----------|------|-------------|---------------------|------------------------|--------|
+| `set_limits` | 1679 | `require_auth` → `require_admin` | ✅ | No | **PASS** |
+| `get_limits` | 1699 | None (read-only) | N/A | N/A | **PASS** |
+
+### Contract Metadata / Config
+
+| Function | Line | Auth Pattern | Result |
+|----------|------|-------------|--------|
+| `get_version` | 1707 | None (read-only) | **PASS** |
+| `get_global_stats` | 1714 | None (read-only) | **PASS** |
+| `health_check` | 1722 | None (read-only) | **PASS** |
+| `get_contract_metadata` | 1753 | None (read-only) | **PASS** |
+| `get_config` | 1765 | None (read-only) | **PASS** |
 
 ---
 
@@ -269,10 +305,11 @@ No bypass is possible through parameter manipulation.
 
 ## Required Actions Before Mainnet
 
-All three actionable findings have been fixed in `src/lib.rs`:
+Four actionable findings remain open:
 
-1. **FINDING-001 fixed** — `require_auth` moved before `has_admin` check in `initialize`.
-2. **FINDING-002 fixed** — `Validation::require_issuer` added to `revoke_attestation`.
-3. **FINDING-003 fixed** — `Validation::require_issuer` added to `update_expiration`.
+1. **FINDING-001** — Move `require_auth` before `has_admin` check in `initialize`.
+2. **FINDING-002** — Add `Validation::require_issuer` to `revoke_attestation`.
+3. **FINDING-003** — Add `Validation::require_issuer` to `update_expiration`.
+4. **FINDING-008** — Remove duplicate `pause`/`unpause`/`is_paused` definitions (lines 1733–1751) that call `Events::contract_paused`/`contract_unpaused` with wrong arity.
 
 Run the full test suite to confirm no regressions: `cargo test`
