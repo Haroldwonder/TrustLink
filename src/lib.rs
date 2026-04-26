@@ -1545,19 +1545,25 @@ impl TrustLinkContract {
     }
 
     pub fn get_attestations_in_range(env: Env, subject: Address, from_ts: u64, to_ts: u64, start: u32, limit: u32) -> Vec<Attestation> {
+        // Handle reversed range: from_ts > to_ts returns empty result
+        if from_ts > to_ts {
+            return Vec::new(&env);
+        }
+
         let attestation_ids = Storage::get_subject_attestations(&env, &subject);
         let mut filtered = Vec::new(&env);
         for id in attestation_ids.iter() {
             if let Ok(attestation) = Storage::get_attestation(&env, &id) {
+                // Timestamp boundaries are inclusive: from_ts <= timestamp <= to_ts
                 if !attestation.deleted && attestation.timestamp >= from_ts && attestation.timestamp <= to_ts {
                     filtered.push_back(id);
                 }
             }
         }
 
-        let paginated_ids = crate::storage::paginate(&env, &filtered_ids, start, limit);
+        let paginated_ids = crate::storage::paginate(&env, &filtered, start, limit);
         let mut result = Vec::new(&env);
-        for id in paginated.iter() {
+        for id in paginated_ids.iter() {
             if let Ok(attestation) = Storage::get_attestation(&env, &id) {
                 result.push_back(attestation);
             }
