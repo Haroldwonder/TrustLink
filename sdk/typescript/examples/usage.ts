@@ -60,6 +60,25 @@ async function main() {
   const page = await client.getSubjectAttestations(USER_ADDRESS, 0, 5);
   console.log(`First page (up to 5):`, page);
 
+  // ── Pagination helpers ──────────────────────────────────────────────────
+  console.log("\n=== Pagination Helpers ===");
+
+  const allSubjectAttestations = [];
+  for await (const attestation of client.iterateSubjectAttestations(USER_ADDRESS)) {
+    allSubjectAttestations.push(attestation);
+  }
+  console.log(`All subject attestations (${allSubjectAttestations.length} total):`, allSubjectAttestations);
+
+  const ISSUER_ADDRESS =
+    process.env.ISSUER_ADDRESS ??
+    "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
+
+  const allIssuerAttestations = [];
+  for await (const attestation of client.iterateIssuerAttestations(ISSUER_ADDRESS)) {
+    allIssuerAttestations.push(attestation);
+  }
+  console.log(`All issuer attestations (${allIssuerAttestations.length} total):`, allIssuerAttestations);
+
   // ── Claim type registry ──────────────────────────────────────────────────
   console.log("\n=== Claim Types ===");
   const claimTypes = await client.listClaimTypes(0, 20);
