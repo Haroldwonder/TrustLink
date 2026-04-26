@@ -8,6 +8,17 @@ use soroban_sdk::{
 
 use crate::types::AttestationOrigin;
 
+// Mock callback contract that panics when notify_expiring is called (for issue #329)
+#[contract]
+struct MockPanicCallbackContract;
+
+#[contractimpl]
+impl MockPanicCallbackContract {
+    pub fn notify_expiring(_env: Env, _subject: Address, _attestation_id: String, _expiration: u64) {
+        panic!("callback panic");
+    }
+}
+
 #[contract]
 struct MockBridgeContract;
 
@@ -4904,4 +4915,159 @@ mod issuer_tier_tests {
         client.set_issuer_tier(&admin, &issuer, &types::IssuerTier::Basic);
         assert_eq!(client.get_issuer_tier(&issuer), Some(types::IssuerTier::Basic));
     }
+}
+
+// ── Issue #327: Multi-sig proposal expiry ────────────────────────────────────
+
+#[test]
+fn test_multisig_expired_proposal_not_finalized_no_attestation() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (issuer1, issuer2, issuer3, _, client) = setup_multisig(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "ACCREDITED_INVESTOR");
+
+    env.ledger().with_mut(|li| li.timestamp = 1_000);
+
+    let mut required = soroban_sdk::Vec::new(&env);
+    required.push_back(issuer1.clone());
+    required.push_back(issuer2.clone());
+    required.push_back(issuer3.clone());
+
+    let proposal_id = client.propose_attestation(&issuer1, &subject, &claim_type, &required, &2);
+
+    // Advance past the 7-day expiry window.
+    env.ledger().with_mut(|li| li.timestamp = 1_000 + 7 * 24 * 60 * 60 + 1);
+
+    // Co-sign must fail with ProposalExpired.
+    let result = client.try_cosign_attestation(&issuer2, &proposal_id);
+    assert_eq!(result, Err(Ok(types::Error::ProposalExpired)));
+
+    // Proposal must not be finalized.
+    let proposal = client.get_multisig_proposal(&proposal_id);
+    assert!(!proposal.finalized, "expired proposal must not be finalized");
+
+    // No attestation must have been created.
+    assert!(
+        !client.has_valid_claim(&subject, &claim_type),
+        "expired proposal must not create an attestation"
+    );
+}
+
+// ── Issue #329: Expiration hook callback failure handling ─────────────────────
+
+#[test]
+fn test_expiration_hook_panicking_callback_does_not_affect_has_valid_claim() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    // Set ledger time so the attestation is inside the notification window.
+    // Expiration = now + 3 days; notify_days_before = 7 → hook fires immediately.
+    let now: u64 = 1_000_000;
+    env.ledger().with_mut(|li| li.timestamp = now);
+    let expiration = now + 3 * 24 * 60 * 60;
+
+    client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &Some(expiration),
+        &None,
+        &None,
+    );
+
+    // Register a callback contract that panics.
+    let callback_id = env.register_contract(None, MockPanicCallbackContract);
+    client.register_expiration_hook(&subject, &callback_id, &7);
+
+    // has_valid_claim must still return true despite the panicking callback.
+    assert!(
+        client.has_valid_claim(&subject, &claim_type),
+        "has_valid_claim must return true even when callback panics"
+    );
+}
+
+// ── Issue #334: has_all_claims edge cases ─────────────────────────────────────
+
+#[test]
+fn test_has_all_claims_empty_list_returns_true() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, _, client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    let empty: soroban_sdk::Vec<String> = soroban_sdk::Vec::new(&env);
+    assert!(client.has_all_claims(&subject, &empty), "empty list must return true (vacuous truth)");
+}
+
+#[test]
+fn test_has_all_claims_single_element_equivalent_to_has_valid_claim() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    // Before attestation: both must return false.
+    let mut list = soroban_sdk::Vec::new(&env);
+    list.push_back(claim_type.clone());
+    assert_eq!(
+        client.has_all_claims(&subject, &list),
+        client.has_valid_claim(&subject, &claim_type)
+    );
+
+    client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+
+    // After attestation: both must return true.
+    assert_eq!(
+        client.has_all_claims(&subject, &list),
+        client.has_valid_claim(&subject, &claim_type)
+    );
+}
+
+#[test]
+fn test_has_all_claims_all_valid_returns_true() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let kyc = String::from_str(&env, "KYC_PASSED");
+    let aml = String::from_str(&env, "AML_CLEARED");
+
+    client.create_attestation(&issuer, &subject, &kyc, &None, &None, &None);
+    client.create_attestation(&issuer, &subject, &aml, &None, &None, &None);
+
+    let mut list = soroban_sdk::Vec::new(&env);
+    list.push_back(kyc.clone());
+    list.push_back(aml.clone());
+
+    assert!(client.has_all_claims(&subject, &list), "all valid claims must return true");
+}
+
+#[test]
+fn test_has_all_claims_one_missing_returns_false() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let kyc = String::from_str(&env, "KYC_PASSED");
+    let aml = String::from_str(&env, "AML_CLEARED");
+
+    // Only create KYC, not AML.
+    client.create_attestation(&issuer, &subject, &kyc, &None, &None, &None);
+
+    let mut list = soroban_sdk::Vec::new(&env);
+    list.push_back(kyc.clone());
+    list.push_back(aml.clone());
+
+    assert!(!client.has_all_claims(&subject, &list), "missing claim must short-circuit to false");
 }

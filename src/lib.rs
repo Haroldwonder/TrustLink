@@ -558,7 +558,7 @@ impl TrustLinkContract {
     ) -> Result<String, Error> {
         issuer.require_auth();
         Validation::require_not_paused(&env)?;
-        Validation::require_issuer(&env, &issuer)?;
+        Validation::require_authorized_creator(&env, &issuer)?;
         Validation::validate_claim_type(&claim_type)?;
         validate_metadata(&env, &metadata)?;
         validate_jurisdiction(env, &jurisdiction)?;
@@ -755,7 +755,7 @@ impl TrustLinkContract {
         source_tx: String,
     ) -> Result<String, Error> {
         bridge.require_auth();
-        Validation::require_bridge(&env, &bridge)?;
+        Validation::require_authorized_creator(&env, &bridge)?;
         Validation::require_not_paused(&env)?;
 
         if source_chain.len() > MAX_SOURCE_CHAIN_LEN {
