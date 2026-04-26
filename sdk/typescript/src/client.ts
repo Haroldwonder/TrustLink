@@ -464,4 +464,32 @@ export class TrustLinkClient {
   async getEndorsementCount(attestationId: string): Promise<number> {
     return this.simulate("get_endorsement_count", this.str(attestationId));
   }
+
+  // ── Pagination Helpers ─────────────────────────────────────────────────────
+
+  async *iterateSubjectAttestations(
+    subject: string,
+    pageSize = 20
+  ): AsyncGenerator<Attestation> {
+    let start = 0;
+    while (true) {
+      const page = await this.getSubjectAttestations(subject, start, pageSize);
+      yield* page;
+      if (page.length < pageSize) break;
+      start += page.length;
+    }
+  }
+
+  async *iterateIssuerAttestations(
+    issuer: string,
+    pageSize = 20
+  ): AsyncGenerator<Attestation> {
+    let start = 0;
+    while (true) {
+      const page = await this.getIssuerAttestations(issuer, start, pageSize);
+      yield* page;
+      if (page.length < pageSize) break;
+      start += page.length;
+    }
+  }
 }

@@ -2,35 +2,39 @@ use soroban_sdk::{symbol_short, Address, Env, String, Symbol};
 
 use crate::types::{Attestation, IssuerTier};
 
-// Event topic symbol constants (max 9 ASCII chars for symbol_short!).
 const TOPIC_ADMIN_INIT: Symbol = symbol_short!("adm_init");
-const TOPIC_CREATED: Symbol    = symbol_short!("att_crt");
-const TOPIC_IMPORTED: Symbol   = symbol_short!("imported");
-const TOPIC_BRIDGED: Symbol    = symbol_short!("bridged");
-const TOPIC_REVOKED: Symbol    = symbol_short!("att_rev");
-const TOPIC_RENEWED: Symbol    = symbol_short!("att_ren");
-const TOPIC_UPDATED: Symbol    = symbol_short!("att_upd");
-const TOPIC_EXPIRED: Symbol    = symbol_short!("att_exp");
-const TOPIC_DEL_REQ: Symbol    = symbol_short!("del_req");
-const TOPIC_ISS_REG: Symbol    = symbol_short!("iss_reg");
-const TOPIC_ISS_REM: Symbol    = symbol_short!("iss_rem");
-const TOPIC_ISS_TIER: Symbol   = symbol_short!("iss_tier");
-const TOPIC_CLM_TYPE: Symbol   = symbol_short!("clm_type");
-const TOPIC_MS_PROP: Symbol    = symbol_short!("ms_prop");
-const TOPIC_MS_SIGN: Symbol    = symbol_short!("ms_sign");
-const TOPIC_MS_ACTV: Symbol    = symbol_short!("ms_actv");
-const TOPIC_ADM_XFER: Symbol   = symbol_short!("adm_xfer");
-const TOPIC_ADM_ADD: Symbol    = symbol_short!("adm_add");
-const TOPIC_ADM_REM: Symbol    = symbol_short!("adm_rem");
-const TOPIC_ENDORSED: Symbol   = symbol_short!("endorsed");
-const TOPIC_EXP_HOOK: Symbol   = symbol_short!("exp_hook");
-const TOPIC_REQ: Symbol        = symbol_short!("req");
-const TOPIC_REQ_OK: Symbol     = symbol_short!("req_ok");
-const TOPIC_REQ_NO: Symbol     = symbol_short!("req_no");
-const TOPIC_WL_ON: Symbol      = symbol_short!("wl_on");
-const TOPIC_WL_ADD: Symbol     = symbol_short!("wl_add");
-const TOPIC_WL_REM: Symbol     = symbol_short!("wl_rem");
-const TOPIC_PAUSED: Symbol     = symbol_short!("paused");
+const TOPIC_ADM_INIT: Symbol = symbol_short!("adm_init");
+const TOPIC_CREATED: Symbol = symbol_short!("created");
+const TOPIC_IMPORTED: Symbol = symbol_short!("imported");
+const TOPIC_BRIDGED: Symbol = symbol_short!("bridged");
+const TOPIC_REVOKED: Symbol = symbol_short!("revoked");
+const TOPIC_RENEWED: Symbol = symbol_short!("renewed");
+const TOPIC_UPDATED: Symbol = symbol_short!("updated");
+const TOPIC_EXPIRED: Symbol = symbol_short!("expired");
+const TOPIC_DEL_REQ: Symbol = symbol_short!("del_req");
+const TOPIC_ISS_REG: Symbol = symbol_short!("iss_reg");
+const TOPIC_ISS_REM: Symbol = symbol_short!("iss_rem");
+const TOPIC_ISS_TIER: Symbol = symbol_short!("iss_tier");
+const TOPIC_CLM_TYPE: Symbol = symbol_short!("clm_type");
+const TOPIC_CLMTYPE: Symbol = symbol_short!("clm_type");
+const TOPIC_MS_PROP: Symbol = symbol_short!("ms_prop");
+const TOPIC_MS_SIGN: Symbol = symbol_short!("ms_sign");
+const TOPIC_MS_ACTV: Symbol = symbol_short!("ms_actv");
+const TOPIC_ADM_XFER: Symbol = symbol_short!("adm_xfer");
+const TOPIC_ADM_ADD: Symbol = symbol_short!("adm_add");
+const TOPIC_ADM_REM: Symbol = symbol_short!("adm_rem");
+const TOPIC_ENDORSED: Symbol = symbol_short!("endorsed");
+const TOPIC_EXP_HOOK: Symbol = symbol_short!("exp_hook");
+const TOPIC_PAUSED: Symbol = symbol_short!("paused");
+const TOPIC_UNPAUSED: Symbol = symbol_short!("unpaused");
+const TOPIC_REQ: Symbol = symbol_short!("att_req");
+const TOPIC_REQ_OK: Symbol = symbol_short!("req_ok");
+const TOPIC_REQ_NO: Symbol = symbol_short!("req_no");
+const TOPIC_DEL_CRTD: Symbol = symbol_short!("del_crtd");
+const TOPIC_DEL_RVKD: Symbol = symbol_short!("del_rvkd");
+const TOPIC_WL_ADD: Symbol = symbol_short!("wl_add");
+const TOPIC_WL_REM: Symbol = symbol_short!("wl_rem");
+const TOPIC_WL_ON: Symbol = symbol_short!("wl_on");
 
 pub struct Events;
 
@@ -256,28 +260,6 @@ impl Events {
         );
     }
 
-    /// Emitted when a multi-sig proposal reaches threshold and the attestation is activated.
-    pub fn multisig_activated(env: &Env, proposal_id: &String, attestation_id: &String) {
-        env.events().publish(
-            (symbol_short!("ms_actv"),),
-            (proposal_id.clone(), attestation_id.clone()),
-        );
-    }
-
-    /// Emitted when admin transfers an attestation to a new issuer.
-    pub fn attestation_transferred(
-        env: &Env,
-        by_admin: &Address,
-        removed_admin: &Address,
-        timestamp: u64,
-    ) {
-        // TOPIC_ADM_REM
-        env.events().publish(
-            (TOPIC_ADM_REM, by_admin.clone()),
-            (removed_admin.clone(), timestamp),
-        );
-    }
-
     /// Emitted when a registered issuer endorses an existing attestation.
     pub fn attestation_endorsed(
         env: &Env,
@@ -323,7 +305,7 @@ impl Events {
     pub fn contract_paused(env: &Env, admin: &Address, timestamp: u64) {
         // TOPIC_PAUSED
         env.events()
-            .publish((TOPIC_PAUSED,), (admin.clone(), timestamp));
+            .publish((symbol_short!("paused"),), (admin.clone(), timestamp));
     }
 
     /// Emitted when the admin unpauses the contract.

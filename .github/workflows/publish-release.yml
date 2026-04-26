@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write # Required for npm provenance
 
 jobs:
   build-and-publish:
@@ -78,3 +79,66 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Use the optimized WASM for production deployments." >> $GITHUB_STEP_SUMMARY
           echo "See [DEPLOYMENT.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/DEPLOYMENT.md) for instructions." >> $GITHUB_STEP_SUMMARY
+
+  publish-typescript-sdk:
+    name: Publish TypeScript SDK to npm
+    runs-on: ubuntu-latest
+    needs: build-and-publish
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'npm'
+          cache-dependency-path: 'sdk/typescript/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: sdk/typescript
+        run: npm ci
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          # Extract version from git tag (e.g., v1.2.3 -> 1.2.3)
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
+
+      - name: Update package.json version
+        working-directory: sdk/typescript
+        run: |
+          npm version ${{ steps.version.outputs.version }} --no-git-tag-version
+          echo "Updated package.json to version ${{ steps.version.outputs.version }}"
+
+      - name: Build TypeScript SDK
+        working-directory: sdk/typescript
+        run: npm run build
+
+      - name: Verify build output
+        working-directory: sdk/typescript
+        run: |
+          echo "Build output:"
+          ls -la dist/
+          echo "Package contents:"
+          npm pack --dry-run
+
+      - name: Publish to npm
+        working-directory: sdk/typescript
+        run: npm publish --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Update release summary
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### TypeScript SDK" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **@trustlink/sdk@${{ steps.version.outputs.version }}** published to npm" >> $GITHUB_STEP_SUMMARY
+          echo "- Install: \`npm install @trustlink/sdk@${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- [View on npm](https://www.npmjs.com/package/@trustlink/sdk)" >> $GITHUB_STEP_SUMMARY

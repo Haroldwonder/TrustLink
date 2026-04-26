@@ -57,22 +57,11 @@ pub enum Error {
     InvalidJurisdiction = 32,
     LimitExceeded = 33,
     BatchTooLarge = 34,
-    /// Fee token address is invalid or not a valid token contract.
     InvalidFeeToken = 35,
-    /// A council proposal with this ID already exists.
-    CouncilProposalExists = 36,
-    /// The council proposal has already been executed.
-    CouncilProposalExecuted = 37,
-    /// The council proposal voting window has expired.
-    CouncilProposalExpired = 38,
-    /// Caller has already approved this proposal.
-    AlreadyApproved = 39,
-    /// An identical pending request already exists.
-    DuplicateRequest = 40,
+    /// An attestation request with the same ID already exists.
+    DuplicateRequest = 36,
     /// The request has already been fulfilled or rejected.
-    RequestAlreadyProcessed = 41,
-    /// The request TTL has elapsed.
-    RequestExpired = 42,
-    /// Quorum value is 0 or exceeds the number of council members.
-    InvalidQuorum = 43,
+    RequestAlreadyProcessed = 37,
+    /// The attestation request has expired.
+    RequestExpired = 38,
 }

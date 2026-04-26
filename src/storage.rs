@@ -38,14 +38,25 @@ pub enum StorageKey {
     LastIssuance(Address),
     LastIssuanceTime(Address),
     IssuerWhitelistEnabled(Address),
+    /// Whitelist mode flag (alias for IssuerWhitelistEnabled).
     IssuerWhitelistMode(Address),
+    /// Whitelist entry for a (issuer, subject) pair.
     IssuerWhitelist(Address, Address),
+    /// Audit log entries for an attestation.
+    AuditLog(String),
+    /// Multi-sig proposal keyed by proposal ID.
+    MultiSigProposal(String),
+    /// An attestation request record.
     AttestationRequest(String),
     IssuerPendingRequests(Address),
     PendingRequests(Address),
-    Request(String),
-    Delegation(Address, Address, String),
+    /// Last issuance timestamp for rate limiting (alias).
+    LastIssuanceTime(Address),
+    /// Storage limits.
+    StorageLimits,
+    /// Contract paused flag.
     Paused,
+    /// Council proposal by numeric ID.
     CouncilProposal(u32),
     CouncilProposalStr(String),
     ProposalCounter,
@@ -309,6 +320,19 @@ impl Storage {
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 
+    /// Retrieve a council proposal by ID.
+    pub fn get_proposal(env: &Env, id: u32) -> Option<CouncilProposal> {
+        env.storage().persistent().get(&StorageKey::CouncilProposal(id))
+    }
+
+    /// Persist a council proposal.
+    pub fn set_proposal(env: &Env, proposal: &CouncilProposal) {
+        let key = StorageKey::CouncilProposal(proposal.id);
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, proposal);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
     pub fn remove_from_whitelist(env: &Env, issuer: &Address, subject: &Address) {
         env.storage().persistent().remove(&StorageKey::IssuerWhitelist(issuer.clone(), subject.clone()));
     }
@@ -340,19 +364,11 @@ impl Storage {
         env.storage().instance().extend_ttl(ttl, ttl);
     }
 
-    fn get_global_stats_raw(env: &Env) -> GlobalStats {
-        env.storage().instance().get(&StorageKey::GlobalStats)
-            .unwrap_or(GlobalStats { total_attestations: 0, total_revocations: 0, total_issuers: 0 })
-    }
-
-    pub fn get_global_stats(env: &Env) -> GlobalStats {
-        Self::get_global_stats_raw(env)
-    }
-
-    pub fn increment_total_attestations(env: &Env, by: u64) {
-        let mut s = Self::get_global_stats_raw(env);
-        s.total_attestations = s.total_attestations.saturating_add(by);
-        Self::set_global_stats_raw(env, &s);
+    /// Increment `total_attestations` by `count`.
+    pub fn increment_total_attestations(env: &Env, count: u64) {
+        let mut stats = Self::get_global_stats(env);
+        stats.total_attestations = stats.total_attestations.saturating_add(count);
+        Self::set_global_stats(env, &stats);
     }
 
     pub fn increment_total_revocations(env: &Env, by: u64) {
@@ -501,44 +517,25 @@ impl Storage {
         next
     }
 
-    pub fn get_pending_admin_transfer(env: &Env) -> Option<PendingAdminTransfer> {
-        env.storage().instance().get(&StorageKey::PendingAdminTransfer)
-    }
-
-    pub fn set_pending_admin_transfer(env: &Env, transfer: &PendingAdminTransfer) {
+    pub fn set_last_issuance_time(env: &Env, issuer: &Address, timestamp: u64) {
+        let key = StorageKey::LastIssuance(issuer.clone());
         let ttl = get_ttl_lifetime(env);
-        env.storage().instance().set(&StorageKey::PendingAdminTransfer, transfer);
-        env.storage().instance().extend_ttl(ttl, ttl);
-    }
-
-    pub fn remove_pending_admin_transfer(env: &Env) {
-        env.storage().instance().remove(&StorageKey::PendingAdminTransfer);
-    }
-
-    pub fn get_delegation(env: &Env, delegator: &Address, delegate: &Address, claim_type: &String) -> Option<Delegation> {
-        env.storage().persistent().get(&StorageKey::Delegation(delegator.clone(), delegate.clone(), claim_type.clone()))
-    }
-
-    pub fn set_delegation(env: &Env, delegation: &Delegation) {
-        let key = StorageKey::Delegation(delegation.delegator.clone(), delegation.delegate.clone(), delegation.claim_type.clone());
-        let ttl = get_ttl_lifetime(env);
-        env.storage().persistent().set(&key, delegation);
+        env.storage().persistent().set(&key, &timestamp);
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 
-    pub fn remove_delegation(env: &Env, delegator: &Address, delegate: &Address, claim_type: &String) {
-        env.storage().persistent().remove(&StorageKey::Delegation(delegator.clone(), delegate.clone(), claim_type.clone()));
+    // -------------------------------------------------------------------------
+    // Attestation requests
+    // -------------------------------------------------------------------------
+
+    pub fn get_attestation_request(env: &Env, request_id: &String) -> Result<AttestationRequest, Error> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::AttestationRequest(request_id.clone()))
+            .ok_or(Error::NotFound)
     }
 
-    pub fn has_attestation_request(env: &Env, request_id: &String) -> bool {
-        env.storage().persistent().has(&StorageKey::AttestationRequest(request_id.clone()))
-    }
-
-    pub fn get_attestation_request(env: &Env, request_id: &String) -> Result<crate::types::AttestationRequest, Error> {
-        env.storage().persistent().get(&StorageKey::AttestationRequest(request_id.clone())).ok_or(Error::NotFound)
-    }
-
-    pub fn set_attestation_request(env: &Env, request: &crate::types::AttestationRequest) {
+    pub fn set_attestation_request(env: &Env, request: &AttestationRequest) {
         let key = StorageKey::AttestationRequest(request.id.clone());
         let ttl = get_ttl_lifetime(env);
         env.storage().persistent().set(&key, request);
@@ -546,7 +543,10 @@ impl Storage {
     }
 
     pub fn get_issuer_pending_requests(env: &Env, issuer: &Address) -> Vec<String> {
-        env.storage().persistent().get(&StorageKey::IssuerPendingRequests(issuer.clone())).unwrap_or(Vec::new(env))
+        env.storage()
+            .persistent()
+            .get(&StorageKey::IssuerPendingRequests(issuer.clone()))
+            .unwrap_or(Vec::new(env))
     }
 
     pub fn add_issuer_pending_request(env: &Env, issuer: &Address, request_id: &String) {
@@ -564,32 +564,83 @@ impl Storage {
         let existing = Self::get_issuer_pending_requests(env, issuer);
         let mut updated = Vec::new(env);
         for id in existing.iter() {
-            if &id != request_id { updated.push_back(id); }
+            if &id != request_id {
+                updated.push_back(id);
+            }
         }
         env.storage().persistent().set(&key, &updated);
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 
-    /// Get request by ID (alias using Request key).
-    pub fn get_request(env: &Env, request_id: &String) -> Result<crate::types::AttestationRequest, Error> {
-        env.storage().persistent().get(&StorageKey::Request(request_id.clone()))
-            .or_else(|| env.storage().persistent().get(&StorageKey::AttestationRequest(request_id.clone())))
-            .ok_or(Error::NotFound)
+    // ── Issuer tier ───────────────────────────────────────────────────────────
+
+    pub fn get_issuer_tier(env: &Env, issuer: &Address) -> Option<IssuerTier> {
+        env.storage().persistent().get(&StorageKey::IssuerTier(issuer.clone()))
+    }
+
+    // ── Issuer attestation index ──────────────────────────────────────────────
+
+    pub fn remove_issuer_attestation(env: &Env, issuer: &Address, attestation_id: &String) {
+        let key = StorageKey::IssuerAttestations(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        let existing = Self::get_issuer_attestations(env, issuer);
+        let mut updated = Vec::new(env);
+        for id in existing.iter() {
+            if &id != attestation_id {
+                updated.push_back(id);
+            }
+        }
+        env.storage().persistent().set(&key, &updated);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // ── Delegation ────────────────────────────────────────────────────────────
+
+    pub fn set_delegation(env: &Env, delegation: &crate::types::Delegation) {
+        let key = StorageKey::Delegation(
+            delegation.delegator.clone(),
+            delegation.delegate.clone(),
+            delegation.claim_type.clone(),
+        );
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, delegation);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // ── Multisig TTL ──────────────────────────────────────────────────────────
+
+    pub fn get_multisig_ttl_days(env: &Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&StorageKey::MultisigTtlDays)
+            .unwrap_or(7u32)
+    }
+
+    // ── Attestation requests ──────────────────────────────────────────────────
+
+    pub fn get_request(env: &Env, request_id: &String) -> Result<crate::types::AttestationRequest, crate::types::Error> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::AttestationRequest(request_id.clone()))
+            .ok_or(crate::types::Error::NotFound)
     }
 
     pub fn set_request(env: &Env, request: &crate::types::AttestationRequest) {
-        let key = StorageKey::Request(request.id.clone());
+        let key = StorageKey::AttestationRequest(request.id.clone());
         let ttl = get_ttl_lifetime(env);
         env.storage().persistent().set(&key, request);
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 
     pub fn get_pending_request_ids(env: &Env, issuer: &Address) -> Vec<String> {
-        env.storage().persistent().get(&StorageKey::PendingRequests(issuer.clone())).unwrap_or(Vec::new(env))
+        env.storage()
+            .persistent()
+            .get(&StorageKey::IssuerPendingRequests(issuer.clone()))
+            .unwrap_or(Vec::new(env))
     }
 
     pub fn add_pending_request(env: &Env, issuer: &Address, request_id: &String) {
-        let key = StorageKey::PendingRequests(issuer.clone());
+        let key = StorageKey::IssuerPendingRequests(issuer.clone());
         let ttl = get_ttl_lifetime(env);
         let mut list = Self::get_pending_request_ids(env, issuer);
         list.push_back(request_id.clone());
@@ -598,63 +649,31 @@ impl Storage {
     }
 
     pub fn remove_pending_request(env: &Env, issuer: &Address, request_id: &String) {
-        let key = StorageKey::PendingRequests(issuer.clone());
+        let key = StorageKey::IssuerPendingRequests(issuer.clone());
         let ttl = get_ttl_lifetime(env);
         let existing = Self::get_pending_request_ids(env, issuer);
         let mut updated = Vec::new(env);
         for id in existing.iter() {
-            if &id != request_id { updated.push_back(id); }
+            if &id != request_id {
+                updated.push_back(id);
+            }
         }
         env.storage().persistent().set(&key, &updated);
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
-
-    // -------------------------------------------------------------------------
-    // Attestation templates
-    // -------------------------------------------------------------------------
-
-    pub fn set_template(env: &Env, issuer: &Address, template_id: &String, template: &AttestationTemplate) {
-        let key = StorageKey::AttestationTemplate(issuer.clone(), template_id.clone());
-        let ttl = get_ttl_lifetime(env);
-        env.storage().persistent().set(&key, template);
-        env.storage().persistent().extend_ttl(&key, ttl, ttl);
-    }
-
-    pub fn get_template(env: &Env, issuer: &Address, template_id: &String) -> Option<AttestationTemplate> {
-        env.storage().persistent().get(&StorageKey::AttestationTemplate(issuer.clone(), template_id.clone()))
-    }
-
-    pub fn has_template(env: &Env, issuer: &Address, template_id: &String) -> bool {
-        env.storage().persistent().has(&StorageKey::AttestationTemplate(issuer.clone(), template_id.clone()))
-    }
-
-    pub fn get_template_registry(env: &Env, issuer: &Address) -> Vec<String> {
-        env.storage().persistent().get(&StorageKey::AttestationTemplateList(issuer.clone())).unwrap_or(Vec::new(env))
-    }
-
-    pub fn add_to_template_registry(env: &Env, issuer: &Address, template_id: &String) {
-        let key = StorageKey::AttestationTemplateList(issuer.clone());
-        let ttl = get_ttl_lifetime(env);
-        let mut list = Self::get_template_registry(env, issuer);
-        for existing in list.iter() {
-            if &existing == template_id { return; }
-        }
-        list.push_back(template_id.clone());
-        env.storage().persistent().set(&key, &list);
-        env.storage().persistent().extend_ttl(&key, ttl, ttl);
-    }
 }
 
-/// Paginate a `Vec<String>` index.
 pub fn paginate(env: &Env, list: &Vec<String>, start: u32, limit: u32) -> Vec<String> {
     let mut result = Vec::new(env);
     let len = list.len();
-    if start >= len { return result; }
+    if start >= len {
+        return result;
+    }
     let end = (start + limit).min(len);
-    let mut i = start;
-    while i < end {
-        if let Some(item) = list.get(i) { result.push_back(item); }
-        i += 1;
+    for i in start..end {
+        if let Some(item) = list.get(i) {
+            result.push_back(item);
+        }
     }
     result
 }

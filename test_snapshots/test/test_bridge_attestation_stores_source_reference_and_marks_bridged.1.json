@@ -150,14 +150,6 @@
                   "map": [
                     {
                       "key": {
-                        "symbol": "bridged"
-                      },
-                      "val": {
-                        "bool": true
-                      }
-                    },
-                    {
-                      "key": {
                         "symbol": "claim_type"
                       },
                       "val": {
@@ -188,14 +180,6 @@
                     },
                     {
                       "key": {
-                        "symbol": "imported"
-                      },
-                      "val": {
-                        "bool": false
-                      }
-                    },
-                    {
-                      "key": {
                         "symbol": "issuer"
                       },
                       "val": {
@@ -213,6 +197,18 @@
                         "symbol": "metadata"
                       },
                       "val": "void"
+                    },
+                    {
+                      "key": {
+                        "symbol": "origin"
+                      },
+                      "val": {
+                        "vec": [
+                          {
+                            "symbol": "Bridged"
+                          }
+                        ]
+                      }
                     },
                     {
                       "key": {
@@ -1286,14 +1282,6 @@
               "map": [
                 {
                   "key": {
-                    "symbol": "bridged"
-                  },
-                  "val": {
-                    "bool": true
-                  }
-                },
-                {
-                  "key": {
                     "symbol": "claim_type"
                   },
                   "val": {
@@ -1324,14 +1312,6 @@
                 },
                 {
                   "key": {
-                    "symbol": "imported"
-                  },
-                  "val": {
-                    "bool": false
-                  }
-                },
-                {
-                  "key": {
                     "symbol": "issuer"
                   },
                   "val": {
@@ -1349,6 +1329,18 @@
                     "symbol": "metadata"
                   },
                   "val": "void"
+                },
+                {
+                  "key": {
+                    "symbol": "origin"
+                  },
+                  "val": {
+                    "vec": [
+                      {
+                        "symbol": "Bridged"
+                      }
+                    ]
+                  }
                 },
                 {
                   "key": {

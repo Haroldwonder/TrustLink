@@ -292,103 +292,9 @@ pub struct Delegation {
     pub expiration: Option<u64>,
 }
 
-/// A reusable per-issuer blueprint for attestation creation.
-///
-/// Issuers define a template once and instantiate attestations from it,
-/// optionally overriding individual fields per call.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AttestationTemplate {
-    /// Non-empty claim type identifier (e.g. "KYC", "AML").
-    pub claim_type: String,
-    /// Optional default expiration window in days from attestation creation time.
-    pub default_expiration_days: Option<u32>,
-    /// Optional default metadata string (max 256 bytes).
-    pub metadata_template: Option<String>,
-}
 
 /// Admin council: ordered list of admin addresses.
 pub type AdminCouncil = Vec<Address>;
-
-/// Attestation fee configuration.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct FeeConfig {
-    pub attestation_fee: i128,
-    pub fee_collector: Address,
-    pub fee_token: Option<Address>,
-}
-
-/// TTL configuration (days).
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TtlConfig {
-    pub ttl_days: u32,
-}
-
-/// Contract-wide running counters.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct GlobalStats {
-    pub total_attestations: u64,
-    pub total_revocations: u64,
-    pub total_issuers: u64,
-}
-
-/// Per-issuer statistics.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct IssuerStats {
-    pub total_issued: u64,
-}
-
-/// Rate-limit configuration for attestation creation.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RateLimitConfig {
-    /// Minimum seconds between attestation creations per issuer.
-    pub min_issuance_interval: u64,
-}
-
-/// Lightweight health status returned by `health_check`.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct HealthStatus {
-    pub initialized: bool,
-    pub admin_set: bool,
-    pub issuer_count: u64,
-    pub total_attestations: u64,
-}
-
-/// Optional metadata associated with a registered issuer.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct IssuerMetadata {
-    pub name: String,
-    pub url: String,
-    pub description: String,
-}
-
-/// Expiration hook registered by a subject to be notified before attestation expiry.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ExpirationHook {
-    /// The callback contract to notify.
-    pub callback_contract: Address,
-    /// How many days before expiry to trigger the notification.
-    pub notify_days_before: u32,
-}
-
-/// Aggregate contract configuration returned by `get_config`.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ContractConfig {
-    pub contract_name: String,
-    pub contract_version: String,
-    pub contract_description: String,
-    pub fee_config: FeeConfig,
-    pub ttl_config: TtlConfig,
-}
 
 /// Storage key for the pending admin transfer (two-step pattern).
 #[contracttype]
@@ -465,6 +371,7 @@ impl Attestation {
     }
 }
 
+
 impl AttestationRequest {
     /// Deterministic ID: SHA-256 over XDR of `"req:" | subject | issuer | claim_type | timestamp`.
     pub fn generate_id(
@@ -484,21 +391,6 @@ impl AttestationRequest {
     }
 }
 
-/// A multi-sig attestation proposal requiring M-of-N issuer signatures.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct MultiSigProposal {
-    pub id: String,
-    pub proposer: Address,
-    pub subject: Address,
-    pub claim_type: String,
-    pub required_signers: Vec<Address>,
-    pub threshold: u32,
-    pub signers: Vec<Address>,
-    pub created_at: u64,
-    pub expires_at: u64,
-    pub finalized: bool,
-}
 
 impl MultiSigProposal {
     pub fn generate_id(
