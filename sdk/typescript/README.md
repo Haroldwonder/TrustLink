@@ -96,6 +96,38 @@ const tagged = await client.getAttestationsByTag(subject, "premium");
 const log = await client.getAuditLog(attestationId);
 ```
 
+### Pagination Helpers
+
+Instead of manually tracking `start` offsets, use the async generator helpers to
+iterate over every attestation without writing a pagination loop:
+
+```typescript
+// Iterate all attestations for a subject
+for await (const attestation of client.iterateSubjectAttestations(subject)) {
+  console.log(attestation.id, attestation.claim_type);
+}
+
+// Iterate all attestations issued by an issuer
+for await (const attestation of client.iterateIssuerAttestations(issuer)) {
+  console.log(attestation.id, attestation.subject);
+}
+
+// Collect all into an array
+const all: Attestation[] = [];
+for await (const a of client.iterateSubjectAttestations(subject)) {
+  all.push(a);
+}
+```
+
+Both helpers accept an optional `pageSize` argument (default `20`) that controls
+how many attestations are fetched per RPC call:
+
+```typescript
+for await (const a of client.iterateSubjectAttestations(subject, 50)) {
+  // fetches 50 at a time
+}
+```
+
 ### Count Queries
 
 ```typescript

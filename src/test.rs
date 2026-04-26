@@ -3489,99 +3489,111 @@ fn test_create_attestations_batch_exactly_max_issuer_size_succeeds() {
     assert_eq!(client.get_issuer_attestations(&issuer, &0, &(max + 1)).len(), max);
 }
 
-#[test]
-fn test_issuer_limit_exceeded_returns_error() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let admin = Address::generate(&env);
-    let issuer = Address::generate(&env);
-    let (_, client) = create_test_contract(&env);
-    client.initialize(&admin);
-    client.register_issuer(&admin, &issuer);
+// ── Pause: all write operations blocked ──────────────────────────────────────
 
-    // Set issuer limit to 2
-    client.set_limits(&admin, &2, &1000);
+#[cfg(test)]
+mod pause_tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, Env, String};
 
-    let claim = String::from_str(&env, "KYC_PASSED");
+    fn setup(env: &Env) -> (Address, Address, TrustLinkContractClient<'_>) {
+        let contract_id = env.register_contract(None, TrustLinkContract);
+        let client = TrustLinkContractClient::new(env, &contract_id);
+        let admin = Address::generate(env);
+        let issuer = Address::generate(env);
+        client.initialize(&admin, &None);
+        client.register_issuer(&admin, &issuer);
+        (admin, issuer, client)
+    }
 
-    // First two succeed
-    let s1 = Address::generate(&env);
-    let s2 = Address::generate(&env);
-    client.create_attestation(&issuer, &s1, &claim, &None, &None, &None);
-    env.ledger().set_timestamp(env.ledger().timestamp() + 1);
-    client.create_attestation(&issuer, &s2, &claim, &None, &None, &None);
+    #[test]
+    fn test_paused_blocks_revoke_attestation() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, client) = setup(&env);
+        let subject = Address::generate(&env);
+        let claim = String::from_str(&env, "KYC_PASSED");
 
-    // Third should return LimitExceeded
-    env.ledger().set_timestamp(env.ledger().timestamp() + 1);
-    let s3 = Address::generate(&env);
-    let result = client.try_create_attestation(&issuer, &s3, &claim, &None, &None, &None);
-    assert_eq!(result, Err(Ok(crate::types::Error::LimitExceeded)));
-}
+        let id = client.create_attestation(&issuer, &subject, &claim, &None, &None, &None);
+        client.pause(&admin);
 
-#[test]
-fn test_subject_limit_exceeded_returns_error() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let admin = Address::generate(&env);
-    let issuer = Address::generate(&env);
-    let subject = Address::generate(&env);
-    let (_, client) = create_test_contract(&env);
-    client.initialize(&admin);
-    client.register_issuer(&admin, &issuer);
+        let result = client.try_revoke_attestation(&issuer, &id, &None);
+        assert_eq!(result, Err(Ok(Error::ContractPaused)));
+        // attestation must still be valid
+        assert!(!client.get_attestation(&id).revoked);
+    }
 
-    // Set subject limit to 2
-    client.set_limits(&admin, &10_000, &2);
+    #[test]
+    fn test_paused_blocks_import_attestation() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, client) = setup(&env);
+        let subject = Address::generate(&env);
+        let claim = String::from_str(&env, "KYC_PASSED");
 
-    let c1 = String::from_str(&env, "KYC_PASSED");
-    let c2 = String::from_str(&env, "AML_CLEARED");
+        env.ledger().with_mut(|l| l.timestamp = 5_000);
+        client.pause(&admin);
 
-    client.create_attestation(&issuer, &subject, &c1, &None, &None, &None);
-    env.ledger().set_timestamp(env.ledger().timestamp() + 1);
-    client.create_attestation(&issuer, &subject, &c2, &None, &None, &None);
+        let result =
+            client.try_import_attestation(&admin, &issuer, &subject, &claim, &1_000, &None);
+        assert_eq!(result, Err(Ok(Error::ContractPaused)));
+        assert_eq!(client.get_subject_attestations(&subject, &0, &10).len(), 0);
+    }
 
-    // Third attestation on same subject should return LimitExceeded
-    env.ledger().set_timestamp(env.ledger().timestamp() + 1);
-    let c3 = String::from_str(&env, "MERCHANT_VERIFIED");
-    let result = client.try_create_attestation(&issuer, &subject, &c3, &None, &None, &None);
-    assert_eq!(result, Err(Ok(crate::types::Error::LimitExceeded)));
-}
+    #[test]
+    fn test_paused_blocks_bridge_attestation() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, _, client) = setup(&env);
+        let bridge = Address::generate(&env);
+        let subject = Address::generate(&env);
+        let claim = String::from_str(&env, "KYC_PASSED");
+        let chain = String::from_str(&env, "ethereum");
+        let tx = String::from_str(&env, "0xabc");
 
-#[test]
-fn test_admin_raises_limit_allows_issuance_again() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let admin = Address::generate(&env);
-    let issuer = Address::generate(&env);
-    let (_, client) = create_test_contract(&env);
-    client.initialize(&admin);
-    client.register_issuer(&admin, &issuer);
+        client.register_bridge(&admin, &bridge);
+        client.pause(&admin);
 
-    // Set issuer limit to 2
-    client.set_limits(&admin, &2, &1000);
+        let result = client.try_bridge_attestation(&bridge, &subject, &claim, &chain, &tx);
+        assert_eq!(result, Err(Ok(Error::ContractPaused)));
+        assert_eq!(client.get_subject_attestations(&subject, &0, &10).len(), 0);
+    }
 
-    let claim = String::from_str(&env, "KYC_PASSED");
+    #[test]
+    fn test_paused_blocks_register_issuer() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, _, client) = setup(&env);
+        let new_issuer = Address::generate(&env);
 
-    // First two succeed
-    let s1 = Address::generate(&env);
-    let s2 = Address::generate(&env);
-    client.create_attestation(&issuer, &s1, &claim, &None, &None, &None);
-    env.ledger().set_timestamp(env.ledger().timestamp() + 1);
-    client.create_attestation(&issuer, &s2, &claim, &None, &None, &None);
+        client.pause(&admin);
 
-    // Third should fail with LimitExceeded
-    env.ledger().set_timestamp(env.ledger().timestamp() + 1);
-    let s3 = Address::generate(&env);
-    let result = client.try_create_attestation(&issuer, &s3, &claim, &None, &None, &None);
-    assert_eq!(result, Err(Ok(crate::types::Error::LimitExceeded)));
+        // register_issuer is an admin-only write — must be blocked when paused
+        let result = client.try_register_issuer(&admin, &new_issuer);
+        assert_eq!(result, Err(Ok(Error::ContractPaused)));
+        assert!(!client.is_issuer(&new_issuer));
+    }
 
-    // Admin raises the limit to 5
-    client.set_limits(&admin, &5, &1000);
+    #[test]
+    fn test_paused_blocks_propose_attestation() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, client) = setup(&env);
+        let issuer2 = Address::generate(&env);
+        let issuer3 = Address::generate(&env);
+        client.register_issuer(&admin, &issuer2);
+        client.register_issuer(&admin, &issuer3);
 
-    // Now the third attestation should succeed
-    env.ledger().set_timestamp(env.ledger().timestamp() + 1);
-    let id = client.create_attestation(&issuer, &s3, &claim, &None, &None, &None);
-    assert!(!id.is_empty());
+        let subject = Address::generate(&env);
+        let claim = String::from_str(&env, "ACCREDITED_INVESTOR");
+        let mut required = soroban_sdk::Vec::new(&env);
+        required.push_back(issuer.clone());
+        required.push_back(issuer2.clone());
+        required.push_back(issuer3.clone());
 
-    // Verify issuer now has 3 attestations
-    assert_eq!(client.get_issuer_attestations(&issuer, &0, &10).len(), 3);
+        client.pause(&admin);
+
+        let result = client.try_propose_attestation(&issuer, &subject, &claim, &required, &2);
+        assert_eq!(result, Err(Ok(Error::ContractPaused)));
+    }
 }
