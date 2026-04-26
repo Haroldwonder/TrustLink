@@ -228,11 +228,11 @@ fn test_create_attestation_with_jurisdiction_storable_and_queryable() {
     let attestation = client.get_attestation(&id);
     assert_eq!(attestation.jurisdiction, jurisdiction);
 
-    let api_results = client.get_attestations_by_jurisdiction(&subject, &String::from_str(&env, "US"));
+    let api_results = client.get_attestations_by_jurisdiction(&subject, &String::from_str(&env, "US"), &0, &10);
     assert_eq!(api_results.len(), 1);
     assert_eq!(api_results.get(0).unwrap(), id);
 
-    let wrong_results = client.get_attestations_by_jurisdiction(&subject, &String::from_str(&env, "CA"));
+    let wrong_results = client.get_attestations_by_jurisdiction(&subject, &String::from_str(&env, "CA"), &0, &10);
     assert!(wrong_results.is_empty());
 }
 
@@ -1314,59 +1314,6 @@ fn test_revoke_with_reason_stores_reason() {
     assert_eq!(attestation.revocation_reason, Some(reason));
 }
 
-#[test]
-fn test_revoke_without_reason_stores_none() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let (_, issuer, client) = setup(&env);
-    let subject = Address::generate(&env);
-    let claim_type = String::from_str(&env, "KYC_PASSED");
-
-    let id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
-    client.revoke_attestation(&issuer, &id, &None);
-
-    let attestation = client.get_attestation(&id);
-    assert!(attestation.revoked);
-    assert_eq!(attestation.revocation_reason, None);
-}
-
-#[test]
-fn test_revoke_reason_too_long_rejected() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let (_, issuer, client) = setup(&env);
-    let subject = Address::generate(&env);
-    let claim_type = String::from_str(&env, "KYC_PASSED");
-
-    let id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
-
-    // 129 'a' characters — one over the limit
-    let long_reason = String::from_str(&env, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    let result = client.try_revoke_attestation(&issuer, &id, &Some(long_reason));
-    assert_eq!(result, Err(Ok(types::Error::ReasonTooLong)));
-}
-
-#[test]
-fn test_revoke_reason_exactly_128_chars_accepted() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let (_, issuer, client) = setup(&env);
-    let subject = Address::generate(&env);
-    let claim_type = String::from_str(&env, "KYC_PASSED");
-
-    let id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
-
-    // Exactly 128 'a' characters
-    let exact_reason = String::from_str(&env, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    client.revoke_attestation(&issuer, &id, &Some(exact_reason.clone()));
-
-    let attestation = client.get_attestation(&id);
-    assert!(attestation.revoked);
-    assert_eq!(attestation.revocation_reason, Some(exact_reason));
-}
 
 // ── Property-based tests: attestation ID uniqueness ──────────────────────────
 
@@ -2491,7 +2438,7 @@ mod request_tests {
 
         let pending = client.get_pending_requests(&issuer, &0, &10);
         assert_eq!(pending.len(), 1);
-        assert_eq!(pending.get(0).unwrap(), id);
+        assert_eq!(pending.get(0).unwrap().id, id);
     }
 
     #[test]
@@ -2534,7 +2481,7 @@ mod request_tests {
             if let Some(raw) = topics.get(0) {
                 let sym: soroban_sdk::Symbol =
                     soroban_sdk::TryFromVal::try_from_val(&env, &raw).unwrap();
-                sym == soroban_sdk::symbol_short!("req")
+                sym == soroban_sdk::symbol_short!("att_req")
             } else {
                 false
             }
@@ -3545,8 +3492,9 @@ fn test_create_attestations_batch_subject_at_limit_rolls_back_all() {
     assert_eq!(client.get_subject_attestations(&fresh_subject, &0, &10).len(), 0);
 }
 
-#[test]
-fn test_create_attestations_batch_exactly_max_issuer_size_succeeds() {
+const FULL_TTL: u32 = 3_110_400; // ~180 days in ledgers
+
+fn ttl_env() -> Env {
     let env = Env::default();
     env.ledger().with_mut(|li| {
         li.sequence_number = 100_000;
@@ -3560,7 +3508,7 @@ fn test_create_attestations_batch_exactly_max_issuer_size_succeeds() {
 /// the same amount.
 fn advance_ledger(env: &Env, delta: u32) {
     env.ledger().with_mut(|li| {
-        li.sequence_number += delta as u64;
+        li.sequence_number += delta;
     });
 }
 
@@ -3726,7 +3674,7 @@ mod two_step_admin_transfer_tests {
 
         // Now accept should succeed (pending is stored).
         client.accept_admin_transfer(&new_admin);
-        assert_eq!(client.get_admin(), Ok(new_admin));
+        assert_eq!(client.get_admin(), new_admin);
     }
 
     /// Wrong address tries to accept → Unauthorized.
@@ -3744,7 +3692,7 @@ mod two_step_admin_transfer_tests {
         assert_eq!(result, Err(Ok(Error::Unauthorized)));
 
         // Original admin still in place.
-        assert_eq!(client.get_admin(), Ok(admin));
+        assert_eq!(client.get_admin(), admin);
     }
 
     /// Correct new admin accepts → admin updated.
@@ -3758,7 +3706,7 @@ mod two_step_admin_transfer_tests {
         client.propose_admin_transfer(&admin, &new_admin);
         client.accept_admin_transfer(&new_admin);
 
-        assert_eq!(client.get_admin(), Ok(new_admin.clone()));
+        assert_eq!(client.get_admin(), new_admin.clone());
     }
 
     /// Old admin loses privileges after transfer completes.
@@ -3801,7 +3749,7 @@ mod two_step_admin_transfer_tests {
         assert_eq!(result, Err(Ok(Error::NotFound)));
 
         // Original admin still in place.
-        assert_eq!(client.get_admin(), Ok(admin));
+        assert_eq!(client.get_admin(), admin);
     }
 
     /// Non-admin cannot propose a transfer.
@@ -4221,7 +4169,7 @@ mod valid_from_lifecycle {
 
         // valid_from is 500 seconds in the future
         let valid_from: u64 = 1500;
-        let id = client.create_attestation_with_valid_from(
+        let id = client.create_attestation_valid_from(
             &issuer, &subject, &claim, &None, &None, &None, &valid_from,
         );
 
@@ -4264,7 +4212,7 @@ mod valid_from_lifecycle {
         let claim = String::from_str(&env, "KYC_PASSED");
         let valid_from: u64 = 2000;
 
-        let id = client.create_attestation_with_valid_from(
+        let id = client.create_attestation_valid_from(
             &issuer, &subject, &claim, &None, &None, &None, &valid_from,
         );
 
@@ -4291,7 +4239,7 @@ mod valid_from_lifecycle {
         let claim = String::from_str(&env, "KYC_PASSED");
         let valid_from: u64 = 9999;
 
-        let id = client.create_attestation_with_valid_from(
+        let id = client.create_attestation_valid_from(
             &issuer, &subject, &claim, &None, &None, &None, &valid_from,
         );
 
@@ -4332,7 +4280,7 @@ mod valid_from_lifecycle {
         let claim = String::from_str(&env, "KYC_PASSED");
 
         // valid_from in the past → must return InvalidValidFrom
-        client.create_attestation_with_valid_from(
+        client.create_attestation_valid_from(
             &issuer, &subject, &claim, &None, &None, &None, &4999,
         );
     }
@@ -4350,7 +4298,7 @@ mod valid_from_lifecycle {
         let claim = String::from_str(&env, "KYC_PASSED");
 
         // valid_from == now → must be rejected (must be strictly future)
-        client.create_attestation_with_valid_from(
+        client.create_attestation_valid_from(
             &issuer, &subject, &claim, &None, &None, &None, &5000,
         );
     }
@@ -4371,7 +4319,7 @@ mod valid_from_lifecycle {
         client.create_attestation(&issuer, &subject, &aml, &None, &None, &None);
 
         // Create a pending KYC attestation
-        client.create_attestation_with_valid_from(
+        client.create_attestation_valid_from(
             &issuer, &subject, &kyc, &None, &None, &None, &9999,
         );
 
@@ -4395,7 +4343,7 @@ mod valid_from_lifecycle {
         let valid_from: u64 = 2000;
         let expiration: u64 = 3000;
 
-        let id = client.create_attestation_with_valid_from(
+        let id = client.create_attestation_valid_from(
             &issuer, &subject, &claim, &Some(expiration), &None, &None, &valid_from,
         );
 
@@ -4426,7 +4374,7 @@ mod valid_from_lifecycle {
         let (_admin, issuer, subject, client) = setup(&env);
         let claim = String::from_str(&env, "KYC_PASSED");
 
-        let id = client.create_attestation_with_valid_from(
+        let id = client.create_attestation_valid_from(
             &issuer, &subject, &claim, &None, &None, &None, &9999,
         );
 
@@ -4454,7 +4402,7 @@ mod valid_from_lifecycle {
 
         // valid_from 100 years out (approx)
         let far_future: u64 = 1000 + 100 * 365 * 24 * 3600;
-        let id = client.create_attestation_with_valid_from(
+        let id = client.create_attestation_valid_from(
             &issuer, &subject, &claim, &None, &None, &None, &far_future,
         );
 

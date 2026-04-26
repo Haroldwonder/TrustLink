@@ -722,7 +722,7 @@
           "v0": {
             "topics": [
               {
-                "symbol": "clmtype"
+                "symbol": "clm_type"
               },
               {
                 "string": "KYC_PASSED"

@@ -57,4 +57,11 @@ pub enum Error {
     InvalidJurisdiction = 32,
     LimitExceeded = 33,
     BatchTooLarge = 34,
+    InvalidFeeToken = 35,
+    /// An attestation request with the same ID already exists.
+    DuplicateRequest = 36,
+    /// The request has already been fulfilled or rejected.
+    RequestAlreadyProcessed = 37,
+    /// The attestation request has expired.
+    RequestExpired = 38,
 }
