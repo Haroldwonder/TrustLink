@@ -717,3 +717,84 @@ pub fn endorse_attestation(env: &Env, endorser: Address, attestation_id: String)
 pub fn get_endorsement_count(env: &Env, attestation_id: String) -> u32 {
     Storage::get_endorsements(env, &attestation_id).len()
 }
+
+// -----------------------------------------------------------------------
+// Delegated attestation creation
+// -----------------------------------------------------------------------
+
+pub fn create_attestation_as_delegate(
+    env: &Env,
+    delegate: Address,
+    delegator: Address,
+    subject: Address,
+    claim_type: String,
+    expiration: Option<u64>,
+    metadata: Option<String>,
+) -> Result<String, Error> {
+    delegate.require_auth();
+    Validation::require_not_paused(env)?;
+    Validation::require_issuer(env, &delegator)?;
+    Validation::validate_claim_type(&claim_type)?;
+    Validation::validate_metadata(env, &metadata)?;
+    validate_native_expiration(env, expiration)?;
+
+    // Verify delegation exists and is not expired.
+    let delegation = Storage::get_delegation(env, &delegator, &delegate, &claim_type)
+        .ok_or(Error::Unauthorized)?;
+    if let Some(exp) = delegation.expiration {
+        if env.ledger().timestamp() >= exp {
+            return Err(Error::Unauthorized);
+        }
+    }
+
+    if delegator == subject {
+        return Err(Error::Unauthorized);
+    }
+
+    let limits = Storage::get_limits(env);
+    if Storage::get_issuer_attestations(env, &delegator).len() >= limits.max_attestations_per_issuer {
+        return Err(Error::LimitExceeded);
+    }
+    if Storage::get_subject_attestations(env, &subject).len() >= limits.max_attestations_per_subject {
+        return Err(Error::LimitExceeded);
+    }
+
+    let timestamp = env.ledger().timestamp();
+    let attestation_id = Attestation::generate_id(env, &delegator, &subject, &claim_type, timestamp);
+    if Storage::has_attestation(env, &attestation_id) {
+        return Err(Error::DuplicateAttestation);
+    }
+
+    let attestation = Attestation {
+        id: attestation_id.clone(),
+        issuer: delegator.clone(),
+        subject,
+        claim_type,
+        timestamp,
+        expiration,
+        revoked: false,
+        deleted: false,
+        metadata,
+        jurisdiction: None,
+        valid_from: None,
+        origin: AttestationOrigin::Native,
+        source_chain: None,
+        source_tx: None,
+        tags: None,
+        revocation_reason: None,
+    };
+
+    store_attestation(env, &attestation);
+    Storage::append_audit_entry(
+        env,
+        &attestation_id,
+        &AuditEntry {
+            action: AuditAction::Created,
+            actor: delegate.clone(),
+            timestamp,
+            details: None,
+        },
+    );
+    Events::attestation_created(env, &attestation);
+    Ok(attestation_id)
+}
