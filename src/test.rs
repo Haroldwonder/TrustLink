@@ -2765,6 +2765,23 @@ mod request_tests {
         let pending = client.get_pending_requests(&issuer, &0, &10);
         assert_eq!(pending.len(), 0);
     }
+
+    #[test]
+    fn test_reject_fulfilled_request_rejected() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, issuer, subject, client) = setup(&env);
+
+        let claim = String::from_str(&env, "KYC");
+        let req_id = client.request_attestation(&subject, &issuer, &claim);
+        
+        // Fulfill the request first
+        client.fulfill_request(&issuer, &req_id, &None);
+
+        // Attempt to reject the already-fulfilled request
+        let result = client.try_reject_request(&issuer, &req_id, &None);
+        assert_eq!(result, Err(Ok(Error::RequestAlreadyProcessed)));
+    }
 }
 
 // ============================================================================
