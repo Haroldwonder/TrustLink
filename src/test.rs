@@ -4514,3 +4514,115 @@ mod admin_council_tests {
         assert_eq!(result, Err(Ok(Error::Unauthorized)));
     }
 }
+
+// =============================================================================
+// Claim Type Registry Pagination Tests
+// =============================================================================
+#[cfg(test)]
+mod claim_type_pagination_tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, Env, String};
+
+    fn setup(env: &Env) -> (Address, TrustLinkContractClient<'_>) {
+        let contract_id = env.register_contract(None, TrustLinkContract);
+        let client = TrustLinkContractClient::new(env, &contract_id);
+        let admin = Address::generate(env);
+        client.initialize(&admin, &None);
+        (admin, client)
+    }
+
+    fn register(client: &TrustLinkContractClient<'_>, env: &Env, admin: &Address, id: &str) {
+        client.register_claim_type(
+            admin,
+            &String::from_str(env, id),
+            &String::from_str(env, "desc"),
+        );
+    }
+
+    /// Empty registry → empty list.
+    #[test]
+    fn test_empty_registry_returns_empty() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, client) = setup(&env);
+
+        let result = client.list_claim_types(&0, &10);
+        assert_eq!(result.len(), 0);
+    }
+
+    /// Exactly one page worth of items → all returned in order.
+    #[test]
+    fn test_exactly_one_page_returns_all_items() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, client) = setup(&env);
+
+        register(&client, &env, &admin, "KYC");
+        register(&client, &env, &admin, "AML");
+        register(&client, &env, &admin, "AGE");
+
+        let result = client.list_claim_types(&0, &3);
+        assert_eq!(result.len(), 3);
+        assert_eq!(result.get(0).unwrap(), String::from_str(&env, "KYC"));
+        assert_eq!(result.get(1).unwrap(), String::from_str(&env, "AML"));
+        assert_eq!(result.get(2).unwrap(), String::from_str(&env, "AGE"));
+    }
+
+    /// Multiple pages → correct items per page.
+    #[test]
+    fn test_multiple_pages_correct_items_per_page() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, client) = setup(&env);
+
+        register(&client, &env, &admin, "T1");
+        register(&client, &env, &admin, "T2");
+        register(&client, &env, &admin, "T3");
+        register(&client, &env, &admin, "T4");
+        register(&client, &env, &admin, "T5");
+
+        // Page 0: items 0-1
+        let page0 = client.list_claim_types(&0, &2);
+        assert_eq!(page0.len(), 2);
+        assert_eq!(page0.get(0).unwrap(), String::from_str(&env, "T1"));
+        assert_eq!(page0.get(1).unwrap(), String::from_str(&env, "T2"));
+
+        // Page 1: items 2-3
+        let page1 = client.list_claim_types(&2, &2);
+        assert_eq!(page1.len(), 2);
+        assert_eq!(page1.get(0).unwrap(), String::from_str(&env, "T3"));
+        assert_eq!(page1.get(1).unwrap(), String::from_str(&env, "T4"));
+
+        // Page 2: item 4 (partial page)
+        let page2 = client.list_claim_types(&4, &2);
+        assert_eq!(page2.len(), 1);
+        assert_eq!(page2.get(0).unwrap(), String::from_str(&env, "T5"));
+    }
+
+    /// Start beyond total count → empty list.
+    #[test]
+    fn test_start_beyond_total_returns_empty() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, client) = setup(&env);
+
+        register(&client, &env, &admin, "KYC");
+        register(&client, &env, &admin, "AML");
+
+        let result = client.list_claim_types(&10, &5);
+        assert_eq!(result.len(), 0);
+    }
+
+    /// Limit zero → empty list.
+    #[test]
+    fn test_limit_zero_returns_empty() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, client) = setup(&env);
+
+        register(&client, &env, &admin, "KYC");
+
+        let result = client.list_claim_types(&0, &0);
+        assert_eq!(result.len(), 0);
+    }
+}
