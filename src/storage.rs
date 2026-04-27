@@ -4,10 +4,10 @@
 
 use crate::constants::{DAY_IN_LEDGERS, DEFAULT_INSTANCE_LIFETIME};
 use crate::types::{
-    AdminCouncil, Attestation, AttestationRequest, AttestationTemplate, AuditEntry, ClaimTypeInfo,
-    CouncilProposal, Delegation, Endorsement, Error, ExpirationHook, FeeConfig, GlobalStats,
-    IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, PendingAdminTransfer,
-    RateLimitConfig, StorageLimits, TtlConfig,
+    AdminCouncil, Attestation, AttestationRequest, AuditEntry, ClaimTypeInfo,
+    Error, ExpirationHook, FeeConfig, GlobalStats, IssuerMetadata, IssuerStats,
+    IssuerTier, MultiSigProposal, PendingAdminTransfer, RateLimitConfig, StorageLimits, TtlConfig,
+    CouncilProposal,
 };
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
@@ -91,6 +91,7 @@ impl Storage {
     }
 
     pub fn set_admin(env: &Env, admin: &Address) {
+        let _ttl = get_ttl_lifetime(env);
         let mut council = Vec::new(env);
         council.push_back(admin.clone());
         Self::set_admin_council(env, &council);
