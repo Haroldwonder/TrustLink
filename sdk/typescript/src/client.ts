@@ -31,6 +31,13 @@ import type {
   TrustLinkClientOptions,
 } from "./types";
 
+import {
+  CircuitBreaker,
+  withRetry,
+  type RetryOptions,
+  type CircuitBreakerOptions,
+} from "./resilience";
+
 const RPC_URLS: Record<string, string> = {
   testnet: "https://soroban-testnet.stellar.org",
   mainnet: "https://mainnet.stellar.validationcloud.io/v1/XCSmR1nSS3we7PCXV4oMiA",
@@ -55,6 +62,8 @@ export class TrustLinkClient {
   private readonly contract: Contract;
   private readonly networkPassphrase: string;
   private readonly rpcUrl: string;
+  private readonly retryOptions: RetryOptions;
+  private readonly breaker: CircuitBreaker;
 
   constructor(options: TrustLinkClientOptions) {
     const { contractId, network, rpcUrl } = options;
@@ -68,6 +77,8 @@ export class TrustLinkClient {
 
     this.server = new SorobanRpc.Server(this.rpcUrl, { allowHttp: true });
     this.contract = new Contract(contractId);
+    this.retryOptions = options.retry ?? {};
+    this.breaker = new CircuitBreaker(options.circuitBreaker ?? {});
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
@@ -75,31 +86,34 @@ export class TrustLinkClient {
   /**
    * Simulate a read-only contract call and return the decoded result.
    * Uses a throwaway source account (the zero address) since no auth is needed.
+   * Retries with exponential backoff and respects the circuit breaker.
    */
   private async simulate<T>(method: string, ...args: xdr.ScVal[]): Promise<T> {
-    const dummySource = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
-    const account = new Account(dummySource, "0");
+    return withRetry(async () => {
+      const dummySource = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
+      const account = new Account(dummySource, "0");
 
-    const tx = new TransactionBuilder(account, {
-      fee: BASE_FEE,
-      networkPassphrase: this.networkPassphrase,
-    })
-      .addOperation(this.contract.call(method, ...args))
-      .setTimeout(30)
-      .build();
+      const tx = new TransactionBuilder(account, {
+        fee: BASE_FEE,
+        networkPassphrase: this.networkPassphrase,
+      })
+        .addOperation(this.contract.call(method, ...args))
+        .setTimeout(30)
+        .build();
 
-    const result = await this.server.simulateTransaction(tx);
+      const result = await this.server.simulateTransaction(tx);
 
-    if (SorobanRpc.Api.isSimulationError(result)) {
-      throw new Error(`Contract simulation failed: ${result.error}`);
-    }
+      if (SorobanRpc.Api.isSimulationError(result)) {
+        throw new Error(`Contract simulation failed: ${result.error}`);
+      }
 
-    const simSuccess = result as SorobanRpc.Api.SimulateTransactionSuccessResponse;
-    if (!simSuccess.result) {
-      throw new Error(`No result returned from simulation of ${method}`);
-    }
+      const simSuccess = result as SorobanRpc.Api.SimulateTransactionSuccessResponse;
+      if (!simSuccess.result) {
+        throw new Error(`No result returned from simulation of ${method}`);
+      }
 
-    return scValToNative(simSuccess.result.retval) as T;
+      return scValToNative(simSuccess.result.retval) as T;
+    }, this.retryOptions, this.breaker);
   }
 
   private addr(address: string): xdr.ScVal {

@@ -162,4 +162,8 @@ export interface TrustLinkClientOptions {
   network: Network | string;
   /** Optional: override the default RPC URL for the chosen network. */
   rpcUrl?: string;
+  /** Optional: retry configuration for RPC calls. */
+  retry?: import("./resilience").RetryOptions;
+  /** Optional: circuit breaker configuration. */
+  circuitBreaker?: import("./resilience").CircuitBreakerOptions;
 }

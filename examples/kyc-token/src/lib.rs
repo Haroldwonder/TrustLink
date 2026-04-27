@@ -50,7 +50,7 @@ impl KycTokenContract {
             panic!("kyc required for sender and receiver");
         }
 
-        token::StellarAssetClient::new(&env, &env.current_contract_address()).transfer(
+        token::TokenClient::new(&env, &env.current_contract_address()).transfer(
             &from,
             &to,
             &amount,
@@ -162,5 +162,67 @@ mod test {
         let stellar = token::StellarAssetClient::new(&env, &token_id);
         assert_eq!(stellar.balance(&from), 750);
         assert_eq!(stellar.balance(&to), 250);
+    }
+
+    #[test]
+    fn transfer_blocked_when_sender_lacks_kyc() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let trustlink_id = env.register(MockTrustLink, ());
+        let token_id = env.register(KycTokenContract, ());
+        let token_client = KycTokenContractClient::new(&env, &token_id);
+        let trustlink = MockTrustLinkClient::new(&env, &trustlink_id);
+
+        token_client.initialize(&admin, &trustlink_id);
+
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        // Find sender without KYC and recipient with KYC
+        let mut sender = Address::generate(&env);
+        let mut recipient = Address::generate(&env);
+        for _ in 0..200 {
+            if !trustlink.has_valid_claim(&sender, &claim) && trustlink.has_valid_claim(&recipient, &claim) {
+                break;
+            }
+            sender = Address::generate(&env);
+            recipient = Address::generate(&env);
+        }
+
+        token_client.mint(&sender, &1000);
+        let result = token_client.try_transfer(&sender, &recipient, &100);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn transfer_blocked_when_recipient_lacks_kyc() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let trustlink_id = env.register(MockTrustLink, ());
+        let token_id = env.register(KycTokenContract, ());
+        let token_client = KycTokenContractClient::new(&env, &token_id);
+        let trustlink = MockTrustLinkClient::new(&env, &trustlink_id);
+
+        token_client.initialize(&admin, &trustlink_id);
+
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        // Find sender with KYC and recipient without KYC
+        let mut sender = Address::generate(&env);
+        let mut recipient = Address::generate(&env);
+        for _ in 0..200 {
+            if trustlink.has_valid_claim(&sender, &claim) && !trustlink.has_valid_claim(&recipient, &claim) {
+                break;
+            }
+            sender = Address::generate(&env);
+            recipient = Address::generate(&env);
+        }
+
+        token_client.mint(&sender, &1000);
+        let result = token_client.try_transfer(&sender, &recipient, &100);
+        assert!(result.is_err());
     }
 }
