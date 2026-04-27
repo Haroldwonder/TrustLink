@@ -17,3 +17,6 @@ Thumbs.db
 
 # Soroban
 .soroban/
+
+# Kiro
+.kiro
