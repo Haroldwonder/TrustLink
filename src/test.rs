@@ -4905,3 +4905,136 @@ mod issuer_tier_tests {
         assert_eq!(client.get_issuer_tier(&issuer), Some(types::IssuerTier::Basic));
     }
 }
+
+// Issue #325 — GDPR soft-delete: deleted attestations must be excluded from all queries
+#[cfg(test)]
+mod gdpr_deletion_tests {
+    use super::*;
+
+    fn setup(env: &Env) -> (Address, Address, Address, TrustLinkContractClient<'_>) {
+        let (_, client) = create_test_contract(env);
+        let admin = Address::generate(env);
+        let issuer = Address::generate(env);
+        let subject = Address::generate(env);
+        client.initialize(&admin, &None);
+        client.register_issuer(&admin, &issuer);
+        (admin, issuer, subject, client)
+    }
+
+    fn create_and_delete(
+        env: &Env,
+        client: &TrustLinkContractClient,
+        issuer: &Address,
+        subject: &Address,
+    ) -> String {
+        let claim = String::from_str(env, "KYC_PASSED");
+        let id = client.create_attestation(issuer, subject, &claim, &None, &None, &None);
+        client.request_deletion(subject, &id);
+        id
+    }
+
+    #[test]
+    fn deleted_excluded_from_get_subject_attestations() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, issuer, subject, client) = setup(&env);
+
+        create_and_delete(&env, &client, &issuer, &subject);
+
+        let ids = client.get_subject_attestations(&subject, &0, &10);
+        assert_eq!(ids.len(), 0);
+    }
+
+    #[test]
+    fn deleted_excluded_from_has_valid_claim() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, issuer, subject, client) = setup(&env);
+
+        create_and_delete(&env, &client, &issuer, &subject);
+
+        assert!(!client.has_valid_claim(&subject, &String::from_str(&env, "KYC_PASSED")));
+    }
+
+    #[test]
+    fn deleted_returns_not_found_from_get_attestation_status() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, issuer, subject, client) = setup(&env);
+
+        let id = create_and_delete(&env, &client, &issuer, &subject);
+
+        let result = client.try_get_attestation_status(&id);
+        assert_eq!(result, Err(Ok(Error::NotFound)));
+    }
+
+    #[test]
+    fn deleted_excluded_from_get_valid_claim_count() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, issuer, subject, client) = setup(&env);
+
+        create_and_delete(&env, &client, &issuer, &subject);
+
+        assert_eq!(client.get_valid_claim_count(&subject), 0);
+    }
+
+    #[test]
+    fn deleted_excluded_from_date_range_search() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, issuer, subject, client) = setup(&env);
+
+        let ts = env.ledger().timestamp();
+        create_and_delete(&env, &client, &issuer, &subject);
+
+        let results = client.get_attestations_in_range(&subject, &ts, &(ts + 1000), &0, &10);
+        assert_eq!(results.len(), 0);
+    }
+
+    #[test]
+    fn non_deleted_attestation_still_visible_after_sibling_deleted() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, issuer, subject, client) = setup(&env);
+
+        // Create two attestations; delete only the first.
+        let claim_a = String::from_str(&env, "KYC_PASSED");
+        let claim_b = String::from_str(&env, "AML_CLEARED");
+        let id_a = client.create_attestation(&issuer, &subject, &claim_a, &None, &None, &None);
+        client.create_attestation(&issuer, &subject, &claim_b, &None, &None, &None);
+        client.request_deletion(&subject, &id_a);
+
+        let ids = client.get_subject_attestations(&subject, &0, &10);
+        assert_eq!(ids.len(), 1);
+        assert!(!client.has_valid_claim(&subject, &claim_a));
+        assert!(client.has_valid_claim(&subject, &claim_b));
+        assert_eq!(client.get_valid_claim_count(&subject), 1);
+    }
+
+    #[test]
+    fn get_attestation_returns_not_found_for_deleted() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, issuer, subject, client) = setup(&env);
+
+        let id = create_and_delete(&env, &client, &issuer, &subject);
+
+        let result = client.try_get_attestation(&id);
+        assert_eq!(result, Err(Ok(Error::NotFound)));
+    }
+
+    #[test]
+    fn only_subject_can_request_deletion() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, issuer, subject, client) = setup(&env);
+
+        let claim = String::from_str(&env, "KYC_PASSED");
+        let id = client.create_attestation(&issuer, &subject, &claim, &None, &None, &None);
+
+        let other = Address::generate(&env);
+        let result = client.try_request_deletion(&other, &id);
+        assert_eq!(result, Err(Ok(Error::Unauthorized)));
+    }
+}
