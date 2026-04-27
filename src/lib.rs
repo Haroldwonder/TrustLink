@@ -1144,13 +1144,14 @@ impl TrustLinkContract {
         let mut filtered_ids = Vec::new(&env);
         for id in attestation_ids.iter() {
             if let Ok(attestation) = Storage::get_attestation(&env, &id) {
+                // Timestamp boundaries are inclusive: from_ts <= timestamp <= to_ts
                 if !attestation.deleted && attestation.timestamp >= from_ts && attestation.timestamp <= to_ts {
                     filtered_ids.push_back(id);
                 }
             }
         }
 
-        let paginated_ids = crate::storage::paginate(&env, &filtered_ids, start, limit);
+        let paginated_ids = crate::storage::paginate(&env, &filtered, start, limit);
         let mut result = Vec::new(&env);
         for id in paginated_ids.iter() {
             if let Ok(attestation) = Storage::get_attestation(&env, &id) {
