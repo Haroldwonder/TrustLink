@@ -350,6 +350,22 @@ pub fn delegate_claim_type(
     Ok(())
 }
 
+pub fn revoke_delegation(
+    env: &Env,
+    issuer: Address,
+    delegate: Address,
+    claim_type: String,
+) -> Result<(), Error> {
+    issuer.require_auth();
+    Validation::require_issuer(env, &issuer)?;
+    if Storage::get_delegation(env, &issuer, &delegate, &claim_type).is_none() {
+        return Err(Error::NotFound);
+    }
+    Storage::remove_delegation(env, &issuer, &delegate, &claim_type);
+    Events::delegation_revoked(env, &issuer, &delegate, &claim_type);
+    Ok(())
+}
+
 // -----------------------------------------------------------------------
 // Expiration hooks
 // -----------------------------------------------------------------------

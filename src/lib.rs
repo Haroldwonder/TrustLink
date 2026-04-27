@@ -236,6 +236,10 @@ impl TrustLinkContract {
         admin::delegate_claim_type(&env, issuer, delegate, claim_type, expiration)
     }
 
+    pub fn revoke_delegation(env: Env, issuer: Address, delegate: Address, claim_type: String) -> Result<(), Error> {
+        admin::revoke_delegation(&env, issuer, delegate, claim_type)
+    }
+
     // -----------------------------------------------------------------------
     // Expiration hooks
     // -----------------------------------------------------------------------
@@ -359,6 +363,18 @@ impl TrustLinkContract {
     #[must_use]
     pub fn get_endorsement_count(env: Env, attestation_id: String) -> u32 {
         attestation::get_endorsement_count(&env, attestation_id)
+    }
+
+    pub fn create_attestation_as_delegate(
+        env: Env,
+        delegate: Address,
+        delegator: Address,
+        subject: Address,
+        claim_type: String,
+        expiration: Option<u64>,
+        metadata: Option<String>,
+    ) -> Result<String, Error> {
+        attestation::create_attestation_as_delegate(&env, delegate, delegator, subject, claim_type, expiration, metadata)
     }
 
     // -----------------------------------------------------------------------

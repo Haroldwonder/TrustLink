@@ -643,6 +643,26 @@ impl Storage {
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 
+    pub fn get_delegation(
+        env: &Env,
+        delegator: &Address,
+        delegate: &Address,
+        claim_type: &String,
+    ) -> Option<crate::types::Delegation> {
+        let key = StorageKey::Delegation(delegator.clone(), delegate.clone(), claim_type.clone());
+        env.storage().persistent().get(&key)
+    }
+
+    pub fn remove_delegation(
+        env: &Env,
+        delegator: &Address,
+        delegate: &Address,
+        claim_type: &String,
+    ) {
+        let key = StorageKey::Delegation(delegator.clone(), delegate.clone(), claim_type.clone());
+        env.storage().persistent().remove(&key);
+    }
+
     // ── Multisig TTL ──────────────────────────────────────────────────────────
 
     pub fn get_multisig_ttl_days(env: &Env) -> u32 {

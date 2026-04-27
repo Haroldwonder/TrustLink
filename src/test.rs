@@ -6515,3 +6515,101 @@ mod gdpr_deletion_tests {
         assert_eq!(result, Err(Ok(Error::Unauthorized)));
     }
 }
+
+// Issue #325 — Delegation lifecycle tests
+#[cfg(test)]
+mod delegation_tests {
+    use super::*;
+
+    fn setup(env: &Env) -> (Address, Address, Address, Address, TrustLinkContractClient<'_>) {
+        let (_, client) = create_test_contract(env);
+        let admin = Address::generate(env);
+        let issuer = Address::generate(env);
+        let delegate = Address::generate(env);
+        let subject = Address::generate(env);
+        client.initialize(&admin, &None);
+        client.register_issuer(&admin, &issuer);
+        (admin, issuer, delegate, subject, client)
+    }
+
+    #[test]
+    fn delegate_can_create_attestation_on_behalf_of_delegator() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, issuer, delegate, subject, client) = setup(&env);
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        client.delegate_claim_type(&issuer, &delegate, &claim, &None);
+        let id = client.create_attestation_as_delegate(&delegate, &issuer, &subject, &claim, &None, &None);
+
+        // Attestation is stored under the delegator (issuer) as the issuer field.
+        let att = client.get_attestation(&id);
+        assert_eq!(att.issuer, issuer);
+        assert!(client.has_valid_claim(&subject, &claim));
+    }
+
+    #[test]
+    fn expired_delegation_rejects_delegate() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, issuer, delegate, subject, client) = setup(&env);
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        let exp = env.ledger().timestamp() + 100;
+        client.delegate_claim_type(&issuer, &delegate, &claim, &Some(exp));
+
+        // Advance time past expiration.
+        env.ledger().with_mut(|l| l.timestamp += 101);
+
+        let result = client.try_create_attestation_as_delegate(&delegate, &issuer, &subject, &claim, &None, &None);
+        assert_eq!(result, Err(Ok(Error::Unauthorized)));
+    }
+
+    #[test]
+    fn revoked_delegation_rejects_delegate() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, issuer, delegate, subject, client) = setup(&env);
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        client.delegate_claim_type(&issuer, &delegate, &claim, &None);
+        client.revoke_delegation(&issuer, &delegate, &claim);
+
+        let result = client.try_create_attestation_as_delegate(&delegate, &issuer, &subject, &claim, &None, &None);
+        assert_eq!(result, Err(Ok(Error::Unauthorized)));
+    }
+
+    #[test]
+    fn cannot_delegate_to_self() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, issuer, _, _, client) = setup(&env);
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        let result = client.try_delegate_claim_type(&issuer, &issuer, &claim, &None);
+        assert_eq!(result, Err(Ok(Error::CannotDelegateToSelf)));
+    }
+
+    #[test]
+    fn revoke_nonexistent_delegation_returns_not_found() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, issuer, delegate, _, client) = setup(&env);
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        let result = client.try_revoke_delegation(&issuer, &delegate, &claim);
+        assert_eq!(result, Err(Ok(Error::NotFound)));
+    }
+
+    #[test]
+    fn delegate_without_grant_is_rejected() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, issuer, delegate, subject, client) = setup(&env);
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        // No delegate_claim_type call — should be rejected.
+        let result = client.try_create_attestation_as_delegate(&delegate, &issuer, &subject, &claim, &None, &None);
+        assert_eq!(result, Err(Ok(Error::Unauthorized)));
+    }
+}
