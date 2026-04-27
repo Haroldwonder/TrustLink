@@ -3,7 +3,6 @@ use soroban_sdk::{symbol_short, Address, Env, String, Symbol};
 use crate::types::{Attestation, IssuerTier};
 
 const TOPIC_ADMIN_INIT: Symbol = symbol_short!("adm_init");
-const TOPIC_ADM_INIT: Symbol = symbol_short!("adm_init");
 const TOPIC_CREATED: Symbol = symbol_short!("created");
 const TOPIC_IMPORTED: Symbol = symbol_short!("imported");
 const TOPIC_BRIDGED: Symbol = symbol_short!("bridged");
@@ -16,7 +15,6 @@ const TOPIC_ISS_REG: Symbol = symbol_short!("iss_reg");
 const TOPIC_ISS_REM: Symbol = symbol_short!("iss_rem");
 const TOPIC_ISS_TIER: Symbol = symbol_short!("iss_tier");
 const TOPIC_CLM_TYPE: Symbol = symbol_short!("clm_type");
-const TOPIC_CLMTYPE: Symbol = symbol_short!("clm_type");
 const TOPIC_MS_PROP: Symbol = symbol_short!("ms_prop");
 const TOPIC_MS_SIGN: Symbol = symbol_short!("ms_sign");
 const TOPIC_MS_ACTV: Symbol = symbol_short!("ms_actv");
@@ -25,13 +23,11 @@ const TOPIC_ADM_ADD: Symbol = symbol_short!("adm_add");
 const TOPIC_ADM_REM: Symbol = symbol_short!("adm_rem");
 const TOPIC_ENDORSED: Symbol = symbol_short!("endorsed");
 const TOPIC_EXP_HOOK: Symbol = symbol_short!("exp_hook");
-const TOPIC_PAUSED: Symbol = symbol_short!("paused");
-const TOPIC_UNPAUSED: Symbol = symbol_short!("unpaused");
+
 const TOPIC_REQ: Symbol = symbol_short!("att_req");
 const TOPIC_REQ_OK: Symbol = symbol_short!("req_ok");
 const TOPIC_REQ_NO: Symbol = symbol_short!("req_no");
-const TOPIC_DEL_CRTD: Symbol = symbol_short!("del_crtd");
-const TOPIC_DEL_RVKD: Symbol = symbol_short!("del_rvkd");
+
 const TOPIC_WL_ADD: Symbol = symbol_short!("wl_add");
 const TOPIC_WL_REM: Symbol = symbol_short!("wl_rem");
 const TOPIC_WL_ON: Symbol = symbol_short!("wl_on");
@@ -401,6 +397,14 @@ impl Events {
     pub fn whitelist_updated(env: &Env, issuer: &Address, subject: &Address, added: bool) {
         let sym = if added { TOPIC_WL_ADD } else { TOPIC_WL_REM };
         env.events().publish((sym, issuer.clone()), subject.clone());
+    }
+
+    /// Emitted when an issuer creates or overwrites a template.
+    pub fn template_created(env: &Env, issuer: &Address, template_id: &String) {
+        env.events().publish(
+            (symbol_short!("tmpl_crt"), issuer.clone()),
+            template_id.clone(),
+        );
     }
 
     pub fn council_initialized(env: &Env, quorum: u32, member_count: u32) {
