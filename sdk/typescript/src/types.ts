@@ -16,6 +16,7 @@ export interface Attestation {
   source_chain: string | null;
   source_tx: string | null;
   tags: string[] | null;
+  jurisdiction: string | null;
   revocation_reason: string | null;
   deleted: boolean;
 }
@@ -46,12 +47,15 @@ export interface TtlConfig {
   ttl_days: number;
 }
 
+export interface StorageLimits {
+  max_attestations_per_issuer: number;
+  max_attestations_per_subject: number;
+}
+
 export interface ContractConfig {
   ttl_config: TtlConfig;
+  limits: StorageLimits;
   fee_config: FeeConfig;
-  contract_name: string;
-  contract_version: string;
-  contract_description: string;
 }
 
 export interface ContractMetadata {
@@ -97,7 +101,7 @@ export interface Endorsement {
   timestamp: bigint;
 }
 
-export type AuditAction = "Created" | "Revoked" | "Renewed" | "Updated";
+export type AuditAction = "Created" | "Revoked" | "Renewed" | "Updated" | "Transferred";
 
 export interface AuditEntry {
   action: AuditAction;
