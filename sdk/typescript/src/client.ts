@@ -30,6 +30,7 @@ import type {
   Network,
   TrustLinkClientOptions,
 } from "./types";
+import { parseTrustLinkError } from "./types";
 
 import {
   CircuitBreaker,
@@ -104,6 +105,8 @@ export class TrustLinkClient {
       const result = await this.server.simulateTransaction(tx);
 
       if (SorobanRpc.Api.isSimulationError(result)) {
+        const typed = parseTrustLinkError(result.error);
+        if (typed) throw typed;
         throw new Error(`Contract simulation failed: ${result.error}`);
       }
 
