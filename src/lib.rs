@@ -803,83 +803,6 @@ impl TrustLinkContract {
         Ok(attestation_id)
     }
 
-    pub fn create_attestations_batch(
-        env: Env,
-        issuer: Address,
-        subjects: Vec<Address>,
-        claim_type: String,
-        expiration: Option<u64>,
-    ) -> Result<Vec<String>, Error> {
-        issuer.require_auth();
-        Validation::require_issuer(&env, &issuer)?;
-        Validation::require_not_paused(&env)?;
-        validate_claim_type(&claim_type)?;
-        validate_native_expiration(&env, expiration)?;
-        check_rate_limit(&env, &issuer)?;
-
-        let timestamp = env.ledger().timestamp();
-
-        // Enforce issuer-level limit up front for the whole batch
-        let limits = Storage::get_limits(&env);
-        let issuer_count = Storage::get_issuer_attestations(&env, &issuer).len();
-        if issuer_count.saturating_add(subjects.len()) > limits.max_attestations_per_issuer {
-            return Err(Error::LimitExceeded);
-        }
-
-        let mut ids: Vec<String> = Vec::new(&env);
-
-        for subject in subjects.iter() {
-            let attestation_id =
-                Attestation::generate_id(&env, &issuer, &subject, &claim_type, timestamp);
-
-            if Storage::has_attestation(&env, &attestation_id) {
-                return Err(Error::DuplicateAttestation);
-            }
-
-            // Per-subject limit check
-            let subject_count = Storage::get_subject_attestations(&env, &subject).len();
-            if subject_count >= limits.max_attestations_per_subject {
-                return Err(Error::LimitExceeded);
-            }
-
-            let attestation = Attestation {
-                id: attestation_id.clone(),
-                issuer: issuer.clone(),
-                subject: subject.clone(),
-                claim_type: claim_type.clone(),
-                timestamp,
-                expiration,
-                revoked: false,
-                deleted: false,
-                metadata: None,
-                jurisdiction: None,
-                valid_from: None,
-                origin: AttestationOrigin::Native,
-                source_chain: None,
-                source_tx: None,
-                tags: None,
-                revocation_reason: None,
-                            };
-
-            store_attestation(&env, &attestation);
-            Events::attestation_created(&env, &attestation);
-            Storage::append_audit_entry(
-                &env,
-                &attestation_id,
-                &AuditEntry {
-                    action: AuditAction::Created,
-                    actor: issuer.clone(),
-                    timestamp,
-                    details: None,
-                },
-            );
-            ids.push_back(attestation_id);
-        }
-
-        Storage::set_last_issuance_time(&env, &issuer, timestamp);
-        Ok(ids)
-    }
-
     /// Revoke an attestation.
     ///
     /// SECURITY (FINDING-002): `require_issuer` ensures the caller is a
@@ -2107,5 +2030,122 @@ impl TrustLinkContract {
 
         Events::attestation_transferred(&env, &attestation_id, &old_issuer, &new_issuer);
         Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Attestation Templates
+    // -----------------------------------------------------------------------
+
+    /// Create or overwrite a named attestation template for the calling issuer.
+    ///
+    /// Templates capture default values for `claim_type`, optional expiration
+    /// window, and optional metadata. They can be instantiated later via
+    /// [`create_attestation_from_template`].
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — `issuer` is not a registered issuer.
+    /// - [`Error::InvalidClaimType`] — `claim_type` is empty or invalid.
+    /// - [`Error::MetadataTooLong`] — `metadata_template` exceeds 256 bytes.
+    pub fn create_template(
+        env: Env,
+        issuer: Address,
+        template_id: String,
+        template: AttestationTemplate,
+    ) -> Result<(), Error> {
+        issuer.require_auth();
+        Validation::require_issuer(&env, &issuer)?;
+        Validation::validate_claim_type(&template.claim_type)?;
+        validate_metadata(&env, &template.metadata_template)?;
+
+        Storage::set_template(&env, &issuer, &template_id, &template);
+        Storage::add_to_template_registry(&env, &issuer, &template_id);
+        Events::template_created(&env, &issuer, &template_id);
+        Ok(())
+    }
+
+    /// Instantiate an attestation from a template, with optional field overrides.
+    ///
+    /// Loads the template for `(issuer, template_id)`, resolves the final
+    /// expiration and metadata (override wins over template default), then
+    /// creates and stores the attestation using the same logic as
+    /// [`create_attestation`].
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — `issuer` is not a registered issuer.
+    /// - [`Error::NotFound`] — `template_id` does not exist for this issuer.
+    /// - [`Error::MetadataTooLong`] — `metadata_override` exceeds 256 bytes.
+    /// - [`Error::InvalidExpiration`] — `expiration_override` ≤ current ledger timestamp.
+    pub fn create_attestation_from_template(
+        env: Env,
+        issuer: Address,
+        template_id: String,
+        subject: Address,
+        expiration_override: Option<u64>,
+        metadata_override: Option<String>,
+    ) -> Result<String, Error> {
+        issuer.require_auth();
+        Validation::require_issuer(&env, &issuer)?;
+
+        let template = Storage::get_template(&env, &issuer, &template_id)
+            .ok_or(Error::NotFound)?;
+
+        // Validate overrides before resolving.
+        validate_metadata(&env, &metadata_override)?;
+
+        let current_time = env.ledger().timestamp();
+        if let Some(ts) = expiration_override {
+            if ts <= current_time {
+                return Err(Error::InvalidExpiration);
+            }
+        }
+
+        // Resolve final expiration: override > template default > None.
+        let expiration = if let Some(ts) = expiration_override {
+            Some(ts)
+        } else if let Some(days) = template.default_expiration_days {
+            Some(current_time + (days as u64) * crate::constants::SECS_PER_DAY)
+        } else {
+            None
+        };
+
+        // Resolve final metadata: override > template default.
+        let metadata = if metadata_override.is_some() {
+            metadata_override
+        } else {
+            template.metadata_template.clone()
+        };
+
+        // Delegate to the shared internal creation path.
+        Self::create_attestation_internal(
+            &env,
+            issuer,
+            subject,
+            template.claim_type,
+            expiration,
+            metadata,
+            None,
+            None,
+        )
+    }
+
+    /// Return the ordered list of template IDs registered for `issuer`.
+    ///
+    /// Returns an empty `Vec` if the issuer has no templates. IDs are in
+    /// insertion order (first-created first).
+    #[must_use]
+    pub fn list_templates(env: Env, issuer: Address) -> Vec<String> {
+        Storage::get_template_registry(&env, &issuer)
+    }
+
+    /// Retrieve a single template by issuer and template ID.
+    ///
+    /// # Errors
+    /// - [`Error::NotFound`] — `template_id` does not exist for this issuer.
+    pub fn get_template(
+        env: Env,
+        issuer: Address,
+        template_id: String,
+    ) -> Result<AttestationTemplate, Error> {
+        Storage::get_template(&env, &issuer, &template_id).ok_or(Error::NotFound)
     }
 }

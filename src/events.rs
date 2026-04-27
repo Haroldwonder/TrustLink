@@ -403,6 +403,14 @@ impl Events {
         env.events().publish((sym, issuer.clone()), subject.clone());
     }
 
+    /// Emitted when an issuer creates or overwrites a template.
+    pub fn template_created(env: &Env, issuer: &Address, template_id: &String) {
+        env.events().publish(
+            (symbol_short!("tmpl_crt"), issuer.clone()),
+            template_id.clone(),
+        );
+    }
+
     pub fn council_initialized(env: &Env, quorum: u32, member_count: u32) {
         env.events().publish(
             (symbol_short!("cncl_ini"),),

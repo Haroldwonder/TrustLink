@@ -4626,3 +4626,448 @@ mod claim_type_pagination_tests {
         assert_eq!(result.len(), 0);
     }
 }
+
+// ── Attestation Template tests ───────────────────────────────────────────────
+
+#[test]
+fn test_create_template_and_get() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+
+    let template = types::AttestationTemplate {
+        claim_type: String::from_str(&env, "KYC"),
+        default_expiration_days: Some(30),
+        metadata_template: Some(String::from_str(&env, "default-meta")),
+    };
+
+    client.create_template(&issuer, &String::from_str(&env, "tmpl1"), &template);
+
+    let retrieved = client.get_template(&issuer, &String::from_str(&env, "tmpl1")).unwrap();
+    assert_eq!(retrieved.claim_type, template.claim_type);
+    assert_eq!(retrieved.default_expiration_days, template.default_expiration_days);
+    assert_eq!(retrieved.metadata_template, template.metadata_template);
+}
+
+#[test]
+fn test_create_template_overwrite() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+
+    let t1 = types::AttestationTemplate {
+        claim_type: String::from_str(&env, "KYC"),
+        default_expiration_days: Some(10),
+        metadata_template: None,
+    };
+    let t2 = types::AttestationTemplate {
+        claim_type: String::from_str(&env, "AML"),
+        default_expiration_days: Some(60),
+        metadata_template: Some(String::from_str(&env, "updated")),
+    };
+    let id = String::from_str(&env, "tmpl1");
+
+    client.create_template(&issuer, &id, &t1);
+    client.create_template(&issuer, &id, &t2);
+
+    let retrieved = client.get_template(&issuer, &id).unwrap();
+    assert_eq!(retrieved.claim_type, t2.claim_type);
+    assert_eq!(retrieved.default_expiration_days, t2.default_expiration_days);
+}
+
+#[test]
+fn test_create_template_empty_claim_type_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+
+    let template = types::AttestationTemplate {
+        claim_type: String::from_str(&env, ""),
+        default_expiration_days: None,
+        metadata_template: None,
+    };
+
+    let result = client.try_create_template(&issuer, &String::from_str(&env, "t1"), &template);
+    assert_eq!(result, Err(Ok(Error::InvalidClaimType)));
+}
+
+#[test]
+fn test_create_template_metadata_too_long_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+
+    // 257-byte metadata string
+    let long_meta = "a".repeat(257);
+    let template = types::AttestationTemplate {
+        claim_type: String::from_str(&env, "KYC"),
+        default_expiration_days: None,
+        metadata_template: Some(String::from_str(&env, &long_meta)),
+    };
+
+    let result = client.try_create_template(&issuer, &String::from_str(&env, "t1"), &template);
+    assert_eq!(result, Err(Ok(Error::MetadataTooLong)));
+}
+
+#[test]
+fn test_create_template_non_issuer_unauthorized() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, _, client) = setup(&env);
+
+    let non_issuer = Address::generate(&env);
+    let template = types::AttestationTemplate {
+        claim_type: String::from_str(&env, "KYC"),
+        default_expiration_days: None,
+        metadata_template: None,
+    };
+
+    let result = client.try_create_template(&non_issuer, &String::from_str(&env, "t1"), &template);
+    assert_eq!(result, Err(Ok(Error::Unauthorized)));
+}
+
+#[test]
+fn test_list_templates_insertion_order_no_duplicates() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+
+    let make_tmpl = |ct: &str| types::AttestationTemplate {
+        claim_type: String::from_str(&env, ct),
+        default_expiration_days: None,
+        metadata_template: None,
+    };
+
+    let id_a = String::from_str(&env, "alpha");
+    let id_b = String::from_str(&env, "beta");
+    let id_c = String::from_str(&env, "gamma");
+
+    client.create_template(&issuer, &id_a, &make_tmpl("KYC"));
+    client.create_template(&issuer, &id_b, &make_tmpl("AML"));
+    client.create_template(&issuer, &id_c, &make_tmpl("KYC"));
+    // Overwrite alpha — should NOT add a duplicate
+    client.create_template(&issuer, &id_a, &make_tmpl("AML"));
+
+    let list = client.list_templates(&issuer);
+    assert_eq!(list.len(), 3);
+    assert_eq!(list.get(0).unwrap(), id_a);
+    assert_eq!(list.get(1).unwrap(), id_b);
+    assert_eq!(list.get(2).unwrap(), id_c);
+}
+
+#[test]
+fn test_list_templates_empty_for_new_issuer() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+
+    let list = client.list_templates(&issuer);
+    assert_eq!(list.len(), 0);
+}
+
+#[test]
+fn test_get_template_not_found() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+
+    let result = client.try_get_template(&issuer, &String::from_str(&env, "nonexistent"));
+    assert_eq!(result, Err(Ok(Error::NotFound)));
+}
+
+#[test]
+fn test_create_attestation_from_template_happy_path() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+
+    let now = 1_000_000u64;
+    env.ledger().set_timestamp(now);
+
+    let template = types::AttestationTemplate {
+        claim_type: String::from_str(&env, "KYC"),
+        default_expiration_days: Some(10),
+        metadata_template: Some(String::from_str(&env, "tmpl-meta")),
+    };
+    let tmpl_id = String::from_str(&env, "kyc_tmpl");
+    client.create_template(&issuer, &tmpl_id, &template);
+
+    let subject = Address::generate(&env);
+    let att_id = client
+        .create_attestation_from_template(&issuer, &tmpl_id, &subject, &None, &None)
+        .unwrap();
+
+    let att = client.get_attestation(&att_id).unwrap();
+    assert_eq!(att.claim_type, String::from_str(&env, "KYC"));
+    assert_eq!(att.metadata, Some(String::from_str(&env, "tmpl-meta")));
+    // expiration = now + 10 * 86400
+    assert_eq!(att.expiration, Some(now + 10 * 86_400));
+}
+
+#[test]
+fn test_create_attestation_from_template_no_expiration() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+
+    env.ledger().set_timestamp(1_000_000u64);
+
+    let template = types::AttestationTemplate {
+        claim_type: String::from_str(&env, "KYC"),
+        default_expiration_days: None,
+        metadata_template: None,
+    };
+    let tmpl_id = String::from_str(&env, "t1");
+    client.create_template(&issuer, &tmpl_id, &template);
+
+    let subject = Address::generate(&env);
+    let att_id = client
+        .create_attestation_from_template(&issuer, &tmpl_id, &subject, &None, &None)
+        .unwrap();
+
+    let att = client.get_attestation(&att_id).unwrap();
+    assert_eq!(att.expiration, None);
+}
+
+#[test]
+fn test_create_attestation_from_template_with_overrides() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+
+    let now = 1_000_000u64;
+    env.ledger().set_timestamp(now);
+
+    let template = types::AttestationTemplate {
+        claim_type: String::from_str(&env, "KYC"),
+        default_expiration_days: Some(10),
+        metadata_template: Some(String::from_str(&env, "default-meta")),
+    };
+    let tmpl_id = String::from_str(&env, "t1");
+    client.create_template(&issuer, &tmpl_id, &template);
+
+    let subject = Address::generate(&env);
+    let override_exp = now + 999_999;
+    let override_meta = String::from_str(&env, "override-meta");
+
+    let att_id = client
+        .create_attestation_from_template(
+            &issuer,
+            &tmpl_id,
+            &subject,
+            &Some(override_exp),
+            &Some(override_meta.clone()),
+        )
+        .unwrap();
+
+    let att = client.get_attestation(&att_id).unwrap();
+    assert_eq!(att.expiration, Some(override_exp));
+    assert_eq!(att.metadata, Some(override_meta));
+}
+
+#[test]
+fn test_create_attestation_from_template_not_found() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+
+    env.ledger().set_timestamp(1_000_000u64);
+    let subject = Address::generate(&env);
+
+    let result = client.try_create_attestation_from_template(
+        &issuer,
+        &String::from_str(&env, "missing"),
+        &subject,
+        &None,
+        &None,
+    );
+    assert_eq!(result, Err(Ok(Error::NotFound)));
+}
+
+#[test]
+fn test_create_attestation_from_template_stale_expiration() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+
+    let now = 1_000_000u64;
+    env.ledger().set_timestamp(now);
+
+    let template = types::AttestationTemplate {
+        claim_type: String::from_str(&env, "KYC"),
+        default_expiration_days: None,
+        metadata_template: None,
+    };
+    let tmpl_id = String::from_str(&env, "t1");
+    client.create_template(&issuer, &tmpl_id, &template);
+
+    let subject = Address::generate(&env);
+    // expiration_override <= current timestamp → InvalidExpiration
+    let result = client.try_create_attestation_from_template(
+        &issuer,
+        &tmpl_id,
+        &subject,
+        &Some(now),
+        &None,
+    );
+    assert_eq!(result, Err(Ok(Error::InvalidExpiration)));
+}
+
+#[test]
+fn test_create_attestation_from_template_metadata_override_too_long() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+
+    env.ledger().set_timestamp(1_000_000u64);
+
+    let template = types::AttestationTemplate {
+        claim_type: String::from_str(&env, "KYC"),
+        default_expiration_days: None,
+        metadata_template: None,
+    };
+    let tmpl_id = String::from_str(&env, "t1");
+    client.create_template(&issuer, &tmpl_id, &template);
+
+    let subject = Address::generate(&env);
+    let long_meta = "x".repeat(257);
+    let result = client.try_create_attestation_from_template(
+        &issuer,
+        &tmpl_id,
+        &subject,
+        &None,
+        &Some(String::from_str(&env, &long_meta)),
+    );
+    assert_eq!(result, Err(Ok(Error::MetadataTooLong)));
+}
+
+#[test]
+fn test_template_storage_isolation_across_issuers() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer_a, client) = setup(&env);
+
+    let issuer_b = Address::generate(&env);
+    client.register_issuer(&admin, &issuer_b);
+
+    let tmpl_id = String::from_str(&env, "shared_id");
+
+    let tmpl_a = types::AttestationTemplate {
+        claim_type: String::from_str(&env, "KYC"),
+        default_expiration_days: Some(10),
+        metadata_template: None,
+    };
+    let tmpl_b = types::AttestationTemplate {
+        claim_type: String::from_str(&env, "AML"),
+        default_expiration_days: Some(30),
+        metadata_template: Some(String::from_str(&env, "b-meta")),
+    };
+
+    client.create_template(&issuer_a, &tmpl_id, &tmpl_a);
+    client.create_template(&issuer_b, &tmpl_id, &tmpl_b);
+
+    let got_a = client.get_template(&issuer_a, &tmpl_id).unwrap();
+    let got_b = client.get_template(&issuer_b, &tmpl_id).unwrap();
+
+    assert_eq!(got_a.claim_type, String::from_str(&env, "KYC"));
+    assert_eq!(got_b.claim_type, String::from_str(&env, "AML"));
+    assert_ne!(got_a.claim_type, got_b.claim_type);
+}
+
+#[test]
+fn test_create_template_emits_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+
+    let template = types::AttestationTemplate {
+        claim_type: String::from_str(&env, "KYC"),
+        default_expiration_days: None,
+        metadata_template: None,
+    };
+    let tmpl_id = String::from_str(&env, "t1");
+    client.create_template(&issuer, &tmpl_id, &template);
+
+    let events = env.events().all();
+    let mut found = false;
+    for (_, topics, data) in events.iter() {
+        let topic0: soroban_sdk::Symbol =
+            soroban_sdk::TryFromVal::try_from_val(&env, &topics.get(0).unwrap()).unwrap();
+        if topic0 == soroban_sdk::symbol_short!("tmpl_crt") {
+            let event_data: String =
+                soroban_sdk::TryFromVal::try_from_val(&env, &data).unwrap();
+            assert_eq!(event_data, tmpl_id);
+            found = true;
+            break;
+        }
+    }
+    assert!(found, "template_created event not found");
+}
+
+#[test]
+fn test_create_attestation_from_template_emits_attestation_created_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+
+    env.ledger().set_timestamp(1_000_000u64);
+
+    let template = types::AttestationTemplate {
+        claim_type: String::from_str(&env, "KYC"),
+        default_expiration_days: None,
+        metadata_template: None,
+    };
+    let tmpl_id = String::from_str(&env, "t1");
+    client.create_template(&issuer, &tmpl_id, &template);
+
+    let subject = Address::generate(&env);
+    client
+        .create_attestation_from_template(&issuer, &tmpl_id, &subject, &None, &None)
+        .unwrap();
+
+    let events = env.events().all();
+    let mut found = false;
+    for (_, topics, _) in events.iter() {
+        let topic0: soroban_sdk::Symbol =
+            soroban_sdk::TryFromVal::try_from_val(&env, &topics.get(0).unwrap()).unwrap();
+        if topic0 == soroban_sdk::symbol_short!("att_crt") {
+            found = true;
+            break;
+        }
+    }
+    assert!(found, "attestation_created event not found after create_attestation_from_template");
+}
+
+#[test]
+fn test_create_attestation_from_template_indexed_like_regular() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+
+    env.ledger().set_timestamp(1_000_000u64);
+
+    let template = types::AttestationTemplate {
+        claim_type: String::from_str(&env, "KYC"),
+        default_expiration_days: None,
+        metadata_template: None,
+    };
+    let tmpl_id = String::from_str(&env, "t1");
+    client.create_template(&issuer, &tmpl_id, &template);
+
+    let subject = Address::generate(&env);
+    let att_id = client
+        .create_attestation_from_template(&issuer, &tmpl_id, &subject, &None, &None)
+        .unwrap();
+
+    // Must be retrievable by ID
+    let att = client.get_attestation(&att_id).unwrap();
+    assert_eq!(att.id, att_id);
+
+    // Must appear in subject index
+    let subject_atts = client.get_subject_attestations(&subject, &0, &10);
+    assert!(subject_atts.contains(&att_id));
+
+    // Must appear in issuer index
+    let issuer_atts = client.get_issuer_attestations(&issuer, &0, &10);
+    assert!(issuer_atts.contains(&att_id));
+}
