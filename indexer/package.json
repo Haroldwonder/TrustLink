@@ -14,7 +14,7 @@
     "@graphql-tools/schema": "^10.0.31",
     "@prisma/client": "^5.14.0",
     "@stellar/stellar-sdk": "^14.0.0",
-    "fastify": "^4.28.1",
+    "fastify": "^5.8.5",
     "graphql": "^16.13.2",
     "graphql-subscriptions": "^3.0.0",
     "graphql-ws": "^6.0.7",
