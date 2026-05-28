@@ -60,8 +60,10 @@ pub enum StorageKey {
     AttestationTemplate(Address, String),
     AttestationTemplateList(Address),
     Delegation(Address, Address, String),
-    /// Ordered list of all registered issuer addresses.
-    IssuerList,
+    /// Ordered list of all registered bridge contract addresses.
+    BridgeList,
+    /// Per-claim-type rate limit override (claim_type -> min_issuance_interval).
+    ClaimTypeRateLimit(String),
 }
 
 fn get_ttl_lifetime(env: &Env) -> u32 {
@@ -561,6 +563,22 @@ impl Storage {
     pub fn set_rate_limit_config(env: &Env, config: &RateLimitConfig) {
         let ttl = get_ttl_lifetime(env);
         env.storage().instance().set(&StorageKey::RateLimitConfig, config);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    /// Get the per-claim-type rate limit override for a claim type, or None if not set.
+    pub fn get_claim_type_rate_limit(env: &Env, claim_type: &String) -> Option<u64> {
+        env.storage()
+            .instance()
+            .get(&StorageKey::ClaimTypeRateLimit(claim_type.clone()))
+    }
+
+    /// Set a per-claim-type rate limit override.
+    pub fn set_claim_type_rate_limit(env: &Env, claim_type: &String, interval_secs: u64) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage()
+            .instance()
+            .set(&StorageKey::ClaimTypeRateLimit(claim_type.clone()), &interval_secs);
         env.storage().instance().extend_ttl(ttl, ttl);
     }
 

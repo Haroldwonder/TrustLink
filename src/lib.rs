@@ -198,6 +198,25 @@ impl TrustLinkContract {
         admin::get_rate_limit(&env)
     }
 
+    /// Set a per-claim-type rate limit override.
+    ///
+    /// When set, this overrides the global rate limit for the specified claim type.
+    /// If not set, the global rate limit applies.
+    pub fn set_rate_limit_for_claim_type(
+        env: Env,
+        admin: Address,
+        claim_type: String,
+        interval_secs: u64,
+    ) -> Result<(), Error> {
+        admin::set_rate_limit_for_claim_type(&env, admin, claim_type, interval_secs)
+    }
+
+    /// Get the per-claim-type rate limit override for a claim type, or None if not set.
+    #[must_use]
+    pub fn get_rate_limit_for_claim_type(env: Env, claim_type: String) -> Option<u64> {
+        admin::get_rate_limit_for_claim_type(&env, claim_type)
+    }
+
     // -----------------------------------------------------------------------
     // Pause / unpause
     // -----------------------------------------------------------------------

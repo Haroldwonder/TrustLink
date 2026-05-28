@@ -77,9 +77,18 @@ pub fn validate_tags(tags: &Option<Vec<String>>) -> Result<(), Error> {
 
 pub fn validate_jurisdiction(env: &Env, jurisdiction: &Option<String>) -> Result<(), Error> {
     if let Some(code) = jurisdiction {
+        // Must be exactly 2 characters
         if code.len() != 2 {
             return Err(Error::InvalidJurisdiction);
         }
+        
+        // Must be exactly 2 uppercase ASCII letters (A-Z)
+        let bytes = code.as_bytes();
+        if bytes.len() != 2 || !bytes.iter().all(|&b| b >= b'A' && b <= b'Z') {
+            return Err(Error::InvalidJurisdiction);
+        }
+        
+        // Must be a valid ISO 3166-1 alpha-2 code
         let valid_codes = [
             "AF","AX","AL","DZ","AS","AD","AO","AI","AQ","AG","AR","AM","AW","AU","AT","AZ",
             "BS","BH","BD","BB","BY","BE","BZ","BJ","BM","BT","BO","BQ","BA","BW","BV","BR",
@@ -112,16 +121,24 @@ pub fn validate_jurisdiction(env: &Env, jurisdiction: &Option<String>) -> Result
     Ok(())
 }
 
-pub fn check_rate_limit(env: &Env, issuer: &Address) -> Result<(), Error> {
-    if let Some(config) = Storage::get_rate_limit_config(env) {
-        if config.min_issuance_interval == 0 {
-            return Ok(());
-        }
-        let current_time = env.ledger().timestamp();
-        if let Some(last) = Storage::get_last_issuance_time(env, issuer) {
-            if current_time.saturating_sub(last) < config.min_issuance_interval {
-                return Err(Error::RateLimited);
-            }
+pub fn check_rate_limit(env: &Env, issuer: &Address, claim_type: &String) -> Result<(), Error> {
+    // Check per-claim-type rate limit first (if set), otherwise fall back to global
+    let interval = if let Some(claim_limit) = Storage::get_claim_type_rate_limit(env, claim_type) {
+        claim_limit
+    } else if let Some(config) = Storage::get_rate_limit_config(env) {
+        config.min_issuance_interval
+    } else {
+        return Ok(());
+    };
+
+    if interval == 0 {
+        return Ok(());
+    }
+
+    let current_time = env.ledger().timestamp();
+    if let Some(last) = Storage::get_last_issuance_time(env, issuer) {
+        if current_time.saturating_sub(last) < interval {
+            return Err(Error::RateLimited);
         }
     }
     Ok(())
@@ -208,7 +225,7 @@ pub fn create_attestation_internal(
         return Err(Error::SubjectNotWhitelisted);
     }
 
-    check_rate_limit(env, &issuer)?;
+    check_rate_limit(env, &issuer, &claim_type)?;
 
     let limits = Storage::get_limits(env);
     let issuer_count = Storage::get_issuer_attestations(env, &issuer).len();
@@ -420,7 +437,7 @@ pub fn create_attestations_batch(
     Validation::require_not_paused(env)?;
     Validation::validate_claim_type(&claim_type)?;
     validate_native_expiration(env, expiration)?;
-    check_rate_limit(env, &issuer)?;
+    check_rate_limit(env, &issuer, &claim_type)?;
 
     let timestamp = env.ledger().timestamp();
     let limits = Storage::get_limits(env);

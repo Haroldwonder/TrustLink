@@ -273,6 +273,31 @@ pub fn get_rate_limit(env: &Env) -> Option<RateLimitConfig> {
     Storage::get_rate_limit_config(env)
 }
 
+/// Set a per-claim-type rate limit override.
+///
+/// When set, this overrides the global rate limit for the specified claim type.
+/// If not set, the global rate limit applies.
+///
+/// # Errors
+/// - [`Error::Unauthorized`] — caller is not an admin.
+pub fn set_rate_limit_for_claim_type(
+    env: &Env,
+    admin: Address,
+    claim_type: String,
+    interval_secs: u64,
+) -> Result<(), Error> {
+    admin.require_auth();
+    Validation::require_admin(env, &admin)?;
+    Validation::validate_claim_type(&claim_type)?;
+    Storage::set_claim_type_rate_limit(env, &claim_type, interval_secs);
+    Ok(())
+}
+
+/// Get the per-claim-type rate limit override for a claim type, or None if not set.
+pub fn get_rate_limit_for_claim_type(env: &Env, claim_type: String) -> Option<u64> {
+    Storage::get_claim_type_rate_limit(env, &claim_type)
+}
+
 // -----------------------------------------------------------------------
 // Pause / unpause
 // -----------------------------------------------------------------------
