@@ -115,16 +115,17 @@ pub fn get_attestation_status(env: &Env, attestation_id: String) -> Result<Attes
 }
 
 pub fn get_subject_attestations(env: &Env, subject: Address, start: u32, limit: u32) -> Vec<String> {
-    let ids = Storage::get_subject_attestations(env, &subject);
-    let mut filtered = Vec::new(env);
+    // Use the chunked index: loads only the chunks that overlap [start, start+limit).
+    let ids = crate::storage::ChunkedIndex::get_subject_page(env, &subject, start, limit);
+    let mut result = Vec::new(env);
     for id in ids.iter() {
         if let Ok(a) = Storage::get_attestation(env, &id) {
             if !a.deleted {
-                filtered.push_back(id);
+                result.push_back(id);
             }
         }
     }
-    crate::storage::paginate(env, &filtered, start, limit)
+    result
 }
 
 /// Search the subject's attestations between `from_ts` and `to_ts`, excluding deleted records.
@@ -284,16 +285,17 @@ pub fn get_attestations_by_jurisdiction(
 }
 
 pub fn get_issuer_attestations(env: &Env, issuer: Address, start: u32, limit: u32) -> Vec<String> {
-    let ids = Storage::get_issuer_attestations(env, &issuer);
-    let mut filtered = Vec::new(env);
+    // Use the chunked index: loads only the chunks that overlap [start, start+limit).
+    let ids = crate::storage::ChunkedIndex::get_issuer_page(env, &issuer, start, limit);
+    let mut result = Vec::new(env);
     for id in ids.iter() {
         if let Ok(a) = Storage::get_attestation(env, &id) {
             if !a.deleted {
-                filtered.push_back(id);
+                result.push_back(id);
             }
         }
     }
-    crate::storage::paginate(env, &filtered, start, limit)
+    result
 }
 
 pub fn get_issuer_attestation_count(env: &Env, issuer: Address) -> u32 {
@@ -343,7 +345,7 @@ pub fn get_attestation_by_type(env: &Env, subject: Address, claim_type: String) 
 }
 
 pub fn get_subject_attestation_count(env: &Env, subject: Address) -> u32 {
-    Storage::get_subject_attestations(env, &subject).len()
+    crate::storage::ChunkedIndex::subject_count(env, &subject)
 }
 
 pub fn get_valid_claim_count(env: &Env, subject: Address) -> u32 {

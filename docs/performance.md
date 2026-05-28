@@ -143,6 +143,88 @@ in transaction fees (network-dependent).
 
 ---
 
+## Lazy / Chunked Index Loading
+
+### Research Findings: Soroban Storage Model
+
+Soroban's persistent storage is a key-value store where each entry is a single
+opaque blob. **There is no native support for partial reads** — every `get` call
+deserialises the entire value regardless of how much of it is actually needed.
+This means a `Vec<String>` index with 10,000 entries is fully loaded into the
+WASM heap on every query, even when only 10 items are needed.
+
+Key constraints confirmed from the Soroban SDK and XDR spec:
+
+| Constraint | Detail |
+|-----------|--------|
+| No partial entry reads | `env.storage().persistent().get(key)` always returns the full value |
+| No server-side filtering | Filtering/slicing must happen in WASM after the full load |
+| Max entry size | ~64 KB (XDR limit per ledger entry) |
+| Entry granularity | Each distinct key is a separate ledger entry with its own read fee |
+| Read fee | Charged per entry accessed, not per byte read |
+
+**Conclusion:** True lazy loading (reading a slice of a Vec without loading the
+whole entry) is not possible in Soroban. The only way to achieve partial loading
+is to split the index across multiple ledger entries — one entry per chunk.
+
+### Chunked Index Implementation
+
+The chunked index splits each `Vec<String>` index into fixed-size ledger entries
+of `CHUNK_SIZE = 50` IDs each. A separate count entry tracks the total.
+
+**Storage layout:**
+
+```
+SubjectAttestationsChunk(addr, 0)  → Vec<String>  IDs [0..49]
+SubjectAttestationsChunk(addr, 1)  → Vec<String>  IDs [50..99]
+SubjectAttestationsChunk(addr, 2)  → Vec<String>  IDs [100..149]
+SubjectAttestationsCount(addr)     → u32          total = 150
+
+IssuerAttestationsChunk(addr, 0)   → Vec<String>
+IssuerAttestationsChunk(addr, 1)   → Vec<String>
+IssuerAttestationsCount(addr)      → u32
+```
+
+**Query cost — before vs after:**
+
+| Index size | Page size | Chunks loaded (before) | Chunks loaded (after) | Data read reduction |
+|-----------|-----------|----------------------|----------------------|-------------------|
+| 100 IDs | 10 | 1 (full flat Vec) | 1 | ~0% (already 1 entry) |
+| 1,000 IDs | 10 | 1 (full flat Vec ~64 KB) | 1 (one chunk ~3.2 KB) | ~95% |
+| 10,000 IDs | 10 | 1 (full flat Vec, hits size limit) | 1 (one chunk ~3.2 KB) | ~99% |
+| 10,000 IDs | 100 | 1 (full flat Vec) | 2–3 chunks | ~97% |
+
+For a 10-item page against a 10,000-item index, the chunked approach reads
+`ceil(10/50) + 1 = 2` chunks (~6.4 KB) instead of the entire flat Vec.
+
+**Write cost — append:**
+
+| Operation | Before | After |
+|-----------|--------|-------|
+| `add_subject` | 1 read + 1 write (full Vec) | 1 read + 1 write (one chunk) |
+| `add_issuer_bulk(N)` | 1 read + 1 write (full Vec) | `ceil(N/50)` reads + writes |
+| `remove_subject/issuer` | 1 read + 1 write (full Vec) | 1–2 reads + 1–2 writes (swap-with-last) |
+
+The remove operation uses a **swap-with-last** strategy: the target ID is
+replaced with the last ID in the index, then the last slot is popped. This
+avoids shifting the entire Vec and keeps the remove cost O(chunks_scanned)
+rather than O(total_ids).
+
+**Chunk size rationale:**
+
+Each attestation ID is a 64-byte hex string. XDR overhead adds ~8 bytes per
+entry in a Vec. One chunk of 50 IDs ≈ 50 × 72 = 3,600 bytes — well within the
+64 KB entry limit and small enough that even a cross-chunk page boundary only
+loads 2 chunks.
+
+### Running the Tests
+
+```bash
+cargo test chunked_index -- --nocapture
+```
+
+---
+
 ## Batch Attestation Storage Write Optimisation
 
 ### Problem (before)

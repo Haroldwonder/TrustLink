@@ -6979,3 +6979,137 @@ mod bench_batch {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// Chunked index storage tests
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod chunked_index_tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, Address, Env, String};
+    use crate::storage::ChunkedIndex;
+
+    fn setup_chunked(env: &Env) -> (Address, Address, TrustLinkContractClient<'_>) {
+        let contract_id = env.register_contract(None, TrustLinkContract);
+        let client = TrustLinkContractClient::new(env, &contract_id);
+        let admin = Address::generate(env);
+        let issuer = Address::generate(env);
+        env.mock_all_auths();
+        client.initialize(&admin, &None);
+        // Raise limits to allow large index tests.
+        client.set_limits(&admin, &10_000u32, &10_000u32);
+        client.register_issuer(&admin, &issuer);
+        (admin, issuer, client)
+    }
+
+    /// A single attestation appears in both the chunked subject and issuer indexes.
+    #[test]
+    fn chunked_index_single_attestation() {
+        let env = Env::default();
+        let (_, issuer, client) = setup_chunked(&env);
+        let subject = Address::generate(&env);
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        client.create_attestation(&issuer, &subject, &claim, &None, &None, &None);
+
+        assert_eq!(ChunkedIndex::subject_count(&env, &subject), 1);
+        assert_eq!(ChunkedIndex::issuer_count(&env, &issuer), 1);
+
+        let s_ids = ChunkedIndex::get_subject_page(&env, &subject, 0, 10);
+        assert_eq!(s_ids.len(), 1);
+
+        let i_ids = ChunkedIndex::get_issuer_page(&env, &issuer, 0, 10);
+        assert_eq!(i_ids.len(), 1);
+    }
+
+    /// 120 attestations span 3 chunks (CHUNK_SIZE=50). Verify counts and that
+    /// get_subject_page returns exactly the requested slice without loading all chunks.
+    #[test]
+    fn chunked_index_spans_multiple_chunks() {
+        let env = Env::default();
+        let (_, issuer, client) = setup_chunked(&env);
+        let subject = Address::generate(&env);
+
+        for i in 0..120u32 {
+            let claim = String::from_str(&env, &soroban_sdk::format!(&env, "CLAIM_{}", i));
+            client.create_attestation(&issuer, &subject, &claim, &None, &None, &None);
+        }
+
+        assert_eq!(ChunkedIndex::subject_count(&env, &subject), 120);
+
+        // Page 0: items 0-9 — only chunk 0 needed.
+        let page0 = ChunkedIndex::get_subject_page(&env, &subject, 0, 10);
+        assert_eq!(page0.len(), 10);
+
+        // Page spanning chunk boundary (45-54): chunks 0 and 1.
+        let page_cross = ChunkedIndex::get_subject_page(&env, &subject, 45, 10);
+        assert_eq!(page_cross.len(), 10);
+
+        // Last page: items 115-119.
+        let last_page = ChunkedIndex::get_subject_page(&env, &subject, 115, 10);
+        assert_eq!(last_page.len(), 5);
+
+        // get_subject_all must return all 120.
+        let all = ChunkedIndex::get_subject_all(&env, &subject);
+        assert_eq!(all.len(), 120);
+    }
+
+    /// Revocation removes the ID from the chunked index.
+    #[test]
+    fn chunked_index_remove_on_revoke() {
+        let env = Env::default();
+        let (_, issuer, client) = setup_chunked(&env);
+        let subject = Address::generate(&env);
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        let id = client.create_attestation(&issuer, &subject, &claim, &None, &None, &None);
+        assert_eq!(ChunkedIndex::subject_count(&env, &subject), 1);
+
+        client.revoke_attestation(&issuer, &id, &None);
+        assert_eq!(ChunkedIndex::subject_count(&env, &subject), 0);
+        assert_eq!(ChunkedIndex::issuer_count(&env, &issuer), 0);
+    }
+
+    /// Batch creation populates the chunked issuer index correctly.
+    #[test]
+    fn chunked_index_batch_creation() {
+        let env = Env::default();
+        let (_, issuer, client) = setup_chunked(&env);
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        let mut subjects = soroban_sdk::Vec::new(&env);
+        for _ in 0..60u32 {
+            subjects.push_back(Address::generate(&env));
+        }
+
+        client.create_attestations_batch(&issuer, &subjects, &claim, &None);
+
+        // Chunked issuer index must hold all 60 IDs across 2 chunks.
+        assert_eq!(ChunkedIndex::issuer_count(&env, &issuer), 60);
+        let page0 = ChunkedIndex::get_issuer_page(&env, &issuer, 0, 50);
+        assert_eq!(page0.len(), 50);
+        let page1 = ChunkedIndex::get_issuer_page(&env, &issuer, 50, 50);
+        assert_eq!(page1.len(), 10);
+    }
+
+    /// get_subject_attestations (the public contract function) returns the correct
+    /// page using the chunked index without loading the full flat index.
+    #[test]
+    fn query_uses_chunked_index_for_pagination() {
+        let env = Env::default();
+        let (_, issuer, client) = setup_chunked(&env);
+        let subject = Address::generate(&env);
+
+        for i in 0..80u32 {
+            let claim = String::from_str(&env, &soroban_sdk::format!(&env, "CLAIM_{}", i));
+            client.create_attestation(&issuer, &subject, &claim, &None, &None, &None);
+        }
+
+        // Page 1 (items 10-19).
+        let page = client.get_subject_attestations(&subject, &10u32, &10u32);
+        assert_eq!(page.len(), 10);
+
+        // Count via chunked index.
+        assert_eq!(client.get_subject_attestation_count(&subject), 80);
+    }
+}

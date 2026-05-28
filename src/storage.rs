@@ -60,6 +60,14 @@ pub enum StorageKey {
     AttestationTemplate(Address, String),
     AttestationTemplateList(Address),
     Delegation(Address, Address, String),
+    /// Chunked subject index: (subject, chunk_index) → Vec<String> of up to CHUNK_SIZE IDs.
+    SubjectAttestationsChunk(Address, u32),
+    /// Total number of IDs stored across all subject chunks.
+    SubjectAttestationsCount(Address),
+    /// Chunked issuer index: (issuer, chunk_index) → Vec<String> of up to CHUNK_SIZE IDs.
+    IssuerAttestationsChunk(Address, u32),
+    /// Total number of IDs stored across all issuer chunks.
+    IssuerAttestationsCount(Address),
 }
 
 fn get_ttl_lifetime(env: &Env) -> u32 {
@@ -774,4 +782,478 @@ pub fn paginate(env: &Env, list: &Vec<String>, start: u32, limit: u32) -> Vec<St
         }
     }
     result
+}
+
+// =============================================================================
+// Chunked index storage
+//
+// Soroban's storage model does not support partial/lazy reads of a single
+// ledger entry — every `get` deserialises the entire value. Splitting a large
+// Vec<String> index across multiple fixed-size ledger entries (chunks) means
+// that a paginated query only needs to load the specific chunk(s) that overlap
+// the requested page, rather than the entire index.
+//
+// Layout
+// ------
+//   SubjectAttestationsChunk(addr, 0)  → Vec<String>  (IDs 0..CHUNK_SIZE-1)
+//   SubjectAttestationsChunk(addr, 1)  → Vec<String>  (IDs CHUNK_SIZE..2*CHUNK_SIZE-1)
+//   SubjectAttestationsCount(addr)     → u32          (total IDs across all chunks)
+//
+//   IssuerAttestationsChunk(addr, 0)   → Vec<String>
+//   IssuerAttestationsChunk(addr, 1)   → Vec<String>
+//   IssuerAttestationsCount(addr)      → u32
+//
+// Chunk size is 50 IDs. Each ID is a 64-byte hex string (~64 bytes XDR).
+// One chunk ≈ 50 × 64 = 3,200 bytes — well within the 64 KB entry limit.
+//
+// Query cost
+// ----------
+// To serve page (start, limit) the caller loads at most
+//   ceil(limit / CHUNK_SIZE) + 1  chunks
+// instead of the entire index. For a 10-item page against a 10,000-item index
+// this reduces the data read from ~640 KB to ~6.4 KB (~100× improvement).
+// =============================================================================
+
+/// Number of attestation IDs stored per index chunk.
+pub const CHUNK_SIZE: u32 = 50;
+
+pub struct ChunkedIndex;
+
+impl ChunkedIndex {
+    // ── Subject index ─────────────────────────────────────────────────────────
+
+    fn subject_count_key(subject: &Address) -> StorageKey {
+        StorageKey::SubjectAttestationsCount(subject.clone())
+    }
+
+    fn subject_chunk_key(subject: &Address, chunk: u32) -> StorageKey {
+        StorageKey::SubjectAttestationsChunk(subject.clone(), chunk)
+    }
+
+    /// Total number of IDs in the subject's chunked index.
+    pub fn subject_count(env: &Env, subject: &Address) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&Self::subject_count_key(subject))
+            .unwrap_or(0u32)
+    }
+
+    /// Append one ID to the subject's chunked index.
+    pub fn add_subject(env: &Env, subject: &Address, id: &String) {
+        let ttl = get_ttl_lifetime(env);
+        let count = Self::subject_count(env, subject);
+        let chunk_idx = count / CHUNK_SIZE;
+        let chunk_key = Self::subject_chunk_key(subject, chunk_idx);
+
+        let mut chunk: Vec<String> = env
+            .storage()
+            .persistent()
+            .get(&chunk_key)
+            .unwrap_or(Vec::new(env));
+        chunk.push_back(id.clone());
+        env.storage().persistent().set(&chunk_key, &chunk);
+        env.storage().persistent().extend_ttl(&chunk_key, ttl, ttl);
+
+        let new_count = count + 1;
+        let count_key = Self::subject_count_key(subject);
+        env.storage().persistent().set(&count_key, &new_count);
+        env.storage().persistent().extend_ttl(&count_key, ttl, ttl);
+    }
+
+    /// Remove one ID from the subject's chunked index.
+    ///
+    /// Finds the ID by scanning from the last chunk backwards, swaps it with
+    /// the last element (to avoid shifting), and decrements the count.
+    pub fn remove_subject(env: &Env, subject: &Address, id: &String) {
+        let ttl = get_ttl_lifetime(env);
+        let count = Self::subject_count(env, subject);
+        if count == 0 {
+            return;
+        }
+
+        // Scan chunks from last to first to find the target ID.
+        let total_chunks = (count + CHUNK_SIZE - 1) / CHUNK_SIZE;
+        let mut found_chunk_idx: Option<u32> = None;
+        let mut found_pos: Option<u32> = None;
+
+        'outer: for ci in (0..total_chunks).rev() {
+            let chunk_key = Self::subject_chunk_key(subject, ci);
+            let chunk: Vec<String> = env
+                .storage()
+                .persistent()
+                .get(&chunk_key)
+                .unwrap_or(Vec::new(env));
+            for (pos, entry) in chunk.iter().enumerate() {
+                if &entry == id {
+                    found_chunk_idx = Some(ci);
+                    found_pos = Some(pos as u32);
+                    break 'outer;
+                }
+            }
+        }
+
+        let (target_chunk, target_pos) = match (found_chunk_idx, found_pos) {
+            (Some(c), Some(p)) => (c, p),
+            _ => return, // ID not found — nothing to do.
+        };
+
+        // Determine the last element's location.
+        let last_idx = count - 1;
+        let last_chunk_idx = last_idx / CHUNK_SIZE;
+        let last_pos = last_idx % CHUNK_SIZE;
+
+        if target_chunk == last_chunk_idx && target_pos == last_pos {
+            // Target IS the last element — just pop it.
+            let chunk_key = Self::subject_chunk_key(subject, target_chunk);
+            let mut chunk: Vec<String> = env
+                .storage()
+                .persistent()
+                .get(&chunk_key)
+                .unwrap_or(Vec::new(env));
+            let mut new_chunk = Vec::new(env);
+            for (i, v) in chunk.iter().enumerate() {
+                if i as u32 != target_pos {
+                    new_chunk.push_back(v);
+                }
+            }
+            env.storage().persistent().set(&chunk_key, &new_chunk);
+            env.storage().persistent().extend_ttl(&chunk_key, ttl, ttl);
+        } else {
+            // Swap target with last element, then pop last.
+            let last_chunk_key = Self::subject_chunk_key(subject, last_chunk_idx);
+            let mut last_chunk: Vec<String> = env
+                .storage()
+                .persistent()
+                .get(&last_chunk_key)
+                .unwrap_or(Vec::new(env));
+            let last_val = match last_chunk.get(last_pos) {
+                Some(v) => v,
+                None => return,
+            };
+
+            // Write last_val into target position.
+            let target_chunk_key = Self::subject_chunk_key(subject, target_chunk);
+            let mut target_c: Vec<String> = env
+                .storage()
+                .persistent()
+                .get(&target_chunk_key)
+                .unwrap_or(Vec::new(env));
+            let mut new_target = Vec::new(env);
+            for (i, v) in target_c.iter().enumerate() {
+                if i as u32 == target_pos {
+                    new_target.push_back(last_val.clone());
+                } else {
+                    new_target.push_back(v);
+                }
+            }
+            env.storage().persistent().set(&target_chunk_key, &new_target);
+            env.storage().persistent().extend_ttl(&target_chunk_key, ttl, ttl);
+
+            // Pop last element from last chunk.
+            let mut new_last = Vec::new(env);
+            for (i, v) in last_chunk.iter().enumerate() {
+                if i as u32 != last_pos {
+                    new_last.push_back(v);
+                }
+            }
+            env.storage().persistent().set(&last_chunk_key, &new_last);
+            env.storage().persistent().extend_ttl(&last_chunk_key, ttl, ttl);
+        }
+
+        // Decrement count.
+        let count_key = Self::subject_count_key(subject);
+        let new_count = count - 1;
+        env.storage().persistent().set(&count_key, &new_count);
+        env.storage().persistent().extend_ttl(&count_key, ttl, ttl);
+    }
+
+    /// Load only the chunks needed to serve page (start, limit).
+    ///
+    /// Returns a flat Vec<String> of IDs from position `start` up to
+    /// `start + limit`, loading at most `ceil(limit / CHUNK_SIZE) + 1` chunks.
+    pub fn get_subject_page(env: &Env, subject: &Address, start: u32, limit: u32) -> Vec<String> {
+        let count = Self::subject_count(env, subject);
+        let mut result = Vec::new(env);
+        if start >= count || limit == 0 {
+            return result;
+        }
+        let end = (start + limit).min(count);
+        let first_chunk = start / CHUNK_SIZE;
+        let last_chunk = (end - 1) / CHUNK_SIZE;
+
+        for ci in first_chunk..=last_chunk {
+            let chunk_key = Self::subject_chunk_key(subject, ci);
+            let chunk: Vec<String> = env
+                .storage()
+                .persistent()
+                .get(&chunk_key)
+                .unwrap_or(Vec::new(env));
+            let chunk_start = ci * CHUNK_SIZE; // absolute index of chunk[0]
+            for (local_pos, id) in chunk.iter().enumerate() {
+                let abs_pos = chunk_start + local_pos as u32;
+                if abs_pos >= start && abs_pos < end {
+                    result.push_back(id);
+                }
+            }
+        }
+        result
+    }
+
+    /// Load all IDs for a subject by iterating every chunk.
+    ///
+    /// Prefer `get_subject_page` for paginated queries. This is provided for
+    /// operations that genuinely need the full index (e.g. count queries).
+    pub fn get_subject_all(env: &Env, subject: &Address) -> Vec<String> {
+        let count = Self::subject_count(env, subject);
+        let mut result = Vec::new(env);
+        if count == 0 {
+            return result;
+        }
+        let total_chunks = (count + CHUNK_SIZE - 1) / CHUNK_SIZE;
+        for ci in 0..total_chunks {
+            let chunk_key = Self::subject_chunk_key(subject, ci);
+            let chunk: Vec<String> = env
+                .storage()
+                .persistent()
+                .get(&chunk_key)
+                .unwrap_or(Vec::new(env));
+            for id in chunk.iter() {
+                result.push_back(id);
+            }
+        }
+        result
+    }
+
+    // ── Issuer index ──────────────────────────────────────────────────────────
+
+    fn issuer_count_key(issuer: &Address) -> StorageKey {
+        StorageKey::IssuerAttestationsCount(issuer.clone())
+    }
+
+    fn issuer_chunk_key(issuer: &Address, chunk: u32) -> StorageKey {
+        StorageKey::IssuerAttestationsChunk(issuer.clone(), chunk)
+    }
+
+    /// Total number of IDs in the issuer's chunked index.
+    pub fn issuer_count(env: &Env, issuer: &Address) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&Self::issuer_count_key(issuer))
+            .unwrap_or(0u32)
+    }
+
+    /// Append one ID to the issuer's chunked index.
+    pub fn add_issuer(env: &Env, issuer: &Address, id: &String) {
+        let ttl = get_ttl_lifetime(env);
+        let count = Self::issuer_count(env, issuer);
+        let chunk_idx = count / CHUNK_SIZE;
+        let chunk_key = Self::issuer_chunk_key(issuer, chunk_idx);
+
+        let mut chunk: Vec<String> = env
+            .storage()
+            .persistent()
+            .get(&chunk_key)
+            .unwrap_or(Vec::new(env));
+        chunk.push_back(id.clone());
+        env.storage().persistent().set(&chunk_key, &chunk);
+        env.storage().persistent().extend_ttl(&chunk_key, ttl, ttl);
+
+        let new_count = count + 1;
+        let count_key = Self::issuer_count_key(issuer);
+        env.storage().persistent().set(&count_key, &new_count);
+        env.storage().persistent().extend_ttl(&count_key, ttl, ttl);
+    }
+
+    /// Append multiple IDs to the issuer's chunked index in as few writes as possible.
+    ///
+    /// Used by `create_attestations_batch` — fills the current tail chunk before
+    /// opening new ones, so a batch of N IDs touches at most ceil(N/CHUNK_SIZE)+1 chunks.
+    pub fn add_issuer_bulk(env: &Env, issuer: &Address, ids: &Vec<String>) {
+        if ids.is_empty() {
+            return;
+        }
+        let ttl = get_ttl_lifetime(env);
+        let mut count = Self::issuer_count(env, issuer);
+
+        let mut pending: Vec<String> = Vec::new(env);
+        for id in ids.iter() {
+            pending.push_back(id);
+        }
+
+        let mut pi = 0u32;
+        while pi < pending.len() {
+            let chunk_idx = count / CHUNK_SIZE;
+            let chunk_key = Self::issuer_chunk_key(issuer, chunk_idx);
+            let mut chunk: Vec<String> = env
+                .storage()
+                .persistent()
+                .get(&chunk_key)
+                .unwrap_or(Vec::new(env));
+
+            let space = CHUNK_SIZE - (count % CHUNK_SIZE);
+            let take = space.min(pending.len() - pi);
+            for i in 0..take {
+                if let Some(id) = pending.get(pi + i) {
+                    chunk.push_back(id);
+                    count += 1;
+                }
+            }
+            pi += take;
+
+            env.storage().persistent().set(&chunk_key, &chunk);
+            env.storage().persistent().extend_ttl(&chunk_key, ttl, ttl);
+        }
+
+        let count_key = Self::issuer_count_key(issuer);
+        env.storage().persistent().set(&count_key, &count);
+        env.storage().persistent().extend_ttl(&count_key, ttl, ttl);
+    }
+
+    /// Remove one ID from the issuer's chunked index (swap-with-last strategy).
+    pub fn remove_issuer(env: &Env, issuer: &Address, id: &String) {
+        let ttl = get_ttl_lifetime(env);
+        let count = Self::issuer_count(env, issuer);
+        if count == 0 {
+            return;
+        }
+
+        let total_chunks = (count + CHUNK_SIZE - 1) / CHUNK_SIZE;
+        let mut found_chunk_idx: Option<u32> = None;
+        let mut found_pos: Option<u32> = None;
+
+        'outer: for ci in (0..total_chunks).rev() {
+            let chunk_key = Self::issuer_chunk_key(issuer, ci);
+            let chunk: Vec<String> = env
+                .storage()
+                .persistent()
+                .get(&chunk_key)
+                .unwrap_or(Vec::new(env));
+            for (pos, entry) in chunk.iter().enumerate() {
+                if &entry == id {
+                    found_chunk_idx = Some(ci);
+                    found_pos = Some(pos as u32);
+                    break 'outer;
+                }
+            }
+        }
+
+        let (target_chunk, target_pos) = match (found_chunk_idx, found_pos) {
+            (Some(c), Some(p)) => (c, p),
+            _ => return,
+        };
+
+        let last_idx = count - 1;
+        let last_chunk_idx = last_idx / CHUNK_SIZE;
+        let last_pos = last_idx % CHUNK_SIZE;
+
+        if target_chunk == last_chunk_idx && target_pos == last_pos {
+            let chunk_key = Self::issuer_chunk_key(issuer, target_chunk);
+            let mut chunk: Vec<String> = env
+                .storage()
+                .persistent()
+                .get(&chunk_key)
+                .unwrap_or(Vec::new(env));
+            let mut new_chunk = Vec::new(env);
+            for (i, v) in chunk.iter().enumerate() {
+                if i as u32 != target_pos {
+                    new_chunk.push_back(v);
+                }
+            }
+            env.storage().persistent().set(&chunk_key, &new_chunk);
+            env.storage().persistent().extend_ttl(&chunk_key, ttl, ttl);
+        } else {
+            let last_chunk_key = Self::issuer_chunk_key(issuer, last_chunk_idx);
+            let mut last_chunk: Vec<String> = env
+                .storage()
+                .persistent()
+                .get(&last_chunk_key)
+                .unwrap_or(Vec::new(env));
+            let last_val = match last_chunk.get(last_pos) {
+                Some(v) => v,
+                None => return,
+            };
+
+            let target_chunk_key = Self::issuer_chunk_key(issuer, target_chunk);
+            let mut target_c: Vec<String> = env
+                .storage()
+                .persistent()
+                .get(&target_chunk_key)
+                .unwrap_or(Vec::new(env));
+            let mut new_target = Vec::new(env);
+            for (i, v) in target_c.iter().enumerate() {
+                if i as u32 == target_pos {
+                    new_target.push_back(last_val.clone());
+                } else {
+                    new_target.push_back(v);
+                }
+            }
+            env.storage().persistent().set(&target_chunk_key, &new_target);
+            env.storage().persistent().extend_ttl(&target_chunk_key, ttl, ttl);
+
+            let mut new_last = Vec::new(env);
+            for (i, v) in last_chunk.iter().enumerate() {
+                if i as u32 != last_pos {
+                    new_last.push_back(v);
+                }
+            }
+            env.storage().persistent().set(&last_chunk_key, &new_last);
+            env.storage().persistent().extend_ttl(&last_chunk_key, ttl, ttl);
+        }
+
+        let count_key = Self::issuer_count_key(issuer);
+        let new_count = count - 1;
+        env.storage().persistent().set(&count_key, &new_count);
+        env.storage().persistent().extend_ttl(&count_key, ttl, ttl);
+    }
+
+    /// Load only the chunks needed to serve page (start, limit) for an issuer.
+    pub fn get_issuer_page(env: &Env, issuer: &Address, start: u32, limit: u32) -> Vec<String> {
+        let count = Self::issuer_count(env, issuer);
+        let mut result = Vec::new(env);
+        if start >= count || limit == 0 {
+            return result;
+        }
+        let end = (start + limit).min(count);
+        let first_chunk = start / CHUNK_SIZE;
+        let last_chunk = (end - 1) / CHUNK_SIZE;
+
+        for ci in first_chunk..=last_chunk {
+            let chunk_key = Self::issuer_chunk_key(issuer, ci);
+            let chunk: Vec<String> = env
+                .storage()
+                .persistent()
+                .get(&chunk_key)
+                .unwrap_or(Vec::new(env));
+            let chunk_start = ci * CHUNK_SIZE;
+            for (local_pos, id) in chunk.iter().enumerate() {
+                let abs_pos = chunk_start + local_pos as u32;
+                if abs_pos >= start && abs_pos < end {
+                    result.push_back(id);
+                }
+            }
+        }
+        result
+    }
+
+    /// Load all IDs for an issuer by iterating every chunk.
+    pub fn get_issuer_all(env: &Env, issuer: &Address) -> Vec<String> {
+        let count = Self::issuer_count(env, issuer);
+        let mut result = Vec::new(env);
+        if count == 0 {
+            return result;
+        }
+        let total_chunks = (count + CHUNK_SIZE - 1) / CHUNK_SIZE;
+        for ci in 0..total_chunks {
+            let chunk_key = Self::issuer_chunk_key(issuer, ci);
+            let chunk: Vec<String> = env
+                .storage()
+                .persistent()
+                .get(&chunk_key)
+                .unwrap_or(Vec::new(env));
+            for id in chunk.iter() {
+                result.push_back(id);
+            }
+        }
+        result
+    }
 }

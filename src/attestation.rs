@@ -143,8 +143,12 @@ pub fn charge_attestation_fee(env: &Env, issuer: &Address) -> Result<(), Error> 
 
 pub fn store_attestation(env: &Env, attestation: &Attestation) {
     Storage::set_attestation(env, attestation);
+    // Write to both the legacy flat index (for backwards-compatible reads) and
+    // the new chunked index (for efficient paginated queries).
     Storage::add_subject_attestation(env, &attestation.subject, &attestation.id);
     Storage::add_issuer_attestation(env, &attestation.issuer, &attestation.id);
+    crate::storage::ChunkedIndex::add_subject(env, &attestation.subject, &attestation.id);
+    crate::storage::ChunkedIndex::add_issuer(env, &attestation.issuer, &attestation.id);
     let mut stats = Storage::get_issuer_stats(env, &attestation.issuer);
     stats.total_issued += 1;
     Storage::set_issuer_stats(env, &attestation.issuer, &stats);
@@ -461,6 +465,7 @@ pub fn create_attestations_batch(
         // Write attestation record and per-subject index — issuer index deferred.
         Storage::set_attestation(env, &attestation);
         Storage::add_subject_attestation(env, &subject, &attestation_id);
+        crate::storage::ChunkedIndex::add_subject(env, &subject, &attestation_id);
 
         Storage::append_audit_entry(
             env,
@@ -482,6 +487,7 @@ pub fn create_attestations_batch(
 
     // Single write: issuer index (replaces N add_issuer_attestation calls).
     Storage::add_issuer_attestations_bulk(env, &issuer, &new_issuer_ids);
+    crate::storage::ChunkedIndex::add_issuer_bulk(env, &issuer, &new_issuer_ids);
 
     // Single write: issuer stats (replaces N set_issuer_stats calls).
     Storage::increment_issuer_stats(env, &issuer, batch_len);
@@ -517,6 +523,8 @@ pub fn revoke_attestation(
     Storage::set_attestation(env, &attestation);
     Storage::remove_subject_attestation(env, &attestation.subject, &attestation_id);
     Storage::remove_issuer_attestation(env, &issuer, &attestation_id);
+    crate::storage::ChunkedIndex::remove_subject(env, &attestation.subject, &attestation_id);
+    crate::storage::ChunkedIndex::remove_issuer(env, &issuer, &attestation_id);
 
     Events::attestation_revoked(env, &attestation_id, &issuer, &reason);
     Storage::append_audit_entry(env, &attestation_id, &AuditEntry {
@@ -710,6 +718,7 @@ pub fn request_deletion(env: &Env, subject: Address, attestation_id: String) -> 
     attestation.deleted = true;
     Storage::set_attestation(env, &attestation);
     Storage::remove_subject_attestation(env, &subject, &attestation_id);
+    crate::storage::ChunkedIndex::remove_subject(env, &subject, &attestation_id);
 
     let timestamp = env.ledger().timestamp();
     Events::deletion_requested(env, &subject, &attestation_id, timestamp);
