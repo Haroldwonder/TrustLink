@@ -1,4 +1,4 @@
-.PHONY: build test optimize clean install help local-deploy
+.PHONY: build test optimize clean install help local-deploy check-size
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TrustLink Makefile
@@ -64,6 +64,7 @@ endif
         deploy invoke \
         testnet mainnet local \
         bindings check-bindings \
+        check-size \
         help
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -74,7 +75,8 @@ help:
 	@echo "============================================="
 	@echo "make build          - Build the contract in debug mode"
 	@echo "make test           - Run all unit tests"
-	@echo "make optimize       - Build optimized release version"
+	@echo "make optimize       - Build release WASM and run wasm-opt -Oz"
+	@echo "make check-size     - Verify optimized WASM is under 100 KB"
 	@echo "make clean          - Clean build artifacts"
 	@echo "make install        - Install required dependencies"
 	@echo "make local-deploy   - Deploy and initialize contract on local Stellar network"
@@ -89,6 +91,7 @@ install:
 	@echo "  Rust:        https://rustup.rs/"
 	@echo "  Stellar CLI: cargo install --locked stellar-cli --features opt"
 	@echo "  WASM target: rustup target add wasm32-unknown-unknown"
+	@echo "  wasm-opt:    cargo install --locked wasm-opt  (or: apt install binaryen)"
 
 ## Build the contract in debug mode
 build:
@@ -100,10 +103,32 @@ test:
 	@echo "Running tests..."
 	cargo test
 
+## Build release WASM, then run wasm-opt -Oz for maximum size reduction.
+## Typical reduction: ~30–50% vs the raw release binary.
+## Output: $(WASM_OPT)
 optimize: build
-	@echo "Optimizing WASM..."
-	stellar contract optimize --wasm $(WASM)
+	@echo "Optimizing WASM with wasm-opt -Oz..."
+	wasm-opt -Oz --enable-bulk-memory --strip-debug \
+		$(WASM) -o $(WASM_OPT)
+	@echo "--- Size report ---"
+	@printf "  Before: %d bytes (%d KB)\n" \
+		$$(stat -c%s $(WASM)) $$(( $$(stat -c%s $(WASM)) / 1024 ))
+	@printf "  After:  %d bytes (%d KB)\n" \
+		$$(stat -c%s $(WASM_OPT)) $$(( $$(stat -c%s $(WASM_OPT)) / 1024 ))
+	@printf "  Saved:  %d bytes\n" \
+		$$(( $$(stat -c%s $(WASM)) - $$(stat -c%s $(WASM_OPT)) ))
 	@echo "Optimized artifact: $(WASM_OPT)"
+
+## Verify the optimized WASM binary is under the 100 KB ledger-storage threshold.
+check-size: optimize
+	@SIZE=$$(stat -c%s $(WASM_OPT)); \
+	MAX=$$((100 * 1024)); \
+	echo "Optimized WASM size: $${SIZE} bytes ($$(( SIZE / 1024 )) KB) / limit 100 KB"; \
+	if [ "$$SIZE" -gt "$$MAX" ]; then \
+		echo "ERROR: $(WASM_OPT) is $${SIZE} bytes — exceeds 100 KB threshold."; \
+		exit 1; \
+	fi; \
+	echo "OK: binary is within the 100 KB limit."
 
 ## Clean build artifacts and compiled outputs
 clean:
