@@ -426,6 +426,10 @@ pub fn create_attestations_batch(
     }
 
     let mut ids: Vec<String> = Vec::new(env);
+    // Accumulate new IDs so the issuer index can be written once at the end
+    // instead of once per subject (N reads + N writes → 1 read + 1 write).
+    let mut new_issuer_ids: Vec<String> = Vec::new(env);
+
     for subject in subjects.iter() {
         let attestation_id = Attestation::generate_id(env, &issuer, &subject, &claim_type, timestamp);
         if Storage::has_attestation(env, &attestation_id) {
@@ -453,8 +457,11 @@ pub fn create_attestations_batch(
             tags: None,
             revocation_reason: None,
         };
-        store_attestation(env, &attestation);
-        Events::attestation_created(env, &attestation);
+
+        // Write attestation record and per-subject index — issuer index deferred.
+        Storage::set_attestation(env, &attestation);
+        Storage::add_subject_attestation(env, &subject, &attestation_id);
+
         Storage::append_audit_entry(
             env,
             &attestation_id,
@@ -465,8 +472,22 @@ pub fn create_attestations_batch(
                 details: None,
             },
         );
+        Events::attestation_created(env, &attestation);
+
+        new_issuer_ids.push_back(attestation_id.clone());
         ids.push_back(attestation_id);
     }
+
+    let batch_len = new_issuer_ids.len() as u64;
+
+    // Single write: issuer index (replaces N add_issuer_attestation calls).
+    Storage::add_issuer_attestations_bulk(env, &issuer, &new_issuer_ids);
+
+    // Single write: issuer stats (replaces N set_issuer_stats calls).
+    Storage::increment_issuer_stats(env, &issuer, batch_len);
+
+    // Single write: global stats (replaces N increment_total_attestations calls).
+    Storage::increment_total_attestations(env, batch_len);
 
     Storage::set_last_issuance_time(env, &issuer, timestamp);
     Ok(ids)

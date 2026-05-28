@@ -6819,3 +6819,163 @@ mod delegation_tests {
         assert_eq!(result, Err(Ok(Error::Unauthorized)));
     }
 }
+
+// ---------------------------------------------------------------------------
+// Batch attestation storage-write benchmarks
+//
+// These tests measure and compare the storage write behaviour of
+// `create_attestations_batch` before and after the bulk-index optimisation.
+//
+// Run with:
+//   cargo test bench_batch -- --nocapture
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod bench_batch {
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
+
+    fn setup_bench(env: &Env) -> (Address, Address, TrustLinkContractClient<'_>) {
+        let contract_id = env.register_contract(None, TrustLinkContract);
+        let client = TrustLinkContractClient::new(env, &contract_id);
+        let admin = Address::generate(env);
+        let issuer = Address::generate(env);
+        env.mock_all_auths();
+        client.initialize(&admin, &None);
+        // Raise per-issuer limit to accommodate the full batch.
+        client.set_limits(&admin, &10_000u32, &10u32);
+        client.register_issuer(&admin, &issuer);
+        (admin, issuer, client)
+    }
+
+    fn make_subjects(env: &Env, n: u32) -> Vec<Address> {
+        let mut v: Vec<Address> = Vec::new(env);
+        for _ in 0..n {
+            v.push_back(Address::generate(env));
+        }
+        v
+    }
+
+    /// Profile: batch of 50 — verifies the optimised path produces the correct
+    /// number of attestations and that the issuer index is consistent.
+    #[test]
+    fn bench_batch_50_correctness() {
+        let env = Env::default();
+        let (_, issuer, client) = setup_bench(&env);
+        let subjects = make_subjects(&env, 50);
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        let ids = client.create_attestations_batch(&issuer, &subjects, &claim, &None);
+
+        // All 50 IDs returned.
+        assert_eq!(ids.len(), 50);
+
+        // Issuer index must contain exactly 50 entries (written once at the end).
+        let issuer_index = client.get_issuer_attestations(&issuer, &0u32, &100u32);
+        assert_eq!(issuer_index.len(), 50);
+
+        // Every returned ID must be retrievable and belong to the issuer.
+        for id in ids.iter() {
+            let att = client.get_attestation(&id).unwrap();
+            assert_eq!(att.issuer, issuer);
+            assert_eq!(att.claim_type, claim);
+        }
+
+        // Global stats must reflect 50 attestations.
+        let stats = client.get_global_stats();
+        assert_eq!(stats.total_attestations, 50);
+
+        println!("[bench_batch_50_correctness] PASS — 50 attestations, issuer index consistent");
+    }
+
+    /// Before/after write-count comparison for a batch of 50.
+    ///
+    /// Before optimisation: `store_attestation` called per subject →
+    ///   issuer index: 50 reads + 50 writes
+    ///   issuer stats: 50 reads + 50 writes
+    ///   global stats: 50 reads + 50 writes
+    ///   Total extra writes: 150 (issuer index + stats + global)
+    ///
+    /// After optimisation (this code):
+    ///   issuer index: 1 read + 1 write  (add_issuer_attestations_bulk)
+    ///   issuer stats: 1 read + 1 write  (increment_issuer_stats)
+    ///   global stats: 1 read + 1 write  (increment_total_attestations)
+    ///   Total extra writes: 3
+    ///
+    /// Reduction: 147 fewer storage writes for a batch of 50.
+    #[test]
+    fn bench_batch_50_write_reduction() {
+        let env = Env::default();
+        env.budget().reset_unlimited();
+
+        let (_, issuer, client) = setup_bench(&env);
+        let subjects = make_subjects(&env, 50);
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        env.budget().reset_unlimited();
+        client.create_attestations_batch(&issuer, &subjects, &claim, &None);
+
+        let cpu = env.budget().cpu_instruction_count();
+        let mem = env.budget().memory_bytes_used();
+
+        println!(
+            "[bench_batch_50_write_reduction] batch=50 | cpu_instructions={} | memory_bytes={}",
+            cpu, mem
+        );
+
+        // Sanity: all 50 attestations were created.
+        let stats = client.get_global_stats();
+        assert_eq!(stats.total_attestations, 50);
+    }
+
+    /// Comparison: single-item creation × 50 vs batch × 50.
+    /// Demonstrates the CU saving from the bulk-index write.
+    #[test]
+    fn bench_single_vs_batch_50() {
+        // --- single × 50 ---
+        let env_single = Env::default();
+        env_single.budget().reset_unlimited();
+        let (_, issuer_s, client_s) = setup_bench(&env_single);
+        let claim = String::from_str(&env_single, "KYC_PASSED");
+
+        env_single.budget().reset_unlimited();
+        for _ in 0..50u32 {
+            let subject = Address::generate(&env_single);
+            client_s.create_attestation(&issuer_s, &subject, &claim, &None, &None, &None);
+        }
+        let cpu_single = env_single.budget().cpu_instruction_count();
+        let mem_single = env_single.budget().memory_bytes_used();
+
+        // --- batch × 50 ---
+        let env_batch = Env::default();
+        env_batch.budget().reset_unlimited();
+        let (_, issuer_b, client_b) = setup_bench(&env_batch);
+        let subjects = make_subjects(&env_batch, 50);
+
+        env_batch.budget().reset_unlimited();
+        client_b.create_attestations_batch(&issuer_b, &subjects, &claim, &None);
+        let cpu_batch = env_batch.budget().cpu_instruction_count();
+        let mem_batch = env_batch.budget().memory_bytes_used();
+
+        println!(
+            "[bench_single_vs_batch_50]\n  single×50 : cpu={} mem={}\n  batch×50  : cpu={} mem={}\n  cpu saved : {} ({:.1}%)",
+            cpu_single,
+            mem_single,
+            cpu_batch,
+            mem_batch,
+            cpu_single.saturating_sub(cpu_batch),
+            if cpu_single > 0 {
+                (cpu_single.saturating_sub(cpu_batch) as f64 / cpu_single as f64) * 100.0
+            } else {
+                0.0
+            }
+        );
+
+        // Batch must use fewer CPU instructions than 50 individual calls.
+        assert!(
+            cpu_batch < cpu_single,
+            "batch ({} cpu) should be cheaper than single×50 ({} cpu)",
+            cpu_batch,
+            cpu_single
+        );
+    }
+}

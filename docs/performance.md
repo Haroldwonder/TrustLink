@@ -141,6 +141,79 @@ in transaction fees (network-dependent).
 
 ---
 
+---
+
+## Batch Attestation Storage Write Optimisation
+
+### Problem (before)
+
+`create_attestations_batch` called `store_attestation` for each subject in the loop.
+`store_attestation` performs three shared-state writes per item:
+
+| Write | Per-item cost |
+|-------|--------------|
+| `IssuerAttestations` index | read + write (grows Vec by 1) |
+| `IssuerStats` | read + write |
+| `GlobalStats` | read + write |
+
+For a batch of N subjects this produced **3N reads + 3N writes** on those three entries alone.
+
+**Batch of 50 — before:**
+- Issuer index: 50 reads + 50 writes
+- Issuer stats: 50 reads + 50 writes
+- Global stats: 50 reads + 50 writes
+- **Total: 150 extra reads + 150 extra writes**
+
+### Fix (after)
+
+The loop now only writes the attestation record and the per-subject index (both are
+inherently per-item). The three shared-state entries are accumulated in memory and
+written **once** after the loop using three new bulk helpers:
+
+| Helper | Writes |
+|--------|--------|
+| `Storage::add_issuer_attestations_bulk` | 1 read + 1 write |
+| `Storage::increment_issuer_stats` | 1 read + 1 write |
+| `Storage::increment_total_attestations` | 1 read + 1 write |
+
+**Batch of 50 — after:**
+- Issuer index: 1 read + 1 write
+- Issuer stats: 1 read + 1 write
+- Global stats: 1 read + 1 write
+- **Total: 3 reads + 3 writes**
+
+### Write Count Reduction
+
+| Batch size | Writes before | Writes after | Saved |
+|-----------|--------------|-------------|-------|
+| 10 | 30 | 3 | 27 |
+| 50 | 150 | 3 | 147 |
+| 100 | 300 | 3 | 297 |
+
+The per-attestation writes (attestation record, subject index, audit log) are unchanged —
+only the shared-state writes are batched.
+
+### Benchmark
+
+Run the before/after comparison:
+
+```bash
+cargo test bench_batch -- --nocapture
+```
+
+Expected output (approximate):
+
+```
+[bench_batch_50_correctness] PASS — 50 attestations, issuer index consistent
+[bench_batch_50_write_reduction] batch=50 | cpu_instructions=... | memory_bytes=...
+[bench_single_vs_batch_50]
+  single×50 : cpu=<higher> mem=<higher>
+  batch×50  : cpu=<lower>  mem=<lower>
+  cpu saved : <N> (~X%)
+```
+
+---
+
 ## Optimization Recommendations (General)
 
 1. **High Impact**: Cron job to prune expired/revoked from indices (Vec shrink).
