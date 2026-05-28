@@ -61,6 +61,8 @@ pub enum StorageKey {
     AttestationTemplate(Address, String),
     AttestationTemplateList(Address),
     Delegation(Address, Address, String),
+    /// Index of (delegate, claim_type) pairs for a delegator.
+    DelegatorIndex(Address),
     /// Ordered list of all registered bridge contract addresses.
     BridgeList,
     /// Per-claim-type rate limit override (claim_type -> min_issuance_interval).
@@ -726,6 +728,20 @@ impl Storage {
         let ttl = get_ttl_lifetime(env);
         env.storage().persistent().set(&key, delegation);
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
+
+        // Maintain delegator index
+        let idx_key = StorageKey::DelegatorIndex(delegation.delegator.clone());
+        let mut index: Vec<(Address, String)> = env
+            .storage()
+            .persistent()
+            .get(&idx_key)
+            .unwrap_or(Vec::new(env));
+        let entry = (delegation.delegate.clone(), delegation.claim_type.clone());
+        if !index.contains(&entry) {
+            index.push_back(entry);
+            env.storage().persistent().set(&idx_key, &index);
+            env.storage().persistent().extend_ttl(&idx_key, ttl, ttl);
+        }
     }
 
     pub fn get_delegation(
@@ -746,6 +762,30 @@ impl Storage {
     ) {
         let key = StorageKey::Delegation(delegator.clone(), delegate.clone(), claim_type.clone());
         env.storage().persistent().remove(&key);
+
+        // Remove from delegator index
+        let idx_key = StorageKey::DelegatorIndex(delegator.clone());
+        let existing: Vec<(Address, String)> = env
+            .storage()
+            .persistent()
+            .get(&idx_key)
+            .unwrap_or(Vec::new(env));
+        let mut updated = Vec::new(env);
+        for entry in existing.iter() {
+            if &entry.0 != delegate || &entry.1 != claim_type {
+                updated.push_back(entry);
+            }
+        }
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&idx_key, &updated);
+        env.storage().persistent().extend_ttl(&idx_key, ttl, ttl);
+    }
+
+    pub fn get_delegator_index(env: &Env, delegator: &Address) -> Vec<(Address, String)> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::DelegatorIndex(delegator.clone()))
+            .unwrap_or(Vec::new(env))
     }
 
     // ── Attestation requests ──────────────────────────────────────────────────

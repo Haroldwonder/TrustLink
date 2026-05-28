@@ -30,7 +30,7 @@ use soroban_sdk::{contract, contractimpl, Address, Env, String, Vec};
 use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::{
-    Attestation, AttestationRequest, AttestationStatus, AttestationTemplate, AuditEntry, Error,
+    Attestation, AttestationRequest, AttestationStatus, AttestationTemplate, AuditEntry, Delegation, Error,
     ExpirationHook, FeeConfig, GlobalStats, HealthStatus, IssuerMetadata, IssuerStats, IssuerTier,
     MultiSigProposal, PendingAdminTransfer, RateLimitConfig, StorageLimits,
 };
@@ -288,6 +288,10 @@ impl TrustLinkContract {
 
     pub fn revoke_delegation(env: Env, issuer: Address, delegate: Address, claim_type: String) -> Result<(), Error> {
         admin::revoke_delegation(&env, issuer, delegate, claim_type)
+    }
+
+    pub fn list_delegations_by_delegator(env: Env, delegator: Address, start: u32, limit: u32) -> Vec<Delegation> {
+        admin::list_delegations_by_delegator(&env, delegator, start, limit)
     }
 
     // -----------------------------------------------------------------------

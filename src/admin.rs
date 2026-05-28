@@ -435,6 +435,36 @@ pub fn revoke_delegation(
     Ok(())
 }
 
+pub fn list_delegations_by_delegator(
+    env: &Env,
+    delegator: Address,
+    start: u32,
+    limit: u32,
+) -> Vec<Delegation> {
+    let current_time = env.ledger().timestamp();
+    let index = Storage::get_delegator_index(env, &delegator);
+    let mut result = Vec::new(env);
+    let mut count: u32 = 0;
+    let mut skipped: u32 = 0;
+    for (delegate, claim_type) in index.iter() {
+        if let Some(d) = Storage::get_delegation(env, &delegator, &delegate, &claim_type) {
+            // Only include non-expired delegations
+            if d.expiration.map_or(true, |exp| current_time < exp) {
+                if skipped < start {
+                    skipped += 1;
+                    continue;
+                }
+                if count >= limit {
+                    break;
+                }
+                result.push_back(d);
+                count += 1;
+            }
+        }
+    }
+    result
+}
+
 // -----------------------------------------------------------------------
 // Expiration hooks
 // -----------------------------------------------------------------------

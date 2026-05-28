@@ -6980,6 +6980,76 @@ mod delegation_tests {
         let result = client.try_create_attestation_as_delegate(&delegate, &issuer, &subject, &claim, &None, &None);
         assert_eq!(result, Err(Ok(Error::Unauthorized)));
     }
+
+    #[test]
+    fn list_delegations_by_delegator_returns_active() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, issuer, delegate, _, client) = setup(&env);
+        let claim1 = String::from_str(&env, "KYC_PASSED");
+        let claim2 = String::from_str(&env, "AML_CLEARED");
+
+        client.delegate_claim_type(&issuer, &delegate, &claim1, &None);
+        client.delegate_claim_type(&issuer, &delegate, &claim2, &None);
+
+        let result = client.list_delegations_by_delegator(&issuer, &0, &10);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn list_delegations_by_delegator_excludes_expired() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, issuer, delegate, _, client) = setup(&env);
+        let claim1 = String::from_str(&env, "KYC_PASSED");
+        let claim2 = String::from_str(&env, "AML_CLEARED");
+
+        let exp = env.ledger().timestamp() + 100;
+        client.delegate_claim_type(&issuer, &delegate, &claim1, &Some(exp));
+        client.delegate_claim_type(&issuer, &delegate, &claim2, &None);
+
+        env.ledger().with_mut(|l| l.timestamp += 101);
+
+        let result = client.list_delegations_by_delegator(&issuer, &0, &10);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result.get(0).unwrap().claim_type, claim2);
+    }
+
+    #[test]
+    fn list_delegations_by_delegator_excludes_revoked() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, issuer, delegate, _, client) = setup(&env);
+        let claim1 = String::from_str(&env, "KYC_PASSED");
+        let claim2 = String::from_str(&env, "AML_CLEARED");
+
+        client.delegate_claim_type(&issuer, &delegate, &claim1, &None);
+        client.delegate_claim_type(&issuer, &delegate, &claim2, &None);
+        client.revoke_delegation(&issuer, &delegate, &claim1);
+
+        let result = client.list_delegations_by_delegator(&issuer, &0, &10);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result.get(0).unwrap().claim_type, claim2);
+    }
+
+    #[test]
+    fn list_delegations_by_delegator_paginates() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, issuer, delegate, _, client) = setup(&env);
+        let claim1 = String::from_str(&env, "KYC_PASSED");
+        let claim2 = String::from_str(&env, "AML_CLEARED");
+        let claim3 = String::from_str(&env, "MERCHANT_VERIFIED");
+
+        client.delegate_claim_type(&issuer, &delegate, &claim1, &None);
+        client.delegate_claim_type(&issuer, &delegate, &claim2, &None);
+        client.delegate_claim_type(&issuer, &delegate, &claim3, &None);
+
+        let page1 = client.list_delegations_by_delegator(&issuer, &0, &2);
+        let page2 = client.list_delegations_by_delegator(&issuer, &2, &2);
+        assert_eq!(page1.len(), 2);
+        assert_eq!(page2.len(), 1);
+    }
 }
 
 // ---------------------------------------------------------------------------
