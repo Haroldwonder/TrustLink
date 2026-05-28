@@ -7113,3 +7113,727 @@ mod chunked_index_tests {
         assert_eq!(client.get_subject_attestation_count(&subject), 80);
     }
 }
+<<<<<<< Updated upstream
+=======
+
+// =============================================================================
+// Per-claim-type rate limiting
+//
+// Tests for the per-claim-type rate limit override feature:
+//   - Per-claim-type limit overrides global limit when set
+//   - Falls back to global limit when no per-type limit configured
+//   - RateLimited error is returned when interval not met
+// =============================================================================
+
+#[cfg(test)]
+mod rate_limit_tests {
+    use super::*;
+    use soroban_sdk::{testutils::Ledger, Env, String};
+
+    fn setup(env: &Env) -> (Address, Address, Address, TrustLinkContractClient<'_>) {
+        let contract_id = env.register_contract(None, TrustLinkContract);
+        let client = TrustLinkContractClient::new(env, &contract_id);
+        let admin = Address::generate(env);
+        let issuer = Address::generate(env);
+        let subject = Address::generate(env);
+        client.initialize(&admin, &None);
+        client.register_issuer(&admin, &issuer);
+        (admin, issuer, subject, client)
+    }
+
+    // -------------------------------------------------------------------------
+    // Global rate limit (baseline)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_global_rate_limit_enforced() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, subject, client) = setup(&env);
+
+        // Set global rate limit to 1000 seconds
+        client.set_rate_limit(&admin, &1_000);
+
+        env.ledger().with_mut(|li| li.timestamp = 1_000);
+        let claim1 = String::from_str(&env, "CLAIM_A");
+        let id1 = client.create_attestation(&issuer, &subject, &claim1, &None, &None, &None);
+        assert!(!id1.is_empty());
+
+        // Try to create another attestation 500 seconds later (< 1000) — should fail
+        env.ledger().with_mut(|li| li.timestamp = 1_500);
+        let claim2 = String::from_str(&env, "CLAIM_B");
+        let result = client.try_create_attestation(&issuer, &subject, &claim2, &None, &None, &None);
+        assert_eq!(result, Err(Ok(types::Error::RateLimited)));
+
+        // After 1000 seconds total — should succeed
+        env.ledger().with_mut(|li| li.timestamp = 2_000);
+        let id2 = client.create_attestation(&issuer, &subject, &claim2, &None, &None, &None);
+        assert!(!id2.is_empty());
+    }
+
+    // -------------------------------------------------------------------------
+    // Per-claim-type rate limit override
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_per_claim_type_limit_overrides_global() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, subject, client) = setup(&env);
+
+        // Set global rate limit to 1000 seconds
+        client.set_rate_limit(&admin, &1_000);
+
+        // Set per-claim-type limit for ACCREDITED_INVESTOR to 5000 seconds (stricter)
+        let accredited = String::from_str(&env, "ACCREDITED_INVESTOR");
+        client.set_rate_limit_for_claim_type(&admin, &accredited, &5_000);
+
+        env.ledger().with_mut(|li| li.timestamp = 1_000);
+
+        // Create first ACCREDITED_INVESTOR attestation
+        let id1 = client.create_attestation(&issuer, &subject, &accredited, &None, &None, &None);
+        assert!(!id1.is_empty());
+
+        // Try to create another ACCREDITED_INVESTOR 2000 seconds later
+        // Global limit (1000) would allow it, but per-type limit (5000) should block it
+        env.ledger().with_mut(|li| li.timestamp = 3_000);
+        let result = client.try_create_attestation(&issuer, &subject, &accredited, &None, &None, &None);
+        assert_eq!(
+            result,
+            Err(Ok(types::Error::RateLimited)),
+            "per-claim-type limit should override global limit"
+        );
+
+        // After 5000 seconds total — should succeed
+        env.ledger().with_mut(|li| li.timestamp = 6_000);
+        let id2 = client.create_attestation(&issuer, &subject, &accredited, &None, &None, &None);
+        assert!(!id2.is_empty());
+    }
+
+    #[test]
+    fn test_per_claim_type_limit_less_strict_than_global() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, subject, client) = setup(&env);
+
+        // Set global rate limit to 1000 seconds (strict)
+        client.set_rate_limit(&admin, &1_000);
+
+        // Set per-claim-type limit for MERCHANT_VERIFIED to 100 seconds (lenient)
+        let merchant = String::from_str(&env, "MERCHANT_VERIFIED");
+        client.set_rate_limit_for_claim_type(&admin, &merchant, &100);
+
+        env.ledger().with_mut(|li| li.timestamp = 1_000);
+
+        // Create first MERCHANT_VERIFIED attestation
+        let id1 = client.create_attestation(&issuer, &subject, &merchant, &None, &None, &None);
+        assert!(!id1.is_empty());
+
+        // Try to create another MERCHANT_VERIFIED 150 seconds later
+        // Global limit (1000) would block it, but per-type limit (100) should allow it
+        env.ledger().with_mut(|li| li.timestamp = 1_150);
+        let id2 = client.create_attestation(&issuer, &subject, &merchant, &None, &None, &None);
+        assert!(
+            !id2.is_empty(),
+            "per-claim-type limit should override global limit even if more lenient"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Fallback to global limit
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_fallback_to_global_when_no_per_type_limit() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, subject, client) = setup(&env);
+
+        // Set global rate limit to 1000 seconds
+        client.set_rate_limit(&admin, &1_000);
+
+        // Set per-claim-type limit only for ACCREDITED_INVESTOR
+        let accredited = String::from_str(&env, "ACCREDITED_INVESTOR");
+        client.set_rate_limit_for_claim_type(&admin, &accredited, &5_000);
+
+        env.ledger().with_mut(|li| li.timestamp = 1_000);
+
+        // Create attestation for a different claim type (no per-type limit set)
+        let other = String::from_str(&env, "OTHER_CLAIM");
+        let id1 = client.create_attestation(&issuer, &subject, &other, &None, &None, &None);
+        assert!(!id1.is_empty());
+
+        // Try to create another OTHER_CLAIM 500 seconds later
+        // Should use global limit (1000) and fail
+        env.ledger().with_mut(|li| li.timestamp = 1_500);
+        let result = client.try_create_attestation(&issuer, &subject, &other, &None, &None, &None);
+        assert_eq!(
+            result,
+            Err(Ok(types::Error::RateLimited)),
+            "should fall back to global limit when no per-type limit set"
+        );
+
+        // After 1000 seconds total — should succeed
+        env.ledger().with_mut(|li| li.timestamp = 2_000);
+        let id2 = client.create_attestation(&issuer, &subject, &other, &None, &None, &None);
+        assert!(!id2.is_empty());
+    }
+
+    // -------------------------------------------------------------------------
+    // Get per-claim-type limit
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_get_rate_limit_for_claim_type() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, _issuer, _subject, client) = setup(&env);
+
+        let claim = String::from_str(&env, "TEST_CLAIM");
+
+        // Initially, no per-type limit should be set
+        assert_eq!(client.get_rate_limit_for_claim_type(&claim), None);
+
+        // Set a per-type limit
+        client.set_rate_limit_for_claim_type(&admin, &claim, &5_000);
+
+        // Should now return the set value
+        assert_eq!(client.get_rate_limit_for_claim_type(&claim), Some(5_000));
+    }
+
+    // -------------------------------------------------------------------------
+    // Independent claim types
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_per_claim_type_limits_are_independent() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, subject, client) = setup(&env);
+
+        // Set different per-type limits for two claim types
+        let claim_a = String::from_str(&env, "CLAIM_A");
+        let claim_b = String::from_str(&env, "CLAIM_B");
+        client.set_rate_limit_for_claim_type(&admin, &claim_a, &1_000);
+        client.set_rate_limit_for_claim_type(&admin, &claim_b, &100);
+
+        env.ledger().with_mut(|li| li.timestamp = 1_000);
+
+        // Create attestation for CLAIM_A
+        let id_a = client.create_attestation(&issuer, &subject, &claim_a, &None, &None, &None);
+        assert!(!id_a.is_empty());
+
+        // Create attestation for CLAIM_B
+        let id_b = client.create_attestation(&issuer, &subject, &claim_b, &None, &None, &None);
+        assert!(!id_b.is_empty());
+
+        // Advance 150 seconds
+        env.ledger().with_mut(|li| li.timestamp = 1_150);
+
+        // CLAIM_A should still be rate-limited (1000 > 150)
+        let result_a = client.try_create_attestation(&issuer, &subject, &claim_a, &None, &None, &None);
+        assert_eq!(result_a, Err(Ok(types::Error::RateLimited)));
+
+        // CLAIM_B should be allowed (100 < 150)
+        let id_b2 = client.create_attestation(&issuer, &subject, &claim_b, &None, &None, &None);
+        assert!(!id_b2.is_empty());
+    }
+
+    // -------------------------------------------------------------------------
+    // Zero rate limit (no limit)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_zero_rate_limit_allows_unlimited_issuance() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, subject, client) = setup(&env);
+
+        // Set per-claim-type limit to 0 (no limit)
+        let claim = String::from_str(&env, "UNLIMITED");
+        client.set_rate_limit_for_claim_type(&admin, &claim, &0);
+
+        env.ledger().with_mut(|li| li.timestamp = 1_000);
+
+        // Create multiple attestations in rapid succession
+        for i in 0..5 {
+            let id = client.create_attestation(&issuer, &subject, &claim, &None, &None, &None);
+            assert!(!id.is_empty(), "attestation {} should succeed with zero rate limit", i);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Admin-only access
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_set_rate_limit_for_claim_type_is_admin_only() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, _issuer, _subject, client) = setup(&env);
+
+        let non_admin = Address::generate(&env);
+        let claim = String::from_str(&env, "TEST");
+
+        let result = client.try_set_rate_limit_for_claim_type(&non_admin, &claim, &1_000);
+        assert_eq!(result, Err(Ok(types::Error::Unauthorized)));
+    }
+}
+
+// ============================================================================
+// Claim Type Requirement Tests
+// ============================================================================
+
+#[cfg(test)]
+mod claim_type_requirement_tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, Env, String};
+
+    fn setup(env: &Env) -> (Address, Address, Address, TrustLinkContractClient<'_>) {
+        let contract_id = env.register_contract(None, TrustLinkContract);
+        let client = TrustLinkContractClient::new(env, &contract_id);
+        let admin = Address::generate(env);
+        let issuer = Address::generate(env);
+        let subject = Address::generate(env);
+        client.initialize(&admin, &None);
+        client.register_issuer(&admin, &issuer);
+        (admin, issuer, subject, client)
+    }
+
+    #[test]
+    fn test_require_registered_claim_type_disabled_by_default() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_admin, _issuer, _subject, client) = setup(&env);
+
+        // By default, should be false
+        assert_eq!(client.get_require_registered_claim_type(), false);
+    }
+
+    #[test]
+    fn test_unregistered_claim_type_allowed_when_disabled() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_admin, issuer, subject, client) = setup(&env);
+
+        // Requirement is disabled by default
+        let unregistered = String::from_str(&env, "UNREGISTERED_CLAIM");
+        let id = client.create_attestation(&issuer, &subject, &unregistered, &None, &None, &None);
+        assert!(!id.is_empty(), "unregistered claim type should be allowed when requirement is disabled");
+    }
+
+    #[test]
+    fn test_set_require_registered_claim_type_admin_only() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, _issuer, _subject, client) = setup(&env);
+
+        let non_admin = Address::generate(&env);
+        let result = client.try_set_require_registered_claim_type(&non_admin, &true);
+        assert_eq!(result, Err(Ok(types::Error::Unauthorized)));
+    }
+
+    #[test]
+    fn test_admin_can_enable_require_registered_claim_type() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, _issuer, _subject, client) = setup(&env);
+
+        client.set_require_registered_claim_type(&admin, &true);
+        assert_eq!(client.get_require_registered_claim_type(), true);
+    }
+
+    #[test]
+    fn test_admin_can_disable_require_registered_claim_type() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, _issuer, _subject, client) = setup(&env);
+
+        // Enable it first
+        client.set_require_registered_claim_type(&admin, &true);
+        assert_eq!(client.get_require_registered_claim_type(), true);
+
+        // Then disable it
+        client.set_require_registered_claim_type(&admin, &false);
+        assert_eq!(client.get_require_registered_claim_type(), false);
+    }
+
+    #[test]
+    fn test_unregistered_claim_type_rejected_when_enabled() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, subject, client) = setup(&env);
+
+        // Enable the requirement
+        client.set_require_registered_claim_type(&admin, &true);
+
+        // Try to create attestation with unregistered claim type
+        let unregistered = String::from_str(&env, "UNREGISTERED_CLAIM");
+        let result = client.try_create_attestation(&issuer, &subject, &unregistered, &None, &None, &None);
+        assert_eq!(result, Err(Ok(types::Error::InvalidClaimType)));
+    }
+
+    #[test]
+    fn test_registered_claim_type_accepted_when_enabled() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, subject, client) = setup(&env);
+
+        // Register a claim type
+        let claim_type = String::from_str(&env, "REGISTERED_CLAIM");
+        let description = String::from_str(&env, "A registered claim type");
+        client.register_claim_type(&admin, &claim_type, &description);
+
+        // Enable the requirement
+        client.set_require_registered_claim_type(&admin, &true);
+
+        // Create attestation with registered claim type should succeed
+        let id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+        assert!(!id.is_empty(), "registered claim type should be accepted when requirement is enabled");
+    }
+
+    #[test]
+    fn test_multiple_registered_claim_types_with_requirement_enabled() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, subject, client) = setup(&env);
+
+        // Register multiple claim types
+        let claim1 = String::from_str(&env, "KYC_PASSED");
+        let claim2 = String::from_str(&env, "ACCREDITED_INVESTOR");
+        let claim3 = String::from_str(&env, "MERCHANT_VERIFIED");
+
+        client.register_claim_type(&admin, &claim1, &String::from_str(&env, "KYC"));
+        client.register_claim_type(&admin, &claim2, &String::from_str(&env, "Accredited"));
+        client.register_claim_type(&admin, &claim3, &String::from_str(&env, "Merchant"));
+
+        // Enable the requirement
+        client.set_require_registered_claim_type(&admin, &true);
+
+        // All registered types should work
+        let id1 = client.create_attestation(&issuer, &subject, &claim1, &None, &None, &None);
+        assert!(!id1.is_empty());
+
+        let id2 = client.create_attestation(&issuer, &subject, &claim2, &None, &None, &None);
+        assert!(!id2.is_empty());
+
+        let id3 = client.create_attestation(&issuer, &subject, &claim3, &None, &None, &None);
+        assert!(!id3.is_empty());
+
+        // Unregistered type should fail
+        let unregistered = String::from_str(&env, "UNKNOWN_CLAIM");
+        let result = client.try_create_attestation(&issuer, &subject, &unregistered, &None, &None, &None);
+        assert_eq!(result, Err(Ok(types::Error::InvalidClaimType)));
+    }
+
+    #[test]
+    fn test_requirement_toggle_affects_behavior() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, subject, client) = setup(&env);
+
+        let unregistered = String::from_str(&env, "UNREGISTERED");
+
+        // Initially disabled - should work
+        let id1 = client.create_attestation(&issuer, &subject, &unregistered, &None, &None, &None);
+        assert!(!id1.is_empty());
+
+        // Enable requirement - should fail
+        client.set_require_registered_claim_type(&admin, &true);
+        let result = client.try_create_attestation(&issuer, &subject, &unregistered, &None, &None, &None);
+        assert_eq!(result, Err(Ok(types::Error::InvalidClaimType)));
+
+        // Disable requirement - should work again
+        client.set_require_registered_claim_type(&admin, &false);
+        let id2 = client.create_attestation(&issuer, &subject, &unregistered, &None, &None, &None);
+        assert!(!id2.is_empty());
+    }
+
+    #[test]
+    fn test_batch_create_respects_claim_type_requirement() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, _subject, client) = setup(&env);
+
+        // Register one claim type
+        let registered = String::from_str(&env, "REGISTERED");
+        client.register_claim_type(&admin, &registered, &String::from_str(&env, "Registered"));
+
+        // Enable requirement
+        client.set_require_registered_claim_type(&admin, &true);
+
+        // Create subjects
+        let subject1 = Address::generate(&env);
+        let subject2 = Address::generate(&env);
+
+        // Batch with all registered types should succeed
+        let subjects = Vec::from_array(&env, [subject1.clone(), subject2.clone()]);
+        let count = client.create_attestations_batch(&issuer, &subjects, &registered, &None, &None);
+        assert_eq!(count, 2);
+
+        // Batch with unregistered type should fail
+        let unregistered = String::from_str(&env, "UNREGISTERED");
+        let result = client.try_create_attestations_batch(&issuer, &subjects, &unregistered, &None, &None);
+        assert_eq!(result, Err(Ok(types::Error::InvalidClaimType)));
+    }
+}
+
+// ============================================================================
+// Get Valid Claims Tests
+// ============================================================================
+
+#[cfg(test)]
+mod get_valid_claims_tests {
+    use super::*;
+    use soroban_sdk::{testutils::{Address as _, Ledger}, Env, String};
+
+    fn setup(env: &Env) -> (Address, Address, Address, TrustLinkContractClient<'_>) {
+        let contract_id = env.register_contract(None, TrustLinkContract);
+        let client = TrustLinkContractClient::new(env, &contract_id);
+        let admin = Address::generate(env);
+        let issuer = Address::generate(env);
+        let subject = Address::generate(env);
+        client.initialize(&admin, &None);
+        client.register_issuer(&admin, &issuer);
+        (admin, issuer, subject, client)
+    }
+
+    #[test]
+    fn test_get_valid_claims_empty_for_subject_with_no_attestations() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_admin, _issuer, subject, client) = setup(&env);
+
+        let claims = client.get_valid_claims(&subject);
+        assert_eq!(claims.len(), 0);
+    }
+
+    #[test]
+    fn test_get_valid_claims_returns_single_valid_claim() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_admin, issuer, subject, client) = setup(&env);
+
+        let claim_type = String::from_str(&env, "KYC_PASSED");
+        let future_expiration = env.ledger().timestamp() + 86400; // 1 day from now
+
+        client.create_attestation(&issuer, &subject, &claim_type, &Some(future_expiration), &None, &None);
+
+        let claims = client.get_valid_claims(&subject);
+        assert_eq!(claims.len(), 1);
+        assert_eq!(claims.get(0).unwrap(), claim_type);
+    }
+
+    #[test]
+    fn test_get_valid_claims_returns_multiple_valid_claims() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_admin, issuer, subject, client) = setup(&env);
+
+        let claim1 = String::from_str(&env, "KYC_PASSED");
+        let claim2 = String::from_str(&env, "ACCREDITED_INVESTOR");
+        let claim3 = String::from_str(&env, "MERCHANT_VERIFIED");
+        let future_expiration = env.ledger().timestamp() + 86400;
+
+        client.create_attestation(&issuer, &subject, &claim1, &Some(future_expiration), &None, &None);
+        client.create_attestation(&issuer, &subject, &claim2, &Some(future_expiration), &None, &None);
+        client.create_attestation(&issuer, &subject, &claim3, &Some(future_expiration), &None, &None);
+
+        let claims = client.get_valid_claims(&subject);
+        assert_eq!(claims.len(), 3);
+        assert!(claims.iter().any(|c| c == claim1));
+        assert!(claims.iter().any(|c| c == claim2));
+        assert!(claims.iter().any(|c| c == claim3));
+    }
+
+    #[test]
+    fn test_get_valid_claims_excludes_revoked_attestations() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_admin, issuer, subject, client) = setup(&env);
+
+        let claim1 = String::from_str(&env, "KYC_PASSED");
+        let claim2 = String::from_str(&env, "ACCREDITED_INVESTOR");
+        let future_expiration = env.ledger().timestamp() + 86400;
+
+        let id1 = client.create_attestation(&issuer, &subject, &claim1, &Some(future_expiration), &None, &None);
+        let id2 = client.create_attestation(&issuer, &subject, &claim2, &Some(future_expiration), &None, &None);
+
+        // Revoke the first one
+        client.revoke_attestation(&issuer, &id1, &None);
+
+        let claims = client.get_valid_claims(&subject);
+        assert_eq!(claims.len(), 1);
+        assert_eq!(claims.get(0).unwrap(), claim2);
+    }
+
+    #[test]
+    fn test_get_valid_claims_excludes_expired_attestations() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_admin, issuer, subject, client) = setup(&env);
+
+        let claim1 = String::from_str(&env, "KYC_PASSED");
+        let claim2 = String::from_str(&env, "ACCREDITED_INVESTOR");
+        let current_time = env.ledger().timestamp();
+        let past_expiration = current_time - 1; // Already expired
+        let future_expiration = current_time + 86400;
+
+        client.create_attestation(&issuer, &subject, &claim1, &Some(past_expiration), &None, &None);
+        client.create_attestation(&issuer, &subject, &claim2, &Some(future_expiration), &None, &None);
+
+        let claims = client.get_valid_claims(&subject);
+        assert_eq!(claims.len(), 1);
+        assert_eq!(claims.get(0).unwrap(), claim2);
+    }
+
+    #[test]
+    fn test_get_valid_claims_excludes_pending_attestations() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_admin, issuer, subject, client) = setup(&env);
+
+        let claim1 = String::from_str(&env, "KYC_PASSED");
+        let claim2 = String::from_str(&env, "ACCREDITED_INVESTOR");
+        let current_time = env.ledger().timestamp();
+        let future_valid_from = current_time + 3600; // Valid in 1 hour
+        let future_expiration = current_time + 86400;
+
+        client.create_attestation_valid_from(
+            &issuer,
+            &subject,
+            &claim1,
+            &Some(future_expiration),
+            &None,
+            &Some(future_valid_from),
+            &None,
+        );
+        client.create_attestation(&issuer, &subject, &claim2, &Some(future_expiration), &None, &None);
+
+        let claims = client.get_valid_claims(&subject);
+        assert_eq!(claims.len(), 1);
+        assert_eq!(claims.get(0).unwrap(), claim2);
+    }
+
+    #[test]
+    fn test_get_valid_claims_excludes_deleted_attestations() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_admin, issuer, subject, client) = setup(&env);
+
+        let claim1 = String::from_str(&env, "KYC_PASSED");
+        let claim2 = String::from_str(&env, "ACCREDITED_INVESTOR");
+        let future_expiration = env.ledger().timestamp() + 86400;
+
+        let id1 = client.create_attestation(&issuer, &subject, &claim1, &Some(future_expiration), &None, &None);
+        let id2 = client.create_attestation(&issuer, &subject, &claim2, &Some(future_expiration), &None, &None);
+
+        // Delete the first one
+        client.request_deletion(&subject, &id1);
+
+        let claims = client.get_valid_claims(&subject);
+        assert_eq!(claims.len(), 1);
+        assert_eq!(claims.get(0).unwrap(), claim2);
+    }
+
+    #[test]
+    fn test_get_valid_claims_deduplicates_same_claim_type() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_admin, issuer, subject, client) = setup(&env);
+
+        let claim_type = String::from_str(&env, "KYC_PASSED");
+        let future_expiration = env.ledger().timestamp() + 86400;
+
+        // Create multiple attestations of the same claim type from the same issuer
+        client.create_attestation(&issuer, &subject, &claim_type, &Some(future_expiration), &None, &None);
+        client.create_attestation(&issuer, &subject, &claim_type, &Some(future_expiration), &None, &None);
+
+        let claims = client.get_valid_claims(&subject);
+        // Should only return one instance of the claim type
+        assert_eq!(claims.len(), 1);
+        assert_eq!(claims.get(0).unwrap(), claim_type);
+    }
+
+    #[test]
+    fn test_get_valid_claims_mixed_valid_and_invalid() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_admin, issuer, subject, client) = setup(&env);
+
+        let claim_valid = String::from_str(&env, "KYC_PASSED");
+        let claim_revoked = String::from_str(&env, "REVOKED_CLAIM");
+        let claim_expired = String::from_str(&env, "EXPIRED_CLAIM");
+        let claim_pending = String::from_str(&env, "PENDING_CLAIM");
+
+        let current_time = env.ledger().timestamp();
+        let future_expiration = current_time + 86400;
+        let past_expiration = current_time - 1;
+        let future_valid_from = current_time + 3600;
+
+        // Create valid attestation
+        client.create_attestation(&issuer, &subject, &claim_valid, &Some(future_expiration), &None, &None);
+
+        // Create and revoke attestation
+        let id_revoked = client.create_attestation(&issuer, &subject, &claim_revoked, &Some(future_expiration), &None, &None);
+        client.revoke_attestation(&issuer, &id_revoked, &None);
+
+        // Create expired attestation
+        client.create_attestation(&issuer, &subject, &claim_expired, &Some(past_expiration), &None, &None);
+
+        // Create pending attestation
+        client.create_attestation_valid_from(
+            &issuer,
+            &subject,
+            &claim_pending,
+            &Some(future_expiration),
+            &None,
+            &Some(future_valid_from),
+            &None,
+        );
+
+        let claims = client.get_valid_claims(&subject);
+        assert_eq!(claims.len(), 1);
+        assert_eq!(claims.get(0).unwrap(), claim_valid);
+    }
+
+    #[test]
+    fn test_get_valid_claims_from_multiple_issuers() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer1, subject, client) = setup(&env);
+
+        let issuer2 = Address::generate(&env);
+        client.register_issuer(&admin, &issuer2);
+
+        let claim1 = String::from_str(&env, "KYC_PASSED");
+        let claim2 = String::from_str(&env, "ACCREDITED_INVESTOR");
+        let future_expiration = env.ledger().timestamp() + 86400;
+
+        // Create attestations from different issuers
+        client.create_attestation(&issuer1, &subject, &claim1, &Some(future_expiration), &None, &None);
+        client.create_attestation(&issuer2, &subject, &claim2, &Some(future_expiration), &None, &None);
+
+        let claims = client.get_valid_claims(&subject);
+        assert_eq!(claims.len(), 2);
+        assert!(claims.iter().any(|c| c == claim1));
+        assert!(claims.iter().any(|c| c == claim2));
+    }
+
+    #[test]
+    fn test_get_valid_claims_no_expiration_is_valid() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_admin, issuer, subject, client) = setup(&env);
+
+        let claim_type = String::from_str(&env, "PERMANENT_CLAIM");
+
+        // Create attestation with no expiration
+        client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+
+        let claims = client.get_valid_claims(&subject);
+        assert_eq!(claims.len(), 1);
+        assert_eq!(claims.get(0).unwrap(), claim_type);
+    }
+}
+>>>>>>> Stashed changes

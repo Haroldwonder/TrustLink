@@ -211,6 +211,19 @@ impl TrustLinkContract {
     }
 
     // -----------------------------------------------------------------------
+    // Contract Config
+    // -----------------------------------------------------------------------
+
+    pub fn set_require_registered_claim_type(env: Env, admin: Address, require: bool) -> Result<(), Error> {
+        admin::set_require_registered_claim_type(&env, admin, require)
+    }
+
+    #[must_use]
+    pub fn get_require_registered_claim_type(env: Env) -> bool {
+        admin::get_require_registered_claim_type(&env)
+    }
+
+    // -----------------------------------------------------------------------
     // Limits
     // -----------------------------------------------------------------------
 

@@ -18,6 +18,7 @@ pub enum StorageKey {
     Version,
     FeeConfig,
     TtlConfig,
+    ContractConfig,
     Issuer(Address),
     Bridge(Address),
     Attestation(String),
@@ -173,6 +174,16 @@ impl Storage {
 
     pub fn get_ttl_config(env: &Env) -> Option<TtlConfig> {
         env.storage().instance().get(&StorageKey::TtlConfig)
+    }
+
+    pub fn set_contract_config(env: &Env, config: &crate::types::ContractConfig) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::ContractConfig, config);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    pub fn get_contract_config(env: &Env) -> Option<crate::types::ContractConfig> {
+        env.storage().instance().get(&StorageKey::ContractConfig)
     }
 
     pub fn is_issuer(env: &Env, address: &Address) -> bool {

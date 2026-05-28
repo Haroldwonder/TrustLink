@@ -134,4 +134,19 @@ impl Validation {
         }
         Ok(())
     }
+
+    /// Check if a claim type is registered when required by contract config.
+    ///
+    /// # Errors
+    /// - [`Error::InvalidClaimType`] — claim type is not registered and contract requires registration.
+    pub fn require_registered_claim_type(env: &Env, claim_type: &String) -> Result<(), Error> {
+        if let Some(config) = Storage::get_contract_config(env) {
+            if config.require_registered_claim_type {
+                if Storage::get_claim_type(env, claim_type).is_none() {
+                    return Err(Error::InvalidClaimType);
+                }
+            }
+        }
+        Ok(())
+    }
 }
