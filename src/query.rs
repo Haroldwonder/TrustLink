@@ -5,6 +5,17 @@ use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::{Attestation, AttestationStatus, AuditEntry, Error, GlobalStats};
 
+/// Returns `true` if the subject holds at least one valid attestation for `claim_type`.
+///
+/// Loads the subject's attestation index, then iterates entries in insertion order.
+/// Returns immediately on the first matching attestation with status
+/// [`AttestationStatus::Valid`] (short-circuit evaluation).
+///
+/// **Complexity:** O(n) in the worst case, where n is the number of attestations
+/// indexed for the subject. Loading the subject index is O(n), and the attestation
+/// scan is also O(n) when no valid match exists or when the only valid match is
+/// the last indexed entry. The best case is O(1) attestation reads when the first
+/// indexed entry is a valid match.
 pub fn has_valid_claim(env: &Env, subject: Address, claim_type: String) -> bool {
     let attestation_ids = Storage::get_subject_attestations(env, &subject);
     let current_time = env.ledger().timestamp();
