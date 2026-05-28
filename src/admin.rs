@@ -72,6 +72,10 @@ pub fn accept_admin_transfer(env: &Env, new_admin: Address) -> Result<(), Error>
     Ok(())
 }
 
+pub fn get_pending_admin_transfer(env: &Env) -> Option<PendingAdminTransfer> {
+    Storage::get_pending_admin_transfer(env)
+}
+
 pub fn add_admin(env: &Env, existing_admin: Address, new_admin: Address) -> Result<(), Error> {
     existing_admin.require_auth();
     Validation::require_admin(env, &existing_admin)?;

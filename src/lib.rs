@@ -32,7 +32,7 @@ use crate::storage::Storage;
 use crate::types::{
     Attestation, AttestationRequest, AttestationStatus, AttestationTemplate, AuditEntry, Error,
     ExpirationHook, FeeConfig, GlobalStats, HealthStatus, IssuerMetadata, IssuerStats, IssuerTier,
-    MultiSigProposal, RateLimitConfig, StorageLimits,
+    MultiSigProposal, PendingAdminTransfer, RateLimitConfig, StorageLimits,
 };
 use crate::validation::Validation;
 
@@ -63,6 +63,11 @@ impl TrustLinkContract {
 
     pub fn accept_admin_transfer(env: Env, new_admin: Address) -> Result<(), Error> {
         admin::accept_admin_transfer(&env, new_admin)
+    }
+
+    #[must_use]
+    pub fn get_pending_admin_transfer(env: Env) -> Option<PendingAdminTransfer> {
+        admin::get_pending_admin_transfer(&env)
     }
 
     pub fn add_admin(env: Env, existing_admin: Address, new_admin: Address) -> Result<(), Error> {

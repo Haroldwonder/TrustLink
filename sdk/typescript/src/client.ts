@@ -211,6 +211,10 @@ export class TrustLinkClient {
     return this.simulate("get_bridge_list", this.u32(start), this.u32(limit));
   }
 
+  async getPendingAdminTransfer(): Promise<{ proposed_by: string; new_admin: string } | null> {
+    return this.simulate("get_pending_admin_transfer");
+  }
+
   // ── Claim Type Registry ────────────────────────────────────────────────────
 
   async getClaimTypeDescription(claimType: string): Promise<string | null> {
