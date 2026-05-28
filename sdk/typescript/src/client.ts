@@ -201,6 +201,10 @@ export class TrustLinkClient {
     return this.simulate("get_issuer_metadata", this.addr(issuer));
   }
 
+  async getIssuerList(start: number, limit: number): Promise<string[]> {
+    return this.simulate("get_issuer_list", this.u32(start), this.u32(limit));
+  }
+
   // ── Bridge Registry ────────────────────────────────────────────────────────
 
   async isBridge(address: string): Promise<boolean> {

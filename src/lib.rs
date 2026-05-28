@@ -89,6 +89,11 @@ impl TrustLinkContract {
         admin::remove_issuer(&env, admin, issuer)
     }
 
+    #[must_use]
+    pub fn get_issuer_list(env: Env, start: u32, limit: u32) -> Vec<Address> {
+        admin::get_issuer_list(&env, start, limit)
+    }
+
     pub fn add_to_whitelist(env: Env, issuer: Address, subject: Address) -> Result<(), Error> {
         admin::add_to_whitelist(&env, issuer, subject)
     }

@@ -128,6 +128,10 @@ pub fn remove_issuer(env: &Env, admin: Address, issuer: Address) -> Result<(), E
     Ok(())
 }
 
+pub fn get_issuer_list(env: &Env, start: u32, limit: u32) -> Vec<Address> {
+    crate::storage::paginate_addresses(env, &Storage::get_issuer_list(env), start, limit)
+}
+
 pub fn add_to_whitelist(env: &Env, issuer: Address, subject: Address) -> Result<(), Error> {
     issuer.require_auth();
     Validation::require_issuer(env, &issuer)?;

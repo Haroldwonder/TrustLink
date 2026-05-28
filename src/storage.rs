@@ -60,6 +60,8 @@ pub enum StorageKey {
     AttestationTemplate(Address, String),
     AttestationTemplateList(Address),
     Delegation(Address, Address, String),
+    /// Ordered list of all registered issuer addresses.
+    IssuerList,
 }
 
 fn get_ttl_lifetime(env: &Env) -> u32 {
@@ -182,10 +184,40 @@ impl Storage {
         let ttl = get_ttl_lifetime(env);
         env.storage().persistent().set(&key, &true);
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
+        // Maintain ordered IssuerList
+        let mut list = Self::get_issuer_list(env);
+        for existing in list.iter() {
+            if &existing == issuer {
+                return;
+            }
+        }
+        list.push_back(issuer.clone());
+        let list_key = StorageKey::IssuerList;
+        env.storage().persistent().set(&list_key, &list);
+        env.storage().persistent().extend_ttl(&list_key, ttl, ttl);
     }
 
     pub fn remove_issuer(env: &Env, issuer: &Address) {
         env.storage().persistent().remove(&StorageKey::Issuer(issuer.clone()));
+        // Remove from IssuerList
+        let existing = Self::get_issuer_list(env);
+        let mut updated = Vec::new(env);
+        for addr in existing.iter() {
+            if &addr != issuer {
+                updated.push_back(addr);
+            }
+        }
+        let list_key = StorageKey::IssuerList;
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&list_key, &updated);
+        env.storage().persistent().extend_ttl(&list_key, ttl, ttl);
+    }
+
+    pub fn get_issuer_list(env: &Env) -> Vec<Address> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::IssuerList)
+            .unwrap_or(Vec::new(env))
     }
 
     pub fn is_bridge(env: &Env, address: &Address) -> bool {
@@ -708,6 +740,21 @@ impl Storage {
 }
 
 pub fn paginate(env: &Env, list: &Vec<String>, start: u32, limit: u32) -> Vec<String> {
+    let mut result = Vec::new(env);
+    let len = list.len();
+    if start >= len {
+        return result;
+    }
+    let end = (start + limit).min(len);
+    for i in start..end {
+        if let Some(item) = list.get(i) {
+            result.push_back(item);
+        }
+    }
+    result
+}
+
+pub fn paginate_addresses(env: &Env, list: &Vec<Address>, start: u32, limit: u32) -> Vec<Address> {
     let mut result = Vec::new(env);
     let len = list.len();
     if start >= len {
