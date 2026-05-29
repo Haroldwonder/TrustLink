@@ -3,6 +3,7 @@ import {
   getIssuerStats,
   getIssuerAttestations,
   getExpiringAttestations,
+  renewAttestation,
   Attestation,
   IssuerStats,
 } from "../contract";
@@ -15,6 +16,7 @@ export default function IssuerDashboard({ address }: Props) {
   const [expiring, setExpiring] = useState<Attestation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [renewing, setRenewing] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadDashboard();
@@ -36,6 +38,24 @@ export default function IssuerDashboard({ address }: Props) {
       setError((err as Error).message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleRenew(attestationId: string, currentExpiration: bigint) {
+    setRenewing((prev) => new Set(prev).add(attestationId));
+    try {
+      const oneYear = BigInt(365 * 24 * 60 * 60);
+      const newExpiration = currentExpiration + oneYear;
+      await renewAttestation(address, attestationId, newExpiration);
+      await loadDashboard();
+    } catch (err: unknown) {
+      alert(`Failed to renew: ${(err as Error).message}`);
+    } finally {
+      setRenewing((prev) => {
+        const next = new Set(prev);
+        next.delete(attestationId);
+        return next;
+      });
     }
   }
 
@@ -143,6 +163,14 @@ export default function IssuerDashboard({ address }: Props) {
                       (Number(a.expiration || 0) - Math.floor(Date.now() / 1000)) / 86400
                     )}
                   </span>
+                  <button
+                    className="btn btn-primary"
+                    style={{ marginTop: "0.5rem", width: "100%" }}
+                    onClick={() => handleRenew(a.id, a.expiration!)}
+                    disabled={renewing.has(a.id)}
+                  >
+                    {renewing.has(a.id) ? "Renewing..." : "Renew"}
+                  </button>
                 </div>
               ))}
             </div>
