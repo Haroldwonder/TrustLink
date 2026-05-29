@@ -280,12 +280,13 @@ export class TrustLinkClient {
     );
   }
 
-  async getAttestationsByTag(subject: string, tag: string): Promise<string[]> {
-    return this.simulate(
+  async getAttestationsByTag(subject: string, tag: string, start = 0, limit = 20): Promise<string[]> {
+    const all = await this.simulate<string[]>(
       "get_attestations_by_tag",
       this.addr(subject),
       this.str(tag)
     );
+    return all.slice(start, start + limit);
   }
 
   /**

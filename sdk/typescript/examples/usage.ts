@@ -83,6 +83,17 @@ async function main() {
   }
   console.log(`All issuer attestations (${allIssuerAttestations.length} total):`, allIssuerAttestations);
 
+  // ── Tag-based filtering ──────────────────────────────────────────────────
+  console.log("\n=== Attestations by Tag ===");
+
+  // Fetch the first page of attestations tagged "kyc" for a subject
+  const taggedPage1 = await client.getAttestationsByTag(USER_ADDRESS, "kyc", 0, 10);
+  console.log("Tagged 'kyc' (page 1):", taggedPage1);
+
+  // Fetch the second page
+  const taggedPage2 = await client.getAttestationsByTag(USER_ADDRESS, "kyc", 10, 10);
+  console.log("Tagged 'kyc' (page 2):", taggedPage2);
+
   // ── Claim type registry ──────────────────────────────────────────────────
   console.log("\n=== Claim Types ===");
   const claimTypes = await client.listClaimTypes(0, 20);
