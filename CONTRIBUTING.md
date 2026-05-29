@@ -67,6 +67,18 @@ rustup target add wasm32-unknown-unknown
 cargo check
 ```
 
+## Fuzzing
+
+TrustLink includes a cargo-fuzz target for claim type validation edge cases.
+
+```bash
+cargo install --locked cargo-fuzz
+cd fuzz
+cargo fuzz run fuzz_validate_claim_type
+```
+
+The fuzz target exercises `Validation::validate_claim_type` with arbitrary byte sequences, including null bytes, multi-byte UTF-8, and boundary-length inputs.
+
 ## Running Tests
 
 ```bash

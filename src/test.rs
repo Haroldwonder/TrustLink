@@ -7567,7 +7567,7 @@ mod claim_type_requirement_tests {
         let (_admin, _issuer, _subject, client) = setup(&env);
 
         // By default, should be false
-        assert_eq!(client.get_require_registered_claim_type(), false);
+        assert_eq!(client.get_registered_claim_type(), false);
     }
 
     #[test]
@@ -7583,13 +7583,13 @@ mod claim_type_requirement_tests {
     }
 
     #[test]
-    fn test_set_require_registered_claim_type_admin_only() {
+    fn test_set_registered_claim_type_admin_only() {
         let env = Env::default();
         env.mock_all_auths();
         let (admin, _issuer, _subject, client) = setup(&env);
 
         let non_admin = Address::generate(&env);
-        let result = client.try_set_require_registered_claim_type(&non_admin, &true);
+        let result = client.try_set_registered_claim_type(&non_admin, &true);
         assert_eq!(result, Err(Ok(types::Error::Unauthorized)));
     }
 
@@ -7599,8 +7599,8 @@ mod claim_type_requirement_tests {
         env.mock_all_auths();
         let (admin, _issuer, _subject, client) = setup(&env);
 
-        client.set_require_registered_claim_type(&admin, &true);
-        assert_eq!(client.get_require_registered_claim_type(), true);
+        client.set_registered_claim_type(&admin, &true);
+        assert_eq!(client.get_registered_claim_type(), true);
     }
 
     #[test]
@@ -7610,12 +7610,12 @@ mod claim_type_requirement_tests {
         let (admin, _issuer, _subject, client) = setup(&env);
 
         // Enable it first
-        client.set_require_registered_claim_type(&admin, &true);
-        assert_eq!(client.get_require_registered_claim_type(), true);
+        client.set_registered_claim_type(&admin, &true);
+        assert_eq!(client.get_registered_claim_type(), true);
 
         // Then disable it
-        client.set_require_registered_claim_type(&admin, &false);
-        assert_eq!(client.get_require_registered_claim_type(), false);
+        client.set_registered_claim_type(&admin, &false);
+        assert_eq!(client.get_registered_claim_type(), false);
     }
 
     #[test]
@@ -7625,7 +7625,7 @@ mod claim_type_requirement_tests {
         let (admin, issuer, subject, client) = setup(&env);
 
         // Enable the requirement
-        client.set_require_registered_claim_type(&admin, &true);
+        client.set_registered_claim_type(&admin, &true);
 
         // Try to create attestation with unregistered claim type
         let unregistered = String::from_str(&env, "UNREGISTERED_CLAIM");
@@ -7645,7 +7645,7 @@ mod claim_type_requirement_tests {
         client.register_claim_type(&admin, &claim_type, &description);
 
         // Enable the requirement
-        client.set_require_registered_claim_type(&admin, &true);
+        client.set_registered_claim_type(&admin, &true);
 
         // Create attestation with registered claim type should succeed
         let id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
@@ -7668,7 +7668,7 @@ mod claim_type_requirement_tests {
         client.register_claim_type(&admin, &claim3, &String::from_str(&env, "Merchant"));
 
         // Enable the requirement
-        client.set_require_registered_claim_type(&admin, &true);
+        client.set_registered_claim_type(&admin, &true);
 
         // All registered types should work
         let id1 = client.create_attestation(&issuer, &subject, &claim1, &None, &None, &None);
@@ -7699,12 +7699,12 @@ mod claim_type_requirement_tests {
         assert!(!id1.is_empty());
 
         // Enable requirement - should fail
-        client.set_require_registered_claim_type(&admin, &true);
+        client.set_registered_claim_type(&admin, &true);
         let result = client.try_create_attestation(&issuer, &subject, &unregistered, &None, &None, &None);
         assert_eq!(result, Err(Ok(types::Error::InvalidClaimType)));
 
         // Disable requirement - should work again
-        client.set_require_registered_claim_type(&admin, &false);
+        client.set_registered_claim_type(&admin, &false);
         let id2 = client.create_attestation(&issuer, &subject, &unregistered, &None, &None, &None);
         assert!(!id2.is_empty());
     }
@@ -7720,7 +7720,7 @@ mod claim_type_requirement_tests {
         client.register_claim_type(&admin, &registered, &String::from_str(&env, "Registered"));
 
         // Enable requirement
-        client.set_require_registered_claim_type(&admin, &true);
+        client.set_registered_claim_type(&admin, &true);
 
         // Create subjects
         let subject1 = Address::generate(&env);

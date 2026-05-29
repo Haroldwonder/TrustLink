@@ -12,6 +12,7 @@ mod storage;
 mod constants;
 pub mod types;
 mod validation;
+pub use crate::validation::Validation;
 
 #[cfg(test)]
 mod test;
@@ -34,7 +35,6 @@ use crate::types::{
     ExpirationHook, FeeConfig, GlobalStats, HealthStatus, IssuerMetadata, IssuerStats, IssuerTier,
     MultiSigProposal, PendingAdminTransfer, RateLimitConfig, StorageLimits,
 };
-use crate::validation::Validation;
 
 #[contract]
 pub struct TrustLinkContract;
@@ -238,12 +238,12 @@ impl TrustLinkContract {
     // Contract Config
     // -----------------------------------------------------------------------
 
-    pub fn set_require_registered_claim_type(env: Env, admin: Address, require: bool) -> Result<(), Error> {
+    pub fn set_registered_claim_type(env: Env, admin: Address, require: bool) -> Result<(), Error> {
         admin::set_require_registered_claim_type(&env, admin, require)
     }
 
     #[must_use]
-    pub fn get_require_registered_claim_type(env: Env) -> bool {
+    pub fn get_registered_claim_type(env: Env) -> bool {
         admin::get_require_registered_claim_type(&env)
     }
 

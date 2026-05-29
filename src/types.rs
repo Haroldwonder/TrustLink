@@ -135,7 +135,6 @@ pub struct RateLimitConfig {
 
 /// Contract configuration.
 #[contracttype]
-#[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractConfig {
     pub ttl_config: TtlConfig,
