@@ -266,7 +266,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "PendingRequests"
+                  "symbol": "IssuerPendingRequests"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -286,7 +286,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "PendingRequests"
+                      "symbol": "IssuerPendingRequests"
                     },
                     {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -825,7 +825,7 @@
           "v0": {
             "topics": [
               {
-                "symbol": "req"
+                "symbol": "att_req"
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -1009,7 +1009,7 @@
             ],
             "data": {
               "error": {
-                "contract": 36
+                "contract": 37
               }
             }
           }
@@ -1030,7 +1030,7 @@
               },
               {
                 "error": {
-                  "contract": 36
+                  "contract": 37
                 }
               }
             ],
@@ -1055,7 +1055,7 @@
               },
               {
                 "error": {
-                  "contract": 36
+                  "contract": 37
                 }
               }
             ],

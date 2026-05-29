@@ -71,6 +71,19 @@ Before deploying TrustLink, ensure you have:
    rustup target add wasm32-unknown-unknown
    ```
 
+4. **wasm-opt** (binaryen) — required for the `make optimize` and `make check-size` targets
+
+   ```bash
+   # Ubuntu / Debian
+   sudo apt-get install binaryen
+
+   # macOS
+   brew install binaryen
+
+   # Cargo (cross-platform fallback)
+   cargo install --locked wasm-opt
+   ```
+
 ## Building
 
 ### Development Build
@@ -81,11 +94,36 @@ cargo build --target wasm32-unknown-unknown --release
 
 ### Optimized Build
 
+The production binary must be processed with `wasm-opt -Oz` before deployment to minimize
+ledger storage costs. Use the Makefile target which handles both steps and prints a size report:
+
 ```bash
-cargo build --target wasm32-unknown-unknown --release
-soroban contract optimize \
-  --wasm target/wasm32-unknown-unknown/release/trustlink.wasm
+make optimize
 ```
+
+Example output:
+```
+Building TrustLink (testnet)...
+Optimizing WASM with wasm-opt -Oz...
+--- Size report ---
+  Before: 185344 bytes (181 KB)
+  After:  68420 bytes  (66 KB)
+  Saved:  116924 bytes (~63%)
+Optimized artifact: target/wasm32-unknown-unknown/release/trustlink.optimized.wasm
+```
+
+Typical size reduction is **40–65%** compared to the raw release binary. The Cargo release
+profile already applies `opt-level = "z"`, LTO, and symbol stripping; `wasm-opt -Oz` then
+performs additional dead-code elimination and instruction-level optimizations that the Rust
+compiler cannot do at the WASM IR level.
+
+To verify the optimized binary stays under the 100 KB CI threshold locally:
+
+```bash
+make check-size
+```
+
+Always deploy `trustlink.optimized.wasm`, never the raw `trustlink.wasm`.
 
 ## Testing
 
@@ -188,7 +226,7 @@ make optimize
 
 # 2. Deploy to mainnet
 soroban contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/trustlink_optimized.wasm \
+  --wasm target/wasm32-unknown-unknown/release/trustlink.optimized.wasm \
   --source ADMIN_SECRET_KEY \
   --network mainnet
 
@@ -324,9 +362,7 @@ TrustLink supports in-place WASM upgrades via Soroban's built-in upgrade mechani
 **1. Build and optimize the new contract version**
 
 ```bash
-cargo build --target wasm32-unknown-unknown --release
-stellar contract optimize \
-  --wasm target/wasm32-unknown-unknown/release/trustlink.wasm
+make optimize
 ```
 
 **2. Upload the new WASM to the network**

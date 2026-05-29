@@ -5,20 +5,44 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc",
-    "prepublishOnly": "npm run build"
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build && npm run validate",
+    "validate": "node scripts/validate-package.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
     "stellar",
     "soroban",
     "attestation",
     "kyc",
-    "trustlink"
+    "trustlink",
+    "blockchain",
+    "identity",
+    "verification"
   ],
+  "author": "TrustLink Team",
   "license": "MIT",
+  "homepage": "https://github.com/afurious/TrustLink#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/afurious/TrustLink.git",
+    "directory": "sdk/typescript"
+  },
+  "bugs": {
+    "url": "https://github.com/afurious/TrustLink/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
   "dependencies": {
     "@stellar/stellar-sdk": "^14.0.0"
   },

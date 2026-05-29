@@ -59,4 +59,11 @@ pub enum Error {
     BatchTooLarge = 34,
     /// Template claim_type is not registered in the registry (when require_registered_claim_type is enabled).
     ClaimTypeNotRegistered = 35,
+    InvalidFeeToken = 35,
+    /// An attestation request with the same ID already exists.
+    DuplicateRequest = 36,
+    /// The request has already been fulfilled or rejected.
+    RequestAlreadyProcessed = 37,
+    /// The attestation request has expired.
+    RequestExpired = 38,
 }

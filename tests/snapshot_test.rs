@@ -17,6 +17,7 @@ use soroban_sdk::{
     Address, Env, String,
 };
 use trustlink::{TrustLinkContract, TrustLinkContractClient};
+use trustlink::types::AttestationOrigin;
 
 fn deploy(env: &Env) -> TrustLinkContractClient {
     let id = env.register_contract(None, TrustLinkContract);
@@ -156,7 +157,7 @@ fn snapshot_after_bridge_attestation() {
     let att = client.get_attestation(&id);
     assert_eq!(att.issuer, bridge);
     assert_eq!(att.subject, subject);
-    assert!(att.bridged);
+    assert_eq!(att.origin, AttestationOrigin::Bridged);
     assert_eq!(att.source_chain, Some(source_chain));
     assert_eq!(att.source_tx, Some(source_tx));
     assert_eq!(client.get_global_stats().total_attestations, 1);
@@ -267,6 +268,7 @@ fn snapshot_after_expiration_hook_triggered() {
 
     let hook = client.get_expiration_hook(&subject);
     assert!(hook.is_some());
-    assert_eq!(hook.unwrap().callback_contract, callback_contract);
-    assert_eq!(hook.unwrap().notify_days_before, 7);
+    let hook = hook.unwrap();
+    assert_eq!(hook.callback_contract, callback_contract);
+    assert_eq!(hook.notify_days_before, 7);
 }

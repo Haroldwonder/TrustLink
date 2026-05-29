@@ -441,3 +441,182 @@ const adminKey = xdr.LedgerKey.contractData(
 - **Status is computed, not stored.** `AttestationStatus` (`Valid`, `Expired`,
   `Revoked`, `Pending`) is derived at query time from the stored fields and the
   current ledger timestamp. Indexers must replicate this logic locally.
+
+---
+
+## Storage migration guide
+
+This section explains how Soroban handles storage across contract upgrades and
+how to safely evolve the TrustLink storage schema.
+
+### How Soroban handles storage across upgrades
+
+When the admin calls `upgrade(new_wasm_hash)`, Soroban replaces the contract's
+executable code atomically. **All storage is preserved exactly as-is** — no
+keys are touched, no values are rewritten. The new WASM starts reading the same
+raw XDR bytes that the old WASM wrote.
+
+This means:
+
+- Adding a new storage key is always safe — the key simply doesn't exist yet.
+- Removing a storage key from the code is safe — the old bytes remain on-chain
+  until TTL eviction, but the new code ignores them.
+- **Changing the shape of an existing value type is a breaking change.** If the
+  new WASM tries to deserialize a stored `ScVal` into a struct with a different
+  field layout, deserialization will fail at runtime.
+
+A `migrate` function (called once by the admin immediately after `upgrade`) is
+the standard pattern for rewriting stored values into the new format.
+
+---
+
+### Stable vs. potentially changing keys
+
+**Stable** — these keys hold simple scalar values or flat lists. Their shape is
+unlikely to change across versions:
+
+| Key | Reason stable |
+|---|---|
+| `Admin` | Single `Address` — no fields to add |
+| `Version` | Single `String` — updated in place |
+| `Issuer(Address)` | `bool` flag — no fields to add |
+| `Bridge(Address)` | `bool` flag — no fields to add |
+| `SubjectAttestations(Address)` | `Vec<String>` — append-only, no struct fields |
+| `IssuerAttestations(Address)` | `Vec<String>` — append-only, no struct fields |
+| `ClaimTypeList` | `Vec<String>` — append-only, no struct fields |
+
+**May change** — these keys hold structs with multiple fields. New fields may
+be added in future versions:
+
+| Key | Why it may change |
+|---|---|
+| `Attestation(String)` | Core data struct; new fields (e.g. `valid_from`) have already been added once |
+| `FeeConfig` | Fee policy may gain new fields (e.g. per-claim-type fees) |
+| `IssuerMetadata(Address)` | Issuer profile may gain new fields |
+| `ClaimType(String)` | Claim type info may gain metadata fields |
+
+---
+
+### Migration pattern for adding new fields to existing structs
+
+The safest approach is an **opt-in default**: define the new field as
+`Option<T>`, read existing records without a `migrate` call, and treat `None`
+as the default value. This requires zero migration work and is backward
+compatible.
+
+Use a `migrate` function only when you need a non-optional field or must
+rewrite every record eagerly.
+
+#### Option 1 — Optional field (no migration needed)
+
+Add the new field as `Option<T>` with a sensible default. Existing stored
+records deserialize successfully because Soroban's XDR codec maps missing map
+entries to `None` for `Option` fields.
+
+```rust
+// Before (v1)
+pub struct Attestation {
+    pub id:         String,
+    pub issuer:     Address,
+    pub claim_type: String,
+    // ...
+}
+
+// After (v2) — backward compatible, no migrate() needed
+pub struct Attestation {
+    pub id:         String,
+    pub issuer:     Address,
+    pub claim_type: String,
+    // ...
+    pub audit_log:  Option<Vec<AuditEntry>>,  // None for all pre-v2 records
+}
+```
+
+Call sites treat `None` as an empty audit log:
+
+```rust
+let log = attestation.audit_log.unwrap_or_default();
+```
+
+#### Option 2 — Eager migration with a `migrate` function
+
+Use this when the new field must be non-optional or when you want to backfill
+all existing records in one transaction.
+
+```rust
+pub fn migrate(env: Env, admin: Address) {
+    admin.require_auth();
+    Validation::require_admin(&env, &admin);
+
+    // Iterate every known attestation ID and rewrite with the new default
+    let ids: Vec<String> = /* load from an index or a migration manifest */;
+    for id in ids.iter() {
+        let mut att: AttestationV1 = storage::get_attestation(&env, &id);
+        let att_v2 = AttestationV2 {
+            id:        att.id,
+            issuer:    att.issuer,
+            claim_type: att.claim_type,
+            // ... copy all existing fields ...
+            new_field: DefaultValue,   // backfill
+        };
+        storage::set_attestation(&env, &att_v2);
+    }
+}
+```
+
+Call `migrate` immediately after `upgrade` in the same deployment window:
+
+```bash
+# 1. Upgrade the executable
+stellar contract invoke --id "$CONTRACT_ID" --source "$ADMIN_SECRET" \
+  --network mainnet -- upgrade \
+  --admin "$ADMIN_PUBLIC" --new_wasm_hash <NEW_HASH>
+
+# 2. Run migration (admin only, call once)
+stellar contract invoke --id "$CONTRACT_ID" --source "$ADMIN_SECRET" \
+  --network mainnet -- migrate \
+  --admin "$ADMIN_PUBLIC"
+```
+
+**Important:** `migrate` must be idempotent — safe to call more than once in
+case of a partial failure. Guard against re-migration by checking a version
+flag in instance storage:
+
+```rust
+pub fn migrate(env: Env, admin: Address) {
+    admin.require_auth();
+    Validation::require_admin(&env, &admin);
+
+    let current: String = storage::get_version(&env);
+    if current == "2.0.0" {
+        return; // already migrated
+    }
+
+    // ... rewrite records ...
+
+    storage::set_version(&env, &String::from_str(&env, "2.0.0"));
+}
+```
+
+#### Choosing between the two options
+
+| Situation | Recommended approach |
+|---|---|
+| New field has a sensible `None` / empty default | Option 1 — optional field |
+| New field must be non-optional | Option 2 — migrate function |
+| Renaming or removing a field | Option 2 — migrate function |
+| Changing a field's type | Option 2 — migrate function; use a new key name to avoid XDR conflicts |
+
+---
+
+### Testing migrations
+
+Always test the migration on testnet against a contract that has real stored
+data before running on mainnet:
+
+1. Deploy the current (pre-upgrade) version and create representative records.
+2. Upgrade to the new WASM.
+3. Call `migrate` (if applicable).
+4. Run `./scripts/verify_deployment.sh` to confirm all read paths work.
+5. Manually read a pre-existing record and confirm the new field has the
+   expected default value.

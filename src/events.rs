@@ -1,6 +1,37 @@
-use soroban_sdk::{symbol_short, Address, Env, String};
+use soroban_sdk::{symbol_short, Address, Env, String, Symbol};
 
 use crate::types::{Attestation, IssuerTier};
+
+const TOPIC_ADMIN_INIT: Symbol = symbol_short!("adm_init");
+const TOPIC_CREATED: Symbol = symbol_short!("created");
+const TOPIC_IMPORTED: Symbol = symbol_short!("imported");
+const TOPIC_BRIDGED: Symbol = symbol_short!("bridged");
+const TOPIC_REVOKED: Symbol = symbol_short!("revoked");
+const TOPIC_RENEWED: Symbol = symbol_short!("renewed");
+const TOPIC_UPDATED: Symbol = symbol_short!("updated");
+const TOPIC_EXPIRED: Symbol = symbol_short!("expired");
+const TOPIC_DEL_REQ: Symbol = symbol_short!("del_req");
+const TOPIC_ISS_REG: Symbol = symbol_short!("iss_reg");
+const TOPIC_ISS_REM: Symbol = symbol_short!("iss_rem");
+const TOPIC_ISS_TIER: Symbol = symbol_short!("iss_tier");
+const TOPIC_CLM_TYPE: Symbol = symbol_short!("clm_type");
+const TOPIC_MS_PROP: Symbol = symbol_short!("ms_prop");
+const TOPIC_MS_SIGN: Symbol = symbol_short!("ms_sign");
+const TOPIC_MS_ACTV: Symbol = symbol_short!("ms_actv");
+const TOPIC_ADM_XFER: Symbol = symbol_short!("adm_xfer");
+const TOPIC_ADM_ADD: Symbol = symbol_short!("adm_add");
+const TOPIC_ADM_REM: Symbol = symbol_short!("adm_rem");
+const TOPIC_ENDORSED: Symbol = symbol_short!("endorsed");
+const TOPIC_EXP_HOOK: Symbol = symbol_short!("exp_hook");
+
+const TOPIC_REQ: Symbol = symbol_short!("att_req");
+const TOPIC_REQ_OK: Symbol = symbol_short!("req_ok");
+const TOPIC_REQ_NO: Symbol = symbol_short!("req_no");
+const TOPIC_REQ_CANCEL: Symbol = symbol_short!("req_cncl");
+
+const TOPIC_WL_ADD: Symbol = symbol_short!("wl_add");
+const TOPIC_WL_REM: Symbol = symbol_short!("wl_rem");
+const TOPIC_WL_ON: Symbol = symbol_short!("wl_on");
 
 pub struct Events;
 
@@ -230,28 +261,6 @@ impl Events {
         );
     }
 
-    /// Emitted when a multi-sig proposal reaches threshold and the attestation is activated.
-    pub fn multisig_activated(env: &Env, proposal_id: &String, attestation_id: &String) {
-        env.events().publish(
-            (symbol_short!("ms_actv"),),
-            (proposal_id.clone(), attestation_id.clone()),
-        );
-    }
-
-    /// Emitted when admin transfers an attestation to a new issuer.
-    pub fn attestation_transferred(
-        env: &Env,
-        by_admin: &Address,
-        removed_admin: &Address,
-        timestamp: u64,
-    ) {
-        // TOPIC_ADM_REM
-        env.events().publish(
-            (symbol_short!(TOPIC_ADM_REM), by_admin.clone()),
-            (removed_admin.clone(), timestamp),
-        );
-    }
-
     /// Emitted when a registered issuer endorses an existing attestation.
     pub fn attestation_endorsed(
         env: &Env,
@@ -302,6 +311,7 @@ impl Events {
         // TOPIC_PAUSED
         env.events()
             .publish((symbol_short!("paused"),), (admin.clone(), timestamp, reason.clone()));
+            .publish((symbol_short!("paused"),), (admin.clone(), timestamp));
     }
 
     /// Emitted when the admin unpauses the contract.
@@ -360,6 +370,14 @@ impl Events {
         );
     }
 
+    /// Emitted when a subject cancels their own pending attestation request.
+    pub fn request_cancelled(env: &Env, request_id: &String, subject: &Address) {
+        env.events().publish(
+            (TOPIC_REQ_CANCEL, subject.clone()),
+            request_id.clone(),
+        );
+    }
+
     /// Emitted when issuer creates a delegation to a sub-issuer for a claim type.
     pub fn delegation_created(
         env: &Env,
@@ -397,6 +415,14 @@ impl Events {
     pub fn whitelist_updated(env: &Env, issuer: &Address, subject: &Address, added: bool) {
         let sym = if added { TOPIC_WL_ADD } else { TOPIC_WL_REM };
         env.events().publish((sym, issuer.clone()), subject.clone());
+    }
+
+    /// Emitted when an issuer creates or overwrites a template.
+    pub fn template_created(env: &Env, issuer: &Address, template_id: &String) {
+        env.events().publish(
+            (symbol_short!("tmpl_crt"), issuer.clone()),
+            template_id.clone(),
+        );
     }
 
     pub fn council_initialized(env: &Env, quorum: u32, member_count: u32) {
