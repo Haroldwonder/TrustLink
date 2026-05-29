@@ -182,6 +182,7 @@ pub fn store_attestation(env: &Env, attestation: &Attestation) {
     // the new chunked index (for efficient paginated queries).
     Storage::add_subject_attestation(env, &attestation.subject, &attestation.id);
     Storage::add_issuer_attestation(env, &attestation.issuer, &attestation.id);
+    Storage::add_valid_attestation(env, &attestation.subject, &attestation.id);
     crate::storage::ChunkedIndex::add_subject(env, &attestation.subject, &attestation.id);
     crate::storage::ChunkedIndex::add_issuer(env, &attestation.issuer, &attestation.id);
     let mut stats = Storage::get_issuer_stats(env, &attestation.issuer);
@@ -501,6 +502,7 @@ pub fn create_attestations_batch(
         // Write attestation record and per-subject index — issuer index deferred.
         Storage::set_attestation(env, &attestation);
         Storage::add_subject_attestation(env, &subject, &attestation_id);
+        Storage::add_valid_attestation(env, &subject, &attestation_id);
         crate::storage::ChunkedIndex::add_subject(env, &subject, &attestation_id);
 
         Storage::append_audit_entry(
@@ -558,6 +560,7 @@ pub fn revoke_attestation(
     attestation.revocation_reason = reason.clone();
     Storage::set_attestation(env, &attestation);
     Storage::remove_subject_attestation(env, &attestation.subject, &attestation_id);
+    Storage::remove_valid_attestation(env, &attestation.subject, &attestation_id);
     Storage::remove_issuer_attestation(env, &issuer, &attestation_id);
     crate::storage::ChunkedIndex::remove_subject(env, &attestation.subject, &attestation_id);
     crate::storage::ChunkedIndex::remove_issuer(env, &issuer, &attestation_id);
@@ -755,6 +758,7 @@ pub fn request_deletion(env: &Env, subject: Address, attestation_id: String) -> 
     attestation.deleted = true;
     Storage::set_attestation(env, &attestation);
     Storage::remove_subject_attestation(env, &subject, &attestation_id);
+    Storage::remove_valid_attestation(env, &subject, &attestation_id);
     crate::storage::ChunkedIndex::remove_subject(env, &subject, &attestation_id);
 
     let timestamp = env.ledger().timestamp();
