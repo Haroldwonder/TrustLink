@@ -281,6 +281,14 @@ export function parseTrustLinkError(errorMessage: string): TrustLinkError | null
   return null;
 }
 
+/** Attestation template created by an issuer. */
+export interface AttestationTemplate {
+  issuer: string;
+  template_id: string;
+  claim_type: string;
+  metadata: string | null;
+}
+
 /** Network presets supported by TrustLinkClient. */
 export type Network = "testnet" | "mainnet" | "local";
 

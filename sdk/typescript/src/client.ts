@@ -364,13 +364,17 @@ export class TrustLinkClient {
     claimType: string,
     minTier: IssuerTier
   ): Promise<boolean> {
-    const tierMap: Record<IssuerTier, number> = { Basic: 0, Verified: 1, Premium: 2 };
+    // IssuerTier is a Soroban #[contracttype] enum — encode as ScVec([ScSymbol(variant)])
     return this.simulate(
       "has_valid_claim_from_tier",
       this.addr(subject),
       this.str(claimType),
-      nativeToScVal(tierMap[minTier], { type: "u32" })
+      xdr.ScVal.scvVec([xdr.ScVal.scvSymbol(minTier)])
     );
+  }
+
+  async getClaimTypeCount(claimType: string): Promise<bigint> {
+    return this.simulate("get_claim_type_count", this.str(claimType));
   }
 
   // ── Count Queries ──────────────────────────────────────────────────────────
@@ -522,20 +526,10 @@ export class TrustLinkClient {
     return this.simulate("get_endorsement_count", this.str(attestationId));
   }
 
-  // ── Confidence Score ───────────────────────────────────────────────────────
+  // ── Issue #530: Template management ───────────────────────────────────────
 
-  /**
-   * Return a confidence score (30–100) for an attestation, or `null` if the
-   * attestation does not exist.
-   *
-   * The score is computed from two signals:
-   *  - Issuer tier:       Basic → 30  |  Verified → 60  |  Premium → 90
-   *  - Endorsement bonus: +2 per endorsement, capped at +10
-   *
-   * @param attestationId - The attestation ID to score.
-   */
-  async getConfidenceScore(attestationId: string): Promise<number | null> {
-    return this.simulate("get_confidence_score", this.str(attestationId));
+  async getTemplate(issuer: string, templateId: string): Promise<import("./types").AttestationTemplate> {
+    return this.simulate("get_template", this.addr(issuer), this.str(templateId));
   async listEndorsementsByEndorser(endorser: string, start: number, limit: number): Promise<Endorsement[]> {
     return this.simulate("list_endorsements_by_endorser", this.addr(endorser), this.u32(start), this.u32(limit));
   }

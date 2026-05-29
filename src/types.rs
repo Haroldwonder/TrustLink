@@ -1,8 +1,4 @@
 //! Shared data types for TrustLink.
-//!
-//! Defines [`Attestation`], [`AttestationStatus`], and supporting structs used
-//! throughout the contract. All types are annotated with `#[contracttype]` for
-//! Soroban ABI compatibility. Error definitions live in [`crate::errors`].
 
 use soroban_sdk::{contracttype, xdr::ToXdr, Address, Bytes, Env, String, Vec};
 
@@ -40,16 +36,13 @@ pub enum RequestStatus {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AttestationRequest {
-    /// Unique deterministic ID (hash of subject | issuer | claim_type | timestamp).
     pub id: String,
     pub subject: Address,
     pub issuer: Address,
     pub claim_type: String,
     pub timestamp: u64,
-    /// Unix timestamp after which the request expires if not acted on.
     pub expires_at: u64,
     pub status: RequestStatus,
-    /// Rejection reason set by the issuer, if rejected.
     pub rejection_reason: Option<String>,
 }
 
@@ -138,9 +131,11 @@ pub struct RateLimitConfig {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractConfig {
-    pub ttl_config: TtlConfig,
-    pub limits: StorageLimits,
+    pub contract_name: String,
+    pub contract_version: String,
+    pub contract_description: String,
     pub fee_config: FeeConfig,
+    pub ttl_config: TtlConfig,
     pub require_registered_claim_type: bool,
 }
 
@@ -197,8 +192,6 @@ pub struct Attestation {
     pub source_tx: Option<String>,
     pub tags: Option<Vec<String>>,
     pub revocation_reason: Option<String>,
-    /// True when the subject has requested GDPR deletion of this attestation.
-    /// Deleted attestations are excluded from all query results.
     pub deleted: bool,
 }
 
@@ -262,9 +255,7 @@ pub struct MultiSigProposal {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StorageLimits {
-    /// Maximum number of attestations a single issuer may create. Default: 10,000.
     pub max_attestations_per_issuer: u32,
-    /// Maximum number of attestations a single subject may hold. Default: 100.
     pub max_attestations_per_subject: u32,
 }
 
@@ -295,55 +286,12 @@ pub struct Delegation {
     pub expiration: Option<u64>,
 }
 
-/// A reusable template that pre-populates common attestation fields.
+/// Storage key for the pending admin transfer (two-step pattern).
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AttestationTemplate {
-    /// Unique name for the template (scoped per issuer).
-    pub name: String,
-    /// The issuer that owns this template.
-    pub issuer: Address,
-    /// Claim type this template issues.
-    pub claim_type: String,
-    /// Optional default metadata applied to attestations created from this template.
-    pub default_metadata: Option<String>,
-    /// Optional default expiration offset in seconds from issuance time.
-    pub default_expiration_secs: Option<u64>,
-}
-
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum Error {
-    AlreadyInitialized = 1,
-    NotInitialized = 2,
-    Unauthorized = 3,
-    NotFound = 4,
-    DuplicateAttestation = 5,
-    AlreadyRevoked = 6,
-    Expired = 7,
-    InvalidValidFrom = 8,
-    InvalidExpiration = 9,
-    MetadataTooLong = 10,
-    InvalidTimestamp = 11,
-    InvalidFee = 12,
-    FeeTokenRequired = 13,
-    TooManyTags = 14,
-    TagTooLong = 15,
-    /// Threshold must be >= 1 and <= number of required signers.
-    InvalidThreshold = 16,
-    /// The signer is not in the proposal's required_signers list.
-    NotRequiredSigner = 17,
-    /// The signer has already co-signed this proposal.
-    AlreadySigned = 18,
-    /// The proposal has already been finalized.
-    ProposalFinalized = 19,
-    /// The proposal has expired without reaching threshold.
-    ProposalExpired = 20,
-    /// The contract is paused and cannot accept state-changing operations.
-    ContractPaused = 21,
-}
-
-/// A multi-sig attestation proposal requiring M-of-N issuer signatures.
+pub struct PendingAdminTransfer {
+    pub proposed_by: Address,
+    pub new_admin: Address,
 
 /// A named attestation template owned by an issuer.
 #[contracttype]
@@ -358,6 +306,14 @@ pub struct AttestationTemplate {
 /// Admin council: ordered list of admin addresses.
 pub type AdminCouncil = Vec<Address>;
 
+/// An attestation template that issuers can create, reuse, and delete.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AttestationTemplate {
+    pub issuer: Address,
+    pub template_id: String,
+    pub claim_type: String,
+    pub metadata: Option<String>,
 /// Storage key for the pending admin transfer (two-step pattern).
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -367,7 +323,6 @@ pub struct PendingAdminTransfer {
 }
 
 impl Attestation {
-    /// Hashes an arbitrary byte payload and returns a 64-character lowercase hex string.
     pub fn hash_payload(env: &Env, payload: &Bytes) -> String {
         let hash = env.crypto().sha256(payload).to_array();
         const HEX: &[u8; 16] = b"0123456789abcdef";
@@ -379,7 +334,6 @@ impl Attestation {
         String::from_bytes(env, &hex)
     }
 
-    /// Generates a deterministic attestation ID from the given inputs.
     pub fn generate_id(
         env: &Env,
         issuer: &Address,
@@ -395,7 +349,6 @@ impl Attestation {
         Self::hash_payload(env, &payload)
     }
 
-    /// Generates a deterministic bridge attestation ID from the given inputs.
     pub fn generate_bridge_id(
         env: &Env,
         bridge: &Address,
@@ -435,7 +388,6 @@ impl Attestation {
 
 
 impl AttestationRequest {
-    /// Deterministic ID: SHA-256 over XDR of `"req:" | subject | issuer | claim_type | timestamp`.
     pub fn generate_id(
         env: &Env,
         subject: &Address,
