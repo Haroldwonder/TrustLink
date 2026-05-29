@@ -57,4 +57,12 @@ pub enum Error {
     InvalidJurisdiction = 32,
     LimitExceeded = 33,
     BatchTooLarge = 34,
+    InvalidFeeToken = 35,
+    DuplicateRequest = 36,
+    RequestAlreadyProcessed = 37,
+    RequestExpired = 38,
+    AlreadyApproved = 39,
+    CouncilProposalExists = 40,
+    CouncilProposalExecuted = 41,
+    CouncilProposalExpired = 42,
 }

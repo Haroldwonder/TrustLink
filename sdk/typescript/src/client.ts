@@ -307,13 +307,17 @@ export class TrustLinkClient {
     claimType: string,
     minTier: IssuerTier
   ): Promise<boolean> {
-    const tierMap: Record<IssuerTier, number> = { Basic: 0, Verified: 1, Premium: 2 };
+    // IssuerTier is a Soroban #[contracttype] enum — encode as ScVec([ScSymbol(variant)])
     return this.simulate(
       "has_valid_claim_from_tier",
       this.addr(subject),
       this.str(claimType),
-      nativeToScVal(tierMap[minTier], { type: "u32" })
+      xdr.ScVal.scvVec([xdr.ScVal.scvSymbol(minTier)])
     );
+  }
+
+  async getClaimTypeCount(claimType: string): Promise<bigint> {
+    return this.simulate("get_claim_type_count", this.str(claimType));
   }
 
   // ── Count Queries ──────────────────────────────────────────────────────────
@@ -463,5 +467,11 @@ export class TrustLinkClient {
 
   async getEndorsementCount(attestationId: string): Promise<number> {
     return this.simulate("get_endorsement_count", this.str(attestationId));
+  }
+
+  // ── Issue #530: Template management ───────────────────────────────────────
+
+  async getTemplate(issuer: string, templateId: string): Promise<import("./types").AttestationTemplate> {
+    return this.simulate("get_template", this.addr(issuer), this.str(templateId));
   }
 }
