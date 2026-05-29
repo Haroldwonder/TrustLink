@@ -535,9 +535,11 @@ When you merge commits to `main`:
    - [ ] `cargo clippy --all-targets -- -D warnings` is clean
    - [ ] Commit messages follow Conventional Commits format
 
-4. **Open a PR** against `main`. Include:
+4. **Open a PR** against `main` using the [pull request template](.github/PULL_REQUEST_TEMPLATE.md). GitHub loads it automatically when you open a PR. Fill in:
 
    - What the change does and why
+   - The type of change (bug fix / feature / docs / refactor)
+   - Testing done
    - Any relevant issue numbers (`Closes #123`)
    - Notes for reviewers if the change is non-obvious
 
