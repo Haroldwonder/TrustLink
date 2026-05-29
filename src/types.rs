@@ -221,6 +221,7 @@ pub enum AuditAction {
     Renewed,
     Updated,
     Transferred,
+    Deleted,
 }
 
 /// A single immutable entry in an attestation's audit log.

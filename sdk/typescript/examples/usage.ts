@@ -60,6 +60,10 @@ async function main() {
   const page = await client.getSubjectAttestations(USER_ADDRESS, 0, 5);
   console.log(`First page (up to 5):`, page);
 
+  // Attestations filtered by jurisdiction
+  const euAttestations = await client.getAttestationsByJurisdiction(USER_ADDRESS, "EU", 0, 10);
+  console.log(`EU-jurisdiction attestations:`, euAttestations);
+
   // ── Pagination helpers ──────────────────────────────────────────────────
   console.log("\n=== Pagination Helpers ===");
 

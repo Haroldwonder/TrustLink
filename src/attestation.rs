@@ -740,6 +740,12 @@ pub fn request_deletion(env: &Env, subject: Address, attestation_id: String) -> 
 
     let timestamp = env.ledger().timestamp();
     Events::deletion_requested(env, &subject, &attestation_id, timestamp);
+    Storage::append_audit_entry(env, &attestation_id, &AuditEntry {
+        action: AuditAction::Deleted,
+        actor: subject.clone(),
+        timestamp,
+        details: None,
+    });
     Ok(())
 }
 

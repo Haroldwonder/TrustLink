@@ -99,6 +99,9 @@ const validClaims = await client.getValidClaims(subject);
 // Attestations by tag
 const tagged = await client.getAttestationsByTag(subject, "premium");
 
+// Attestations by jurisdiction (paginated)
+const euAtts = await client.getAttestationsByJurisdiction(subject, "EU", 0, 10);
+
 // Audit log for an attestation
 const log = await client.getAuditLog(attestationId);
 ```
