@@ -11,6 +11,22 @@ use crate::validation::Validation;
 pub const MAX_SOURCE_CHAIN_LEN: u32 = 32;
 pub const MAX_SOURCE_TX_LEN: u32 = 128;
 
+/// Convert a `u64` to a Soroban `String` without `std` (no `format!`/`to_string`).
+pub fn u64_to_string(env: &Env, n: u64) -> String {
+    if n == 0 {
+        return String::from_bytes(env, b"0");
+    }
+    let mut buf = [0u8; 20]; // u64::MAX has 20 decimal digits
+    let mut pos = 20usize;
+    let mut val = n;
+    while val > 0 {
+        pos -= 1;
+        buf[pos] = b'0' + (val % 10) as u8;
+        val /= 10;
+    }
+    String::from_bytes(env, &buf[pos..20])
+}
+
 // -----------------------------------------------------------------------
 // Shared helpers (pub so admin.rs / multisig.rs / request.rs can reuse)
 // -----------------------------------------------------------------------
@@ -81,13 +97,7 @@ pub fn validate_jurisdiction(env: &Env, jurisdiction: &Option<String>) -> Result
         if code.len() != 2 {
             return Err(Error::InvalidJurisdiction);
         }
-        
-        // Must be exactly 2 uppercase ASCII letters (A-Z)
-        let bytes = code.as_bytes();
-        if bytes.len() != 2 || !bytes.iter().all(|&b| b >= b'A' && b <= b'Z') {
-            return Err(Error::InvalidJurisdiction);
-        }
-        
+
         // Must be a valid ISO 3166-1 alpha-2 code
         let valid_codes = [
             "AF","AX","AL","DZ","AS","AD","AO","AI","AQ","AG","AR","AM","AW","AU","AT","AZ",
@@ -577,11 +587,12 @@ pub fn renew_attestation(
     attestation.expiration = new_expiration;
     Storage::set_attestation(env, &attestation);
     Events::attestation_renewed(env, &attestation_id, &issuer, new_expiration);
+    let details = new_expiration.map(|ts| u64_to_string(env, ts));
     Storage::append_audit_entry(env, &attestation_id, &AuditEntry {
         action: AuditAction::Renewed,
         actor: issuer.clone(),
         timestamp: env.ledger().timestamp(),
-        details: None,
+        details,
     });
     Ok(())
 }

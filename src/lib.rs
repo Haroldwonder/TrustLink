@@ -14,6 +14,9 @@ pub mod types;
 mod validation;
 
 #[cfg(test)]
+extern crate std;
+
+#[cfg(test)]
 mod test;
 
 pub(crate) mod callback {
@@ -31,12 +34,9 @@ use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::{
     AdminCouncil, Attestation, AttestationRequest, AttestationStatus, AttestationTemplate,
-    AuditEntry, Endorsement, Error, ExpirationHook, FeeConfig, GlobalStats, HealthStatus,
-    IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, PendingAdminTransfer,
+    AuditEntry, Delegation, Endorsement, Error, ExpirationHook, FeeConfig, GlobalStats,
+    HealthStatus, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, PendingAdminTransfer,
     RateLimitConfig, StorageLimits,
-    Attestation, AttestationRequest, AttestationStatus, AttestationTemplate, AuditEntry, Delegation, Error,
-    ExpirationHook, FeeConfig, GlobalStats, HealthStatus, IssuerMetadata, IssuerStats, IssuerTier,
-    MultiSigProposal, PendingAdminTransfer, RateLimitConfig, StorageLimits,
 };
 use crate::validation::Validation;
 
@@ -251,12 +251,12 @@ impl TrustLinkContract {
     // Contract Config
     // -----------------------------------------------------------------------
 
-    pub fn set_require_registered_claim_type(env: Env, admin: Address, require: bool) -> Result<(), Error> {
+    pub fn set_require_registered_claim_typ(env: Env, admin: Address, require: bool) -> Result<(), Error> {
         admin::set_require_registered_claim_type(&env, admin, require)
     }
 
     #[must_use]
-    pub fn get_require_registered_claim_type(env: Env) -> bool {
+    pub fn get_require_registered_claim_typ(env: Env) -> bool {
         admin::get_require_registered_claim_type(&env)
     }
 

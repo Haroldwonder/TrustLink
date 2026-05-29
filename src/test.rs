@@ -2200,9 +2200,11 @@ fn test_audit_log_renew_appends_entry() {
     let log = client.get_audit_log(&id);
 
     assert_eq!(log.len(), 2);
+    let renewed_entry = log.get(1).unwrap();
+    assert_eq!(renewed_entry.action, crate::types::AuditAction::Renewed);
     assert_eq!(
-        log.get(1).unwrap().action,
-        crate::types::AuditAction::Renewed
+        renewed_entry.details,
+        Some(soroban_sdk::String::from_str(&env, "2592000"))
     );
 }
 
