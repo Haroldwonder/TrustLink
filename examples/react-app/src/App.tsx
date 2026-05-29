@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { connectWallet, getWalletAddress } from "./wallet";
+import { ErrorBoundary } from "./ErrorBoundary";
 import AdminPanel from "./panels/AdminPanel";
 import IssuerPanel from "./panels/IssuerPanel";
 import UserPanel from "./panels/UserPanel";
@@ -83,12 +84,12 @@ export default function App() {
         ))}
       </nav>
 
-      {tab === "user" && <UserPanel address={address} />}
-      {tab === "requests" && <AttestationRequestPanel address={address} />}
-      {tab === "multisig" && <MultiSigPanel address={address} />}
-      {tab === "issuer" && <IssuerPanel address={address} />}
-      {tab === "verifier" && <VerifierPanel />}
-      {tab === "admin" && <AdminPanel address={address} />}
+      {tab === "user" && <ErrorBoundary><UserPanel address={address} /></ErrorBoundary>}
+      {tab === "requests" && <ErrorBoundary><AttestationRequestPanel address={address} /></ErrorBoundary>}
+      {tab === "multisig" && <ErrorBoundary><MultiSigPanel address={address} /></ErrorBoundary>}
+      {tab === "issuer" && <ErrorBoundary><IssuerPanel address={address} /></ErrorBoundary>}
+      {tab === "verifier" && <ErrorBoundary><VerifierPanel /></ErrorBoundary>}
+      {tab === "admin" && <ErrorBoundary><AdminPanel address={address} /></ErrorBoundary>}
     </>
   );
 }
