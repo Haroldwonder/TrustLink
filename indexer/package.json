@@ -16,7 +16,7 @@
     "testMatch": ["**/*.test.ts"]
   },
   "dependencies": {
-    "@apollo/server": "^5.5.0",
+    "@apollo/server": "^5.5.1",
     "@graphql-tools/schema": "^10.0.31",
     "@prisma/client": "^5.14.0",
     "@stellar/stellar-sdk": "^14.0.0",
