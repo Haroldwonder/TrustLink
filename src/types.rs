@@ -292,6 +292,22 @@ pub struct Delegation {
     pub expiration: Option<u64>,
 }
 
+/// A reusable template that pre-populates common attestation fields.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AttestationTemplate {
+    /// Unique name for the template (scoped per issuer).
+    pub name: String,
+    /// The issuer that owns this template.
+    pub issuer: Address,
+    /// Claim type this template issues.
+    pub claim_type: String,
+    /// Optional default metadata applied to attestations created from this template.
+    pub default_metadata: Option<String>,
+    /// Optional default expiration offset in seconds from issuance time.
+    pub default_expiration_secs: Option<u64>,
+}
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Error {

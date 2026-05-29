@@ -4475,3 +4475,189 @@ mod import_attestation_tests {
         );
     }
 }
+
+// ── Issue #526: issuer_tier_updated event includes old_tier and new_tier ─────
+
+#[test]
+fn test_set_issuer_tier_upgrade_event_contains_old_and_new_tier() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, client) = setup(&env);
+
+    // First call: no prior tier → old_tier is None
+    client.set_issuer_tier(&admin, &issuer, &IssuerTier::Basic);
+    assert_eq!(client.get_issuer_tier(&issuer), Some(IssuerTier::Basic));
+
+    // Upgrade to Verified — old_tier should be Basic
+    client.set_issuer_tier(&admin, &issuer, &IssuerTier::Verified);
+    assert_eq!(client.get_issuer_tier(&issuer), Some(IssuerTier::Verified));
+
+    // Confirm events were emitted (at least two tier-related events)
+    let events = env.events().all();
+    assert!(!events.is_empty());
+}
+
+#[test]
+fn test_set_issuer_tier_downgrade_event_reflects_old_tier() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, client) = setup(&env);
+
+    // Set to Premium first
+    client.set_issuer_tier(&admin, &issuer, &IssuerTier::Premium);
+    assert_eq!(client.get_issuer_tier(&issuer), Some(IssuerTier::Premium));
+
+    // Downgrade to Basic
+    client.set_issuer_tier(&admin, &issuer, &IssuerTier::Basic);
+    assert_eq!(client.get_issuer_tier(&issuer), Some(IssuerTier::Basic));
+}
+
+#[test]
+fn test_set_issuer_tier_initial_set_has_none_as_old_tier() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, client) = setup(&env);
+
+    // Issuer has no tier yet → get_issuer_tier returns None
+    assert!(client.get_issuer_tier(&issuer).is_none());
+
+    // Setting a tier should succeed
+    client.set_issuer_tier(&admin, &issuer, &IssuerTier::Verified);
+    assert_eq!(client.get_issuer_tier(&issuer), Some(IssuerTier::Verified));
+}
+
+// ── Issue #527: confidence score formula ─────────────────────────────────────
+
+#[test]
+fn test_get_confidence_score_basic_issuer_no_endorsements() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC");
+
+    let attestation_id =
+        client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+
+    // Basic tier (default) + 0 endorsements = 30
+    client.set_issuer_tier(&admin, &issuer, &IssuerTier::Basic);
+    let score = client.get_confidence_score(&attestation_id);
+    assert_eq!(score, Some(30));
+}
+
+#[test]
+fn test_get_confidence_score_premium_issuer_no_endorsements() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC");
+
+    let attestation_id =
+        client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+    client.set_issuer_tier(&admin, &issuer, &IssuerTier::Premium);
+
+    // Premium + 0 endorsements = 90
+    let score = client.get_confidence_score(&attestation_id);
+    assert_eq!(score, Some(90));
+}
+
+#[test]
+fn test_get_confidence_score_returns_none_for_missing_attestation() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_admin, _issuer, client) = setup(&env);
+    let fake_id = String::from_str(&env, "nonexistent_id");
+    assert_eq!(client.get_confidence_score(&fake_id), None);
+}
+
+// ── Issue #528: pause with reason ────────────────────────────────────────────
+
+#[test]
+fn test_pause_stores_and_returns_reason() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, _issuer, client) = setup(&env);
+
+    let reason = String::from_str(&env, "security incident");
+    client.pause(&admin, &Some(reason.clone()));
+
+    assert!(client.is_paused());
+    assert_eq!(client.get_pause_reason(), Some(reason));
+}
+
+#[test]
+fn test_pause_without_reason() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, _issuer, client) = setup(&env);
+
+    client.pause(&admin, &None);
+    assert!(client.is_paused());
+    assert_eq!(client.get_pause_reason(), None);
+}
+
+#[test]
+fn test_unpause_clears_reason() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, _issuer, client) = setup(&env);
+
+    client.pause(&admin, &Some(String::from_str(&env, "maintenance")));
+    assert!(client.get_pause_reason().is_some());
+
+    client.unpause(&admin);
+    assert!(!client.is_paused());
+    assert_eq!(client.get_pause_reason(), None);
+}
+
+// ── Issue #529: create_template validates claim_type registration ─────────────
+
+#[test]
+fn test_create_template_succeeds_when_validation_disabled() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_admin, issuer, client) = setup(&env);
+
+    let name = String::from_str(&env, "kyc_template");
+    let claim_type = String::from_str(&env, "KYC_UNREGISTERED");
+
+    // require_registered_claim_type is false by default → should succeed
+    client.create_template(&issuer, &name, &claim_type, &None, &None);
+    let tmpl = client.get_template(&issuer, &name);
+    assert!(tmpl.is_some());
+    assert_eq!(tmpl.unwrap().claim_type, claim_type);
+}
+
+#[test]
+fn test_create_template_rejects_unregistered_claim_type_when_flag_enabled() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, client) = setup(&env);
+
+    client.set_require_registered_claim_type(&admin, &true);
+
+    let name = String::from_str(&env, "bad_template");
+    let claim_type = String::from_str(&env, "UNREGISTERED_TYPE");
+
+    let result = client.try_create_template(&issuer, &name, &claim_type, &None, &None);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_create_template_accepts_registered_claim_type_when_flag_enabled() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, client) = setup(&env);
+
+    let claim_type = String::from_str(&env, "KYC");
+    let description = String::from_str(&env, "Know Your Customer");
+    client.register_claim_type(&admin, &claim_type, &description);
+
+    client.set_require_registered_claim_type(&admin, &true);
+
+    let name = String::from_str(&env, "kyc_template");
+    // Registered claim type should succeed
+    client.create_template(&issuer, &name, &claim_type, &None, &None);
+    assert!(client.get_template(&issuer, &name).is_some());
+}

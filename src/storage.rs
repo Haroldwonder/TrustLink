@@ -30,10 +30,10 @@
 
 use crate::constants::{DAY_IN_LEDGERS, DEFAULT_INSTANCE_LIFETIME};
 use crate::types::{
-    AdminCouncil, Attestation, AttestationRequest, AuditEntry, ClaimTypeInfo, Delegation,
-    Endorsement, Error, ExpirationHook, FeeConfig, GlobalStats, IssuerMetadata, IssuerStats,
-    IssuerTier, MultiSigProposal, PendingAdminTransfer, RateLimitConfig, StorageLimits, TtlConfig,
-    CouncilProposal,
+    AdminCouncil, Attestation, AttestationRequest, AttestationTemplate, AuditEntry, ClaimTypeInfo,
+    CouncilProposal, Delegation, Endorsement, Error, ExpirationHook, FeeConfig, GlobalStats,
+    IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, PendingAdminTransfer,
+    RateLimitConfig, StorageLimits, TtlConfig,
 };
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
@@ -105,6 +105,10 @@ pub enum StorageKey {
     AttestationTemplate(Address, String),
     /// List of template names for an issuer.
     AttestationTemplateList(Address),
+    /// Optional reason stored when the contract is paused.
+    PauseReason,
+    /// Flag: when `true`, `create_template` rejects claim types not in the registry.
+    RequireRegisteredClaimType,
 }
 
 /// Get the TTL in ledgers for the configured number of days.
@@ -2586,6 +2590,93 @@ pub fn paginate(env: &Env, list: &Vec<String>, start: u32, limit: u32) -> Vec<St
         }
         env.storage().persistent().set(&key, &updated);
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // -------------------------------------------------------------------------
+    // Pause reason (issue #528)
+    // -------------------------------------------------------------------------
+
+    /// Persist the pause reason (stored until next unpause clears it).
+    pub fn set_pause_reason(env: &Env, reason: &Option<String>) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::PauseReason, reason);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    /// Return the reason stored when `pause()` was last called, or `None`.
+    pub fn get_pause_reason(env: &Env) -> Option<String> {
+        env.storage()
+            .instance()
+            .get::<StorageKey, Option<String>>(&StorageKey::PauseReason)
+            .flatten()
+    }
+
+    /// Clear the stored pause reason (called by `unpause`).
+    pub fn clear_pause_reason(env: &Env) {
+        env.storage().instance().remove(&StorageKey::PauseReason);
+    }
+
+    // -------------------------------------------------------------------------
+    // Require-registered-claim-type flag (issue #529)
+    // -------------------------------------------------------------------------
+
+    /// Set whether `create_template` must reject unregistered claim types.
+    pub fn set_require_registered_claim_type(env: &Env, required: bool) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage()
+            .instance()
+            .set(&StorageKey::RequireRegisteredClaimType, &required);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    /// Return `true` if `create_template` must reject unregistered claim types.
+    pub fn get_require_registered_claim_type(env: &Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&StorageKey::RequireRegisteredClaimType)
+            .unwrap_or(false)
+    }
+
+    // -------------------------------------------------------------------------
+    // Attestation templates (issue #529)
+    // -------------------------------------------------------------------------
+
+    /// Persist an [`AttestationTemplate`] and update the issuer's template list.
+    pub fn set_attestation_template(env: &Env, template: &AttestationTemplate) {
+        let key = StorageKey::AttestationTemplate(template.issuer.clone(), template.name.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, template);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+
+        let list_key = StorageKey::AttestationTemplateList(template.issuer.clone());
+        let mut list: Vec<String> = env
+            .storage()
+            .persistent()
+            .get(&list_key)
+            .unwrap_or(Vec::new(env));
+        let mut already_listed = false;
+        for n in list.iter() {
+            if n == template.name {
+                already_listed = true;
+                break;
+            }
+        }
+        if !already_listed {
+            list.push_back(template.name.clone());
+            env.storage().persistent().set(&list_key, &list);
+            env.storage().persistent().extend_ttl(&list_key, ttl, ttl);
+        }
+    }
+
+    /// Retrieve an [`AttestationTemplate`] by issuer and name, or `None`.
+    pub fn get_attestation_template(
+        env: &Env,
+        issuer: &Address,
+        name: &String,
+    ) -> Option<AttestationTemplate> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::AttestationTemplate(issuer.clone(), name.clone()))
     }
 }
 

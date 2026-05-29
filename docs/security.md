@@ -407,6 +407,53 @@ Before deploying to mainnet:
 
 ---
 
+## Confidence Score Model
+
+`get_confidence_score(attestation_id)` returns a numeric trust score in the range
+**30–100** for an existing attestation. The score is computed on-the-fly from two
+signals: the issuer's trust tier and the number of peer endorsements the
+attestation has received.
+
+### Scoring Formula
+
+```
+score = tier_score + endorsement_bonus
+```
+
+| Component | Value |
+|-----------|-------|
+| `tier_score` — issuer is **Basic** (or tier not set) | 30 |
+| `tier_score` — issuer is **Verified** | 60 |
+| `tier_score` — issuer is **Premium** | 90 |
+| `endorsement_bonus` — +2 per endorsement, max | +10 |
+
+So the minimum possible score is **30** (Basic tier, no endorsements) and the
+maximum is **100** (Premium tier, 5+ endorsements).
+
+### Interpretation
+
+| Score range | Suggested meaning |
+|-------------|-------------------|
+| 30–39 | Low confidence — Basic issuer, little or no peer validation |
+| 40–69 | Medium confidence — Basic issuer with endorsements, or Verified issuer |
+| 70–89 | High confidence — Verified issuer with endorsements |
+| 90–100 | Very high confidence — Premium issuer, optionally with endorsements |
+
+These thresholds are advisory. Applications should define their own minimum
+acceptable score based on the sensitivity of the gated action.
+
+### Caveats
+
+- The score is **not stored** — it is recomputed on every call. Caching it
+  off-chain risks serving a stale value if the issuer's tier changes or new
+  endorsements arrive.
+- The score reflects the **issuer's reputation and peer endorsements**, not the
+  veracity of the claim content.
+- `get_confidence_score` returns `None` for non-existent attestations. Integrators
+  must handle `None` as "no score available" rather than "score is zero".
+
+---
+
 ## Attestation ID Scheme
 
 Attestation IDs are deterministic SHA-256 hashes encoded as 64-character
