@@ -7,7 +7,7 @@ import { WebSocketServer } from "ws";
 import { useServer } from "graphql-ws/use/ws";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { startIndexer, getLastLedger } from "./indexer";
+import { startIndexer, getLastLedger, reindex } from "./indexer";
 import { buildResolvers } from "./graphql";
 import { getMetrics } from "./metrics";
 const db = new PrismaClient();
@@ -27,7 +27,7 @@ async function main() {
   // ── REST (Fastify) ─────────────────────────────────────────────────────────
   const fastify = Fastify({ logger: true });
 
-  fastify.get("/health", async () => {
+  fastify.get("/health", async (request, reply) => {
     let dbConnected = false;
     try {
       await db.$queryRaw`SELECT 1`;
@@ -35,10 +35,20 @@ async function main() {
     } catch {
       dbConnected = false;
     }
+    
+    if (!dbConnected) {
+      reply.code(503);
+      return {
+        status: "error",
+        db: "disconnected",
+        lastLedger: getLastLedger(),
+      };
+    }
+    
     return {
       status: "ok",
+      db: "connected",
       lastLedger: getLastLedger(),
-      dbConnected,
     };
   });
 
@@ -152,6 +162,26 @@ async function main() {
         reply.code(404);
         return { error: "Webhook not found" };
       }
+    }
+  );
+
+  // POST /admin/reindex?from=LEDGER - Trigger a backfill from a specific ledger
+  fastify.post<{ Querystring: { from?: string } }>(
+    "/admin/reindex",
+    async (req, reply) => {
+      const from = req.query.from ? parseInt(req.query.from, 10) : getLastLedger();
+      if (isNaN(from) || from < 0) {
+        reply.code(400);
+        return { error: "Invalid 'from' ledger number" };
+      }
+      
+      // Run reindex in background, don't block response
+      reindex(db, from).catch((err) => {
+        console.error("Reindex error:", err);
+      });
+      
+      reply.code(202);
+      return { message: `Reindex started from ledger ${from}` };
     }
   );
 

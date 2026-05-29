@@ -61,3 +61,15 @@ model Webhook {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+model Issuer {
+  address      String   @id // issuer address
+  name         String
+  url          String?
+  description  String?
+  tier         String   @default("basic")
+  registeredAt DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([tier])
+}

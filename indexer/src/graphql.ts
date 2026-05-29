@@ -72,6 +72,45 @@ export function buildResolvers(db: PrismaClient) {
         return buildAttestationConnection(db, where, args.first, args.after);
       },
 
+      issuer: async (_: unknown, args: { address: string }) => {
+        const issuer = await db.issuer.findUnique({
+          where: { address: args.address },
+        });
+        return issuer
+          ? {
+              ...issuer,
+              registeredAt: issuer.registeredAt.toISOString(),
+              updatedAt: issuer.updatedAt.toISOString(),
+            }
+          : null;
+      },
+
+      issuers: async (
+        _: unknown,
+        args: { start?: number; limit?: number }
+      ) => {
+        const start = args.start ?? 0;
+        const limit = args.limit ?? 50;
+
+        const [issuers, total] = await Promise.all([
+          db.issuer.findMany({
+            skip: start,
+            take: limit,
+            orderBy: { registeredAt: "desc" },
+          }),
+          db.issuer.count(),
+        ]);
+
+        return {
+          items: issuers.map((i) => ({
+            ...i,
+            registeredAt: i.registeredAt.toISOString(),
+            updatedAt: i.updatedAt.toISOString(),
+          })),
+          total,
+        };
+      },
+
       issuerStats: async (_: unknown, args: { issuer: string }) => {
         const rows = await db.attestation.findMany({
           where: { issuer: args.issuer },

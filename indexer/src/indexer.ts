@@ -1,6 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { rpc as SorobanRpc, scValToNative } from "@stellar/stellar-sdk";
-import { pubsub, ATTESTATION_CREATED } from "./graphql";
+import { pubsub, ATTESTATION_CREATED, ATTESTATION_REVOKED, ISSUER_REGISTERED } from "./graphql";
 import {
   attestationsTotal,
   revocationsTotal,
@@ -11,10 +11,11 @@ import { dispatchWebhooks } from "./webhooks";
 
 const CONTRACT_ID = process.env.CONTRACT_ID!;
 const RPC_URL = process.env.RPC_URL ?? "https://soroban-testnet.stellar.org";
+const START_LEDGER = process.env.START_LEDGER ? parseInt(process.env.START_LEDGER, 10) : undefined;
 const PAGE_LIMIT = 200;
 const POLL_MS = 5_000;
 
-const WATCHED = new Set(["created", "revoked", "imported", "bridged", "ms_prop", "ms_sign", "ms_actv"]);
+const WATCHED = new Set(["created", "revoked", "imported", "bridged", "ms_prop", "ms_sign", "ms_actv", "iss_reg", "issuer_tier_updated"]);
 
 let lastLedger = 0;
 
@@ -22,12 +23,22 @@ export function getLastLedger(): number {
   return lastLedger;
 }
 
+export async function reindex(db: PrismaClient, fromLedger: number): Promise<void> {
+  const rpc = new SorobanRpc.Server(RPC_URL, { allowHttp: true });
+  const { sequence: tip } = await rpc.getLatestLedger();
+  
+  console.log(`Reindexing from ledger ${fromLedger} to ${tip}…`);
+  await processRange(db, rpc, fromLedger, tip);
+  console.log(`Reindex complete`);
+}
+
 export async function startIndexer(db: PrismaClient): Promise<void> {
   const rpc = new SorobanRpc.Server(RPC_URL, { allowHttp: true });
 
   // ── Backfill ───────────────────────────────────────────────────────────────
   const checkpoint = await db.checkpoint.findUnique({ where: { id: 1 } });
-  let cursor = checkpoint ? checkpoint.ledger + 1 : GENESIS_LEDGER;
+  // START_LEDGER env var overrides stored checkpoint
+  let cursor = START_LEDGER ?? (checkpoint ? checkpoint.ledger + 1 : GENESIS_LEDGER);
 
   const { sequence: tip } = await rpc.getLatestLedger();
   if (cursor <= tip) {
@@ -202,6 +213,58 @@ async function handleEvent(
     });
     revocationsTotal.inc();
     dispatchWebhooks(db, "attestation.revoked", { id: attestationId }).catch(() => {});
+
+    // Publish to GraphQL subscription
+    pubsub.publish(ATTESTATION_REVOKED, {
+      onAttestationRevoked: {
+        id: attestationId,
+        issuer: attestation?.issuer ?? "",
+        revokedAt: new Date().toISOString(),
+      },
+    });
+    return;
+  }
+
+  // Handle issuer registration events
+  if (topicStr === "iss_reg") {
+    // data: [issuer_address, name, url, description]
+    const issuerAddress = String(data[0]);
+    const name = String(data[1]);
+    const url = data[2] != null ? String(data[2]) : null;
+    const description = data[3] != null ? String(data[3]) : null;
+
+    await db.issuer.upsert({
+      where: { address: issuerAddress },
+      update: { name, url, description },
+      create: {
+        address: issuerAddress,
+        name,
+        url,
+        description,
+        tier: "basic",
+      },
+    });
+
+    // Publish to GraphQL subscription
+    pubsub.publish(ISSUER_REGISTERED, {
+      onIssuerRegistered: {
+        issuer: issuerAddress,
+        registeredAt: new Date().toISOString(),
+      },
+    });
+    return;
+  }
+
+  // Handle issuer tier update events
+  if (topicStr === "issuer_tier_updated") {
+    // data: [issuer_address, new_tier]
+    const issuerAddress = String(data[0]);
+    const tier = String(data[1]);
+
+    await db.issuer.update({
+      where: { address: issuerAddress },
+      data: { tier },
+    });
     return;
   }
 

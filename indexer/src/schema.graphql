@@ -38,6 +38,21 @@ type MultisigProposal {
   updatedAt: String!
 }
 
+type Issuer {
+  address: String!
+  name: String!
+  url: String
+  description: String
+  tier: String!
+  registeredAt: String!
+  updatedAt: String!
+}
+
+type IssuerList {
+  items: [Issuer!]!
+  total: Int!
+}
+
 type IssuerStats {
   issuer: String!
   total: Int!
@@ -83,6 +98,12 @@ type Query {
     first: Int,
     after: String
   ): AttestationConnection!
+
+  """Get an issuer by address"""
+  issuer(address: String!): Issuer
+
+  """List all issuers with pagination"""
+  issuers(start: Int, limit: Int): IssuerList!
 
   """Get statistics for a specific issuer"""
   issuerStats(issuer: String!): IssuerStats!

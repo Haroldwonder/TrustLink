@@ -24,6 +24,7 @@ Copy `.env.example` to `.env` and fill in the values:
 | `CONTRACT_ID` | Deployed TrustLink contract ID | — |
 | `RPC_URL` | Soroban RPC endpoint | `https://soroban-testnet.stellar.org` |
 | `GENESIS_LEDGER` | First ledger to index (contract deployment ledger) | `0` |
+| `START_LEDGER` | Override starting ledger (overrides stored checkpoint) | — |
 | `PORT` | HTTP port for the REST API | `3000` |
 
 ## Quick Start (Docker)
@@ -65,6 +66,46 @@ curl http://localhost:3000/attestations/issuer/GDEF...UVW
 ```
 
 Both endpoints return an array of `Attestation` objects ordered by `timestamp` descending.
+
+### `GET /health`
+
+Returns the health status of the indexer including database connectivity.
+
+```bash
+curl http://localhost:3000/health
+```
+
+Response (200 OK):
+```json
+{
+  "status": "ok",
+  "db": "connected",
+  "lastLedger": 12345
+}
+```
+
+Response (503 if database unreachable):
+```json
+{
+  "status": "error",
+  "db": "disconnected",
+  "lastLedger": 12345
+}
+```
+
+### `POST /admin/reindex?from=LEDGER`
+
+Triggers a historical backfill from a specific ledger. If `from` is not provided, starts from the last checkpoint.
+
+```bash
+# Reindex from a specific ledger
+curl -X POST "http://localhost:3000/admin/reindex?from=10000"
+
+# Reindex from last checkpoint
+curl -X POST "http://localhost:3000/admin/reindex"
+```
+
+This is useful for reprocessing events after a crash or for catching up missed events.
 
 ## Database Schema
 
