@@ -1,0 +1,47 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/od-hunter/trustlink/indexer
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Soroban RPC endpoint (maps to RPC_URL)
+rpcUrl: https://soroban-testnet.stellar.org
+
+# PostgreSQL connection string (maps to DATABASE_URL; stored in Secret)
+databaseUrl: ""
+
+# HTTP port for the REST API (maps to PORT)
+port: 3000
+
+# Required: deployed TrustLink contract ID
+contractId: ""
+
+# First ledger to index (contract deployment ledger)
+genesisLedger: "0"
+
+service:
+  type: ClusterIP
+  port: 3000
+
+resources: {}
+
+# Allows prisma migrate deploy to finish before liveness/readiness checks apply
+startupProbe:
+  httpGet:
+    path: /health
+    port: http
+  failureThreshold: 30
+  periodSeconds: 10
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  periodSeconds: 5

@@ -15,6 +15,18 @@ const TOPIC_DEL_REQ: Symbol = symbol_short!("del_req");
 const TOPIC_ISS_REG: Symbol = symbol_short!("iss_reg");
 const TOPIC_ISS_TIER: Symbol = symbol_short!("iss_tier");
 const TOPIC_ISS_REM: Symbol = symbol_short!("iss_rem");
+const TOPIC_ADMIN_INIT: Symbol = symbol_short!("adm_init");
+const TOPIC_CREATED: Symbol = symbol_short!("created");
+const TOPIC_IMPORTED: Symbol = symbol_short!("imported");
+const TOPIC_BRIDGED: Symbol = symbol_short!("bridged");
+const TOPIC_REVOKED: Symbol = symbol_short!("revoked");
+const TOPIC_RENEWED: Symbol = symbol_short!("renewed");
+const TOPIC_UPDATED: Symbol = symbol_short!("updated");
+const TOPIC_EXPIRED: Symbol = symbol_short!("expired");
+const TOPIC_DEL_REQ: Symbol = symbol_short!("del_req");
+const TOPIC_ISS_REG: Symbol = symbol_short!("iss_reg");
+const TOPIC_ISS_REM: Symbol = symbol_short!("iss_rem");
+const TOPIC_ISS_TIER: Symbol = symbol_short!("iss_tier");
 const TOPIC_CLM_TYPE: Symbol = symbol_short!("clm_type");
 const TOPIC_MS_PROP: Symbol = symbol_short!("ms_prop");
 const TOPIC_MS_SIGN: Symbol = symbol_short!("ms_sign");
@@ -32,6 +44,15 @@ const TOPIC_WL_ON: Symbol = symbol_short!("wl_on");
 const TOPIC_WL_ADD: Symbol = symbol_short!("wl_add");
 const TOPIC_WL_REM: Symbol = symbol_short!("wl_rem");
 const TOPIC_TPL_DEL: Symbol = symbol_short!("tpl_del");
+
+const TOPIC_REQ: Symbol = symbol_short!("att_req");
+const TOPIC_REQ_OK: Symbol = symbol_short!("req_ok");
+const TOPIC_REQ_NO: Symbol = symbol_short!("req_no");
+const TOPIC_REQ_CANCEL: Symbol = symbol_short!("req_cncl");
+
+const TOPIC_WL_ADD: Symbol = symbol_short!("wl_add");
+const TOPIC_WL_REM: Symbol = symbol_short!("wl_rem");
+const TOPIC_WL_ON: Symbol = symbol_short!("wl_on");
 
 pub struct Events;
 
@@ -247,6 +268,7 @@ impl Events {
         );
     }
 
+    /// Emitted when a registered issuer endorses an existing attestation.
     pub fn attestation_endorsed(
         env: &Env,
         attestation_id: &String,
@@ -274,6 +296,7 @@ impl Events {
     pub fn contract_paused(env: &Env, admin: &Address, timestamp: u64) {
         env.events()
             .publish((TOPIC_PAUSED,), (admin.clone(), timestamp));
+            .publish((symbol_short!("paused"),), (admin.clone(), timestamp));
     }
 
     pub fn contract_unpaused(env: &Env, admin: &Address, timestamp: u64) {
@@ -324,6 +347,15 @@ impl Events {
         );
     }
 
+    /// Emitted when a subject cancels their own pending attestation request.
+    pub fn request_cancelled(env: &Env, request_id: &String, subject: &Address) {
+        env.events().publish(
+            (TOPIC_REQ_CANCEL, subject.clone()),
+            request_id.clone(),
+        );
+    }
+
+    /// Emitted when issuer creates a delegation to a sub-issuer for a claim type.
     pub fn delegation_created(
         env: &Env,
         delegator: &Address,
@@ -357,6 +389,14 @@ impl Events {
     pub fn whitelist_updated(env: &Env, issuer: &Address, subject: &Address, added: bool) {
         let sym = if added { TOPIC_WL_ADD } else { TOPIC_WL_REM };
         env.events().publish((sym, issuer.clone()), subject.clone());
+    }
+
+    /// Emitted when an issuer creates or overwrites a template.
+    pub fn template_created(env: &Env, issuer: &Address, template_id: &String) {
+        env.events().publish(
+            (symbol_short!("tmpl_crt"), issuer.clone()),
+            template_id.clone(),
+        );
     }
 
     pub fn council_initialized(env: &Env, quorum: u32, member_count: u32) {

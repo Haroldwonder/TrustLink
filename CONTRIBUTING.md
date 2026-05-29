@@ -79,6 +79,151 @@ make test
 
 All tests must pass before submitting a PR.
 
+## Soroban Contract Development
+
+This section covers everything specific to working on the TrustLink Soroban contract — environment setup, running tests, adding new functions, and keeping snapshot files in sync.
+
+### Environment Setup
+
+You need three things beyond a standard Rust install:
+
+**1. WASM compilation target**
+
+```bash
+rustup target add wasm32-unknown-unknown
+```
+
+**2. Stellar CLI** (includes the Soroban contract toolchain)
+
+```bash
+cargo install --locked stellar-cli --features opt
+```
+
+Verify:
+
+```bash
+stellar --version
+```
+
+**3. `wasm-opt`** (required for `make optimize` and `make check-size`)
+
+```bash
+cargo install --locked wasm-opt
+# or on Debian/Ubuntu: apt install binaryen
+```
+
+Confirm everything is in place:
+
+```bash
+rustc --version
+cargo --version
+stellar --version
+rustup target list --installed | grep wasm32
+```
+
+---
+
+### Running the Full Test Suite
+
+TrustLink has three layers of tests. Run them all before opening a PR.
+
+**Unit and integration tests**
+
+```bash
+cargo test
+# or
+make test
+```
+
+**Snapshot tests**
+
+Snapshot tests record the full Soroban auth and event trace for each test case as JSON files in `test_snapshots/`. They fail if the recorded trace no longer matches the contract output.
+
+```bash
+# Run snapshot tests alongside everything else — they are part of cargo test
+cargo test
+
+# Run only a specific snapshot test by name
+cargo test test_initialize_and_get_admin
+```
+
+If a snapshot test fails with a diff, it means the contract's auth or event output changed. See [Updating Snapshot Files](#updating-snapshot-files) below.
+
+**Lints and formatting** (also checked by CI)
+
+```bash
+make fmt     # auto-format
+make clippy  # zero-warning lint check
+```
+
+---
+
+### Adding a New Contract Function
+
+Follow this checklist when adding a public function to the contract:
+
+- [ ] **Define the logic** in the appropriate module under `src/` (`admin.rs`, `query.rs`, `attestation.rs`, etc.)
+- [ ] **Expose it in `src/lib.rs`** inside the `#[contractimpl]` block. Add `#[must_use]` for read-only functions that return a value.
+- [ ] **Add any new storage keys** to the `StorageKey` enum in `src/storage.rs`. Add storage getter/setter methods to the `Storage` struct in the same file.
+- [ ] **Emit an event** via `src/events.rs` if the function mutates state. Follow the existing `topics + data` pattern.
+- [ ] **Add validation** in `src/validation.rs` if the function requires auth or input checks.
+- [ ] **Write tests** in `tests/` or `src/test.rs`. Cover the happy path, error cases, and auth boundaries.
+- [ ] **Add the SDK method** in `sdk/typescript/src/client.ts`. Read-only functions use `this.simulate(...)`, write functions use `this.invoke(...)`.
+- [ ] **Regenerate TypeScript bindings** after any interface change:
+
+  ```bash
+  make bindings
+  ```
+
+  Commit the updated `bindings/typescript/` alongside your contract changes. CI will fail if they are out of date.
+
+- [ ] **Update snapshot files** if the new function changes any existing auth or event traces (see below).
+
+---
+
+### Updating Snapshot Files
+
+Snapshot files in `test_snapshots/` are committed to the repository and checked by CI. When you make an intentional change to a contract function's auth requirements or event output, the corresponding snapshots must be regenerated.
+
+**When do snapshots need updating?**
+
+- You changed which addresses `require_auth()` is called on inside a function.
+- You added, removed, or changed an event emitted by a function.
+- You changed the arguments or return type of an existing function in a way that affects the recorded trace.
+
+**How to regenerate**
+
+Set the `SOROBAN_TEST_REGENERATE_SNAPSHOTS` environment variable and re-run the tests:
+
+```bash
+# Regenerate all snapshots
+SOROBAN_TEST_REGENERATE_SNAPSHOTS=1 cargo test
+
+# Regenerate snapshots for a single test
+SOROBAN_TEST_REGENERATE_SNAPSHOTS=1 cargo test test_register_and_remove_issuer
+```
+
+The test runner will overwrite the relevant JSON files in `test_snapshots/` with the new output.
+
+**Review before committing**
+
+Always diff the regenerated snapshots before committing to confirm only the expected traces changed:
+
+```bash
+git diff test_snapshots/
+```
+
+Commit the updated snapshot files in the same commit as the contract change:
+
+```bash
+git add test_snapshots/
+git commit -m "test: update snapshots for <function name> change"
+```
+
+> Never regenerate all snapshots blindly after an unintended change. If a snapshot you did not expect to change is showing a diff, investigate the root cause before committing.
+
+---
+
 ## Local Stellar Development Workflow
 
 Use a local Stellar Quickstart node when iterating on deployment and invoke flows to avoid testnet rate limits.

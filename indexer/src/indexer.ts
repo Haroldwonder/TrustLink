@@ -7,6 +7,7 @@ import {
   eventsProcessedTotal,
   indexerLagLedgers,
 } from "./metrics";
+import { dispatchWebhooks } from "./webhooks";
 
 const CONTRACT_ID = process.env.CONTRACT_ID!;
 const RPC_URL = process.env.RPC_URL ?? "https://soroban-testnet.stellar.org";
@@ -200,6 +201,7 @@ async function handleEvent(
       data: { isRevoked: true },
     });
     revocationsTotal.inc();
+    dispatchWebhooks(db, "attestation.revoked", { id: attestationId }).catch(() => {});
     return;
   }
 
@@ -236,6 +238,13 @@ async function handleEvent(
   });
 
   attestationsTotal.inc();
+
+  // Dispatch webhooks for new attestation events
+  dispatchWebhooks(db, `attestation.${topicStr}`, {
+    ...attestation,
+    timestamp: String(attestation.timestamp),
+    expiration: attestation.expiration != null ? String(attestation.expiration) : null,
+  }).catch(() => {});
 
   // Publish to GraphQL subscriptions
   pubsub.publish(ATTESTATION_CREATED, {

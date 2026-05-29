@@ -168,14 +168,6 @@
                   "map": [
                     {
                       "key": {
-                        "symbol": "bridged"
-                      },
-                      "val": {
-                        "bool": false
-                      }
-                    },
-                    {
-                      "key": {
                         "symbol": "claim_type"
                       },
                       "val": {
@@ -206,14 +198,6 @@
                     },
                     {
                       "key": {
-                        "symbol": "imported"
-                      },
-                      "val": {
-                        "bool": false
-                      }
-                    },
-                    {
-                      "key": {
                         "symbol": "issuer"
                       },
                       "val": {
@@ -231,6 +215,18 @@
                         "symbol": "metadata"
                       },
                       "val": "void"
+                    },
+                    {
+                      "key": {
+                        "symbol": "origin"
+                      },
+                      "val": {
+                        "vec": [
+                          {
+                            "symbol": "Native"
+                          }
+                        ]
+                      }
                     },
                     {
                       "key": {
@@ -630,7 +626,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "LastIssuanceTime"
+                  "symbol": "LastIssuance"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -650,7 +646,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "LastIssuanceTime"
+                      "symbol": "LastIssuance"
                     },
                     {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -665,7 +661,7 @@
             },
             "ext": "v0"
           },
-          4095
+          518400
         ]
       ],
       [
@@ -1307,29 +1303,6 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 }
               ]
-            }
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "0000000000000000000000000000000000000000000000000000000000000001",
-        "type_": "contract",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "wl_add"
-              },
-              {
-                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-              }
-            ],
-            "data": {
-              "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
             }
           }
         }

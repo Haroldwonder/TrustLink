@@ -22,6 +22,7 @@ It covers the same material in written form so you can follow along at your own 
 | Rust + Cargo | https://rustup.rs |
 | `wasm32-unknown-unknown` target | `rustup target add wasm32-unknown-unknown` |
 | Soroban CLI | `cargo install --locked soroban-cli` |
+| Stellar CLI (alternative) | `cargo install --locked stellar-cli --features opt` |
 | Node.js ≥ 18 (for JS section) | https://nodejs.org |
 
 Fund a testnet account via Friendbot:
@@ -60,10 +61,7 @@ make test
 make optimize
 ```
 
-The compiled contract lands at:
-```
-target/wasm32-unknown-unknown/release/trustlink.wasm
-```
+The optimized wasm lands at `target/wasm32-unknown-unknown/release/trustlink.wasm` — that's what you deploy.
 
 ---
 
@@ -205,6 +203,12 @@ pub enum Error {
 
 The `contractimport!` macro generates a fully typed client at compile time — no manual ABI wrangling.
 
+To test your contract in isolation, mock TrustLink using a test contract that implements the same interface:
+
+```bash
+cargo test
+```
+
 ### Checking Multiple Claims
 
 ```rust
@@ -227,6 +231,8 @@ npm install @stellar/stellar-sdk
 ```
 
 ### Read-only claim check (no signing)
+
+Simulating the transaction is enough for read-only calls — no wallet signing required. The result comes back as a native JS boolean.
 
 ```typescript
 import {

@@ -557,3 +557,248 @@ RPC_URL=https://soroban-testnet.stellar.org \
 - [ ] Rate-limit outbound webhook calls to avoid flooding downstream services
 - [ ] Set up a dead-letter queue for failed webhook deliveries
 - [ ] Test alerting end-to-end on the local network before enabling on testnet/mainnet
+
+---
+
+## 6. Alert Definitions and Thresholds
+
+These are the recommended alert rules for a production TrustLink deployment.
+Adjust thresholds to match your expected traffic volume.
+
+| Alert name | Condition | Severity | Response time |
+|---|---|---|---|
+| `admin_transfer` | Any `adm_xfer` event | Critical | Immediate page |
+| `issuer_removed` | Any `iss_rem` event | Critical | Immediate page |
+| `revocation_spike` | `revoked` events > 10 in any 5-minute window | High | 5 minutes |
+| `bridge_anomaly` | `bridged` events from an unrecognised `source_chain` | High | 5 minutes |
+| `issuer_deregistered_with_active_attestations` | `iss_rem` where issuer has > 0 active attestations | High | 15 minutes |
+| `multisig_proposal_expired` | `ms_prop` with no `ms_actv` within 7 days | Medium | Next business day |
+| `expiration_hook_backlog` | `exp_hook` events > 50 with no corresponding renewal in 24 h | Medium | 1 hour |
+| `no_events_received` | Zero events from contract in > 30 minutes during business hours | Low | 1 hour |
+
+**Threshold tuning:** Start with the defaults above, then adjust after observing
+one week of baseline traffic. A `revocation_spike` threshold that fires daily is
+too sensitive; one that never fires may be too loose.
+
+---
+
+## 7. On-Call Runbook for Common Alerts
+
+### `admin_transfer` — Admin key changed
+
+**What happened:** The contract admin address was replaced via `adm_xfer`.
+
+1. Confirm the change was planned — check the deployment log and Slack/email for
+   a scheduled admin rotation.
+2. If unplanned, treat as a security incident:
+   - Notify the security lead immediately.
+   - Freeze all issuer registrations and attestation creation at the application
+     layer (block the UI / API gateway) while investigating.
+   - Identify the transaction on the explorer and determine which key signed it.
+   - Follow the incident response plan in `docs/security.md`.
+3. If planned, verify the new admin address matches the expected key and update
+   `DEPLOYMENT.md`.
+
+---
+
+### `issuer_removed` — Issuer deregistered
+
+**What happened:** An issuer was removed from the registry via `iss_rem`.
+
+1. Confirm the removal was intentional — check the admin activity log.
+2. Identify all active attestations issued by the removed issuer:
+   ```bash
+   stellar contract invoke --id "$CONTRACT_ID" --network mainnet \
+     -- get_issuer_attestations \
+     --issuer <ISSUER_ADDRESS> --start 0 --limit 100
+   ```
+3. Decide whether existing attestations need to be transferred to a successor
+   issuer (`transfer_attestation`) or left as-is (they remain valid until
+   revoked or expired).
+4. Notify any integrators that relied on attestations from this issuer.
+
+---
+
+### `revocation_spike` — Unusual number of revocations
+
+See the dedicated runbook in section 8.
+
+---
+
+### `bridge_anomaly` — Unknown source chain
+
+**What happened:** A `bridged` event arrived with a `source_chain` value not in
+the expected set.
+
+1. Identify the bridge contract address from the event topic.
+2. Verify it is still in the bridge registry:
+   ```bash
+   stellar contract invoke --id "$CONTRACT_ID" --network mainnet \
+     -- is_bridge --bridge <BRIDGE_ADDRESS>
+   ```
+3. If the bridge is registered but the source chain is unexpected, contact the
+   bridge operator to confirm the event is legitimate.
+4. If the bridge is not registered, the event should not have been possible —
+   escalate to the security lead as a potential contract bug.
+
+---
+
+### `no_events_received` — Monitor silence
+
+**What happened:** The event poller has not received any events for > 30 minutes
+during expected active hours.
+
+1. Check that the monitor process is running:
+   ```bash
+   systemctl status trustlink-monitor   # or: docker ps | grep trustlink-monitor
+   ```
+2. Verify RPC connectivity:
+   ```bash
+   curl -s -X POST "$RPC_URL" \
+     -H "Content-Type: application/json" \
+     -d '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger"}' | jq .result.sequence
+   ```
+3. Confirm the contract is still active:
+   ```bash
+   stellar contract invoke --id "$CONTRACT_ID" --network mainnet -- health_check
+   ```
+4. If the RPC node is unresponsive, switch to a backup RPC endpoint and restart
+   the monitor.
+
+---
+
+## 8. Investigating a Spike in Revocations
+
+A revocation spike (> 10 revocations in 5 minutes) can indicate a compromised
+issuer, a bulk compliance action, or a bug in an issuer's automation.
+
+### Step 1 — Quantify the spike
+
+Pull the raw revocation events for the last hour:
+
+```bash
+curl -s -X POST "$RPC_URL" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0", "id": 1, "method": "getEvents",
+    "params": {
+      "startLedger": "'$START_LEDGER'",
+      "filters": [{
+        "type": "contract",
+        "contractIds": ["'$CONTRACT_ID'"],
+        "topics": [["SymbolVal(revoked)"]]
+      }],
+      "pagination": { "limit": 200 }
+    }
+  }' | jq '.result.events | length'
+```
+
+### Step 2 — Identify the issuer(s)
+
+The second topic element of a `revoked` event is the issuer address. Extract
+the unique issuers involved:
+
+```bash
+# Parse issuer addresses from revoked events (requires jq)
+curl -s ... | jq '[.result.events[].topic[1]] | unique'
+```
+
+### Step 3 — Determine intent
+
+- **Planned bulk action:** Contact the issuer. If they confirm a deliberate
+  compliance sweep (e.g. sanctions list update), document it and close the
+  alert.
+- **Issuer automation bug:** Ask the issuer to pause their automation
+  immediately. Assess whether any incorrectly revoked attestations need to be
+  re-issued.
+- **Compromised issuer key:** Treat as a security incident:
+  1. Remove the issuer immediately:
+     ```bash
+     stellar contract invoke --id "$CONTRACT_ID" --source "$ADMIN_SECRET" \
+       --network mainnet -- remove_issuer \
+       --admin "$ADMIN_PUBLIC" --issuer <COMPROMISED_ISSUER>
+     ```
+  2. Notify affected subjects — their attestations are now revoked and they
+     will need to re-verify with a new issuer.
+  3. Transfer any legitimate attestations to a successor issuer if applicable.
+  4. File an incident report.
+
+### Step 4 — Post-incident
+
+- Record the event in the incident log with: timestamp, issuer, count of
+  revocations, root cause, and resolution.
+- Review whether the revocation threshold needs adjusting.
+
+---
+
+## 9. Detecting and Responding to Storage Exhaustion
+
+TrustLink enforces per-issuer and per-subject attestation limits
+(`max_attestations_per_issuer`, `max_attestations_per_subject`). When a limit
+is hit, `create_attestation` returns `Error::LimitExceeded` (code `#10`).
+
+### Detection
+
+**Monitor for `LimitExceeded` errors** in your application layer — these will
+surface as failed contract invocations, not as contract events. Log every
+`Error(Contract, #10)` response from the RPC.
+
+**Proactively check high-volume issuers** before they hit the limit:
+
+```bash
+# Count attestations for a specific issuer
+stellar contract invoke --id "$CONTRACT_ID" --network mainnet \
+  -- get_issuer_attestation_count --issuer <ISSUER_ADDRESS>
+
+# Read current limits
+stellar contract invoke --id "$CONTRACT_ID" --network mainnet -- get_limits
+```
+
+Alert when any issuer reaches 80% of `max_attestations_per_issuer`.
+
+**Check global stats** for overall growth trends:
+
+```bash
+stellar contract invoke --id "$CONTRACT_ID" --network mainnet -- get_global_stats
+```
+
+### Response
+
+**Option A — Raise the limit (admin action)**
+
+If the limit was set conservatively and the issuer's volume is legitimate:
+
+```bash
+stellar contract invoke --id "$CONTRACT_ID" --source "$ADMIN_SECRET" \
+  --network mainnet -- set_limits \
+  --admin "$ADMIN_PUBLIC" \
+  --max_attestations_per_issuer 20000 \
+  --max_attestations_per_subject 200
+```
+
+Document the change and the reason in the operations log.
+
+**Option B — Revoke stale attestations**
+
+If the issuer has a large backlog of expired or superseded attestations, revoke
+them in batch to free up headroom:
+
+```bash
+stellar contract invoke --id "$CONTRACT_ID" --source "$ISSUER_SECRET" \
+  --network mainnet -- revoke_attestations_batch \
+  --issuer <ISSUER_ADDRESS> \
+  --attestation_ids '["id1","id2","id3"]'
+```
+
+**Option C — Distribute across multiple issuers**
+
+If a single issuer is handling disproportionate volume, register additional
+issuer addresses and distribute new attestation creation across them.
+
+### Prevention
+
+- Set a monitoring alert at 80% of each limit.
+- Review `get_global_stats` weekly during the first month after mainnet launch
+  to establish a baseline growth rate.
+- Include limit headroom in capacity planning before onboarding high-volume
+  issuers.

@@ -65,4 +65,10 @@ pub enum Error {
     CouncilProposalExists = 40,
     CouncilProposalExecuted = 41,
     CouncilProposalExpired = 42,
+    /// An attestation request with the same ID already exists.
+    DuplicateRequest = 36,
+    /// The request has already been fulfilled or rejected.
+    RequestAlreadyProcessed = 37,
+    /// The attestation request has expired.
+    RequestExpired = 38,
 }

@@ -10,7 +10,6 @@ import { join } from "path";
 import { startIndexer, getLastLedger } from "./indexer";
 import { buildResolvers } from "./graphql";
 import { getMetrics } from "./metrics";
-
 const db = new PrismaClient();
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -114,6 +113,47 @@ async function main() {
       total_issuers: issuers.length,
     };
   });
+
+  // ── Webhook management ─────────────────────────────────────────────────────
+
+  // GET /webhooks - List all registered webhooks (secrets redacted)
+  fastify.get("/webhooks", async () => {
+    const webhooks = await db.webhook.findMany({
+      select: { id: true, url: true, active: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+    });
+    return webhooks;
+  });
+
+  // POST /webhooks - Register a new webhook
+  fastify.post<{ Body: { url: string; secret: string } }>(
+    "/webhooks",
+    async (req, reply) => {
+      const { url, secret } = req.body ?? {};
+      if (!url || !secret) {
+        reply.code(400);
+        return { error: "url and secret are required" };
+      }
+      const webhook = await db.webhook.create({ data: { url, secret } });
+      reply.code(201);
+      return { id: webhook.id, url: webhook.url, active: webhook.active };
+    }
+  );
+
+  // DELETE /webhooks/:id - Remove a webhook
+  fastify.delete<{ Params: { id: string } }>(
+    "/webhooks/:id",
+    async (req, reply) => {
+      try {
+        await db.webhook.delete({ where: { id: req.params.id } });
+        reply.code(204);
+        return;
+      } catch {
+        reply.code(404);
+        return { error: "Webhook not found" };
+      }
+    }
+  );
 
   const REST_PORT = Number(process.env.PORT ?? 3000);
   await fastify.listen({ port: REST_PORT, host: "0.0.0.0" });

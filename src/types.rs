@@ -29,6 +29,7 @@ pub enum RequestStatus {
     Pending = 0,
     Fulfilled = 1,
     Rejected = 2,
+    Cancelled = 3,
 }
 
 /// A pull-based attestation request submitted by a subject to a registered issuer.
@@ -128,6 +129,7 @@ pub struct RateLimitConfig {
 
 /// Contract configuration.
 #[contracttype]
+#[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractConfig {
     pub contract_name: String,
@@ -135,6 +137,7 @@ pub struct ContractConfig {
     pub contract_description: String,
     pub fee_config: FeeConfig,
     pub ttl_config: TtlConfig,
+    pub require_registered_claim_type: bool,
 }
 
 #[contracttype]
@@ -289,6 +292,15 @@ pub struct Delegation {
 pub struct PendingAdminTransfer {
     pub proposed_by: Address,
     pub new_admin: Address,
+
+/// A named attestation template owned by an issuer.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AttestationTemplate {
+    pub claim_type: String,
+    /// Optional expiration window in days (None = no expiration).
+    pub default_expiration_days: Option<u32>,
+    pub metadata_template: Option<String>,
 }
 
 /// Admin council: ordered list of admin addresses.
@@ -302,6 +314,12 @@ pub struct AttestationTemplate {
     pub template_id: String,
     pub claim_type: String,
     pub metadata: Option<String>,
+/// Storage key for the pending admin transfer (two-step pattern).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingAdminTransfer {
+    pub proposed_by: Address,
+    pub new_admin: Address,
 }
 
 impl Attestation {
@@ -368,6 +386,7 @@ impl Attestation {
     }
 }
 
+
 impl AttestationRequest {
     pub fn generate_id(
         env: &Env,
@@ -385,6 +404,7 @@ impl AttestationRequest {
         Attestation::hash_payload(env, &payload)
     }
 }
+
 
 impl MultiSigProposal {
     pub fn generate_id(
