@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { getSubjectAttestations, Attestation } from "../contract";
+import { SkeletonAttestationList } from "../SkeletonList";
 
 interface Props { address: string; }
 
@@ -31,7 +32,7 @@ export default function UserPanel({ address }: Props) {
       </p>
 
       {error && <div className="alert alert-error">{error}</div>}
-      {loading && <p className="empty">Loading…</p>}
+      {loading && <SkeletonAttestationList />}
 
       {!loading && attestations.length === 0 && (
         <p className="empty">No attestations found for your address.</p>

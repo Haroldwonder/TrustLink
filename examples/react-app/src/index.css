@@ -156,3 +156,7 @@ body {
 }
 .error-boundary h3 { color: #fca5a5; font-size: 1.1rem; margin-bottom: 0.5rem; }
 .error-boundary p { color: #94a3b8; font-size: 0.9rem; margin-bottom: 1rem; }
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
