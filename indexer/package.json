@@ -6,8 +6,14 @@
     "build": "tsc && node -e \"require('fs').copyFileSync('src/schema.graphql','dist/schema.graphql')\"",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
+    "test": "jest",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "testMatch": ["**/*.test.ts"]
   },
   "dependencies": {
     "@apollo/server": "^5.5.0",
@@ -22,9 +28,12 @@
     "ws": "^8.20.0"
   },
   "devDependencies": {
+    "@types/jest": "^29.5.12",
     "@types/node": "^20.14.0",
     "@types/ws": "^8.18.1",
+    "jest": "^29.7.0",
     "prisma": "^5.14.0",
+    "ts-jest": "^29.1.4",
     "ts-node": "^10.9.2",
     "typescript": "^5.4.5"
   }

@@ -46,9 +46,43 @@ type IssuerStats {
   claimTypes: [String!]!
 }
 
+"""Pagination info for cursor-based pagination"""
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
+
+"""Edge type for attestation connections"""
+type AttestationEdge {
+  node: Attestation!
+  cursor: String!
+}
+
+"""Connection type for paginated attestations"""
+type AttestationConnection {
+  edges: [AttestationEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
 type Query {
-  """Query attestations with optional filters"""
-  attestations(subject: String, claimType: String, status: Status): [Attestation!]!
+  """Query attestations with optional filters and pagination"""
+  attestations(
+    subject: String, 
+    claimType: String, 
+    status: Status,
+    first: Int,
+    after: String
+  ): AttestationConnection!
+
+  """Query attestations by issuer with pagination"""
+  attestationsByIssuer(
+    issuer: String!,
+    first: Int,
+    after: String
+  ): AttestationConnection!
 
   """Get statistics for a specific issuer"""
   issuerStats(issuer: String!): IssuerStats!

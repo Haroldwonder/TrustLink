@@ -43,19 +43,33 @@ export function buildResolvers(db: PrismaClient) {
     Query: {
       attestations: async (
         _: unknown,
-        args: { subject?: string; claimType?: string; status?: "ACTIVE" | "REVOKED" }
-      ) => {
+        args: { 
+          subject?: string; 
+          claimType?: string; 
+          status?: "ACTIVE" | "REVOKED";
+          first?: number;
+          after?: string;
+        }
+      ): Promise<AttestationConnection> => {
         const where: Record<string, unknown> = {};
         if (args.subject) where.subject = args.subject;
         if (args.claimType) where.claimType = args.claimType;
         if (args.status === "ACTIVE") where.isRevoked = false;
         if (args.status === "REVOKED") where.isRevoked = true;
 
-        const rows = await db.attestation.findMany({
-          where,
-          orderBy: { timestamp: "desc" },
-        });
-        return rows.map(mapAttestation);
+        return buildAttestationConnection(db, where, args.first, args.after);
+      },
+
+      attestationsByIssuer: async (
+        _: unknown,
+        args: {
+          issuer: string;
+          first?: number;
+          after?: string;
+        }
+      ): Promise<AttestationConnection> => {
+        const where = { issuer: args.issuer };
+        return buildAttestationConnection(db, where, args.first, args.after);
       },
 
       issuerStats: async (_: unknown, args: { issuer: string }) => {

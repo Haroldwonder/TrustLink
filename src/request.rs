@@ -63,7 +63,7 @@ pub fn fulfill_request(
     }
 
     match request.status {
-        RequestStatus::Fulfilled | RequestStatus::Rejected => return Err(Error::RequestAlreadyProcessed),
+        RequestStatus::Fulfilled | RequestStatus::Rejected | RequestStatus::Cancelled => return Err(Error::RequestAlreadyProcessed),
         RequestStatus::Pending => {}
     }
 
@@ -136,7 +136,7 @@ pub fn reject_request(
     }
 
     match request.status {
-        RequestStatus::Fulfilled | RequestStatus::Rejected => return Err(Error::RequestAlreadyProcessed),
+        RequestStatus::Fulfilled | RequestStatus::Rejected | RequestStatus::Cancelled => return Err(Error::RequestAlreadyProcessed),
         RequestStatus::Pending => {}
     }
 
@@ -151,6 +151,32 @@ pub fn reject_request(
     Storage::remove_pending_request(env, &issuer, &request_id);
 
     Events::request_rejected(env, &request_id, &issuer, &reason);
+
+    Ok(())
+}
+
+pub fn cancel_request(env: &Env, subject: Address, request_id: String) -> Result<(), Error> {
+    subject.require_auth();
+    Validation::require_not_paused(env)?;
+
+    let mut request = Storage::get_request(env, &request_id)?;
+
+    if request.subject != subject {
+        return Err(Error::Unauthorized);
+    }
+
+    match request.status {
+        RequestStatus::Fulfilled | RequestStatus::Rejected | RequestStatus::Cancelled => {
+            return Err(Error::RequestAlreadyProcessed)
+        }
+        RequestStatus::Pending => {}
+    }
+
+    request.status = RequestStatus::Cancelled;
+    Storage::set_request(env, &request);
+    Storage::remove_pending_request(env, &request.issuer, &request_id);
+
+    Events::request_cancelled(env, &request_id, &subject);
 
     Ok(())
 }

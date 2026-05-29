@@ -82,3 +82,62 @@ Both endpoints return an array of `Attestation` objects ordered by `timestamp` d
 | `bridged` | `bool` | `true` for bridged attestations |
 | `sourceChain` | `text?` | Origin chain (bridged only) |
 | `sourceTx` | `text?` | Origin tx reference (bridged only) |
+
+## Webhooks
+
+The indexer can deliver real-time event notifications to registered HTTP endpoints.
+
+### Signature Verification
+
+Every outbound webhook request is signed with **HMAC-SHA256** using the webhook's secret key. The signature is sent in the `X-TrustLink-Signature` HTTP header as a lowercase hex string.
+
+**Signature algorithm:**
+
+```
+X-TrustLink-Signature = HMAC-SHA256(secret, body)
+```
+
+Where `body` is the raw JSON request body (UTF-8 encoded) and `secret` is the per-webhook secret configured in the database.
+
+**Request body shape:**
+
+```json
+{
+  "event": "<event_type>",
+  "data": { ... },
+  "ts": 1700000000000
+}
+```
+
+| Field   | Type   | Description                                      |
+|---------|--------|--------------------------------------------------|
+| `event` | string | Event type, e.g. `attestation_created`           |
+| `data`  | object | Event-specific payload                           |
+| `ts`    | number | Unix timestamp in milliseconds when the event was dispatched |
+
+**Verifying the signature in your receiver (Node.js example):**
+
+```ts
+import { createHmac, timingSafeEqual } from "crypto";
+
+function verifyWebhook(secret: string, rawBody: string, signature: string): boolean {
+  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+  const a = Buffer.from(expected, "hex");
+  const b = Buffer.from(signature, "hex");
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+```
+
+Always use a constant-time comparison (e.g. `timingSafeEqual`) to prevent timing-based attacks.
+
+### Retry Policy
+
+Failed deliveries are retried up to **5 times** with exponential backoff (200 ms base, capped at 10 s). HTTP `4xx` responses are not retried (they indicate a client-side misconfiguration).
+
+### Running the Tests
+
+```bash
+cd indexer
+npm install
+npm test
+```

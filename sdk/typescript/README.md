@@ -96,8 +96,12 @@ const issued = await client.getIssuerAttestations(issuer, 0, 10);
 // All valid claim IDs for a subject
 const validClaims = await client.getValidClaims(subject);
 
-// Attestations by tag
-const tagged = await client.getAttestationsByTag(subject, "premium");
+// Attestations by tag (paginated)
+const tagged = await client.getAttestationsByTag(subject, "premium");          // first 20 (default)
+const page2  = await client.getAttestationsByTag(subject, "premium", 20, 20); // next 20
+
+// Attestations by jurisdiction (paginated)
+const euAtts = await client.getAttestationsByJurisdiction(subject, "EU", 0, 10);
 
 // Audit log for an attestation
 const log = await client.getAuditLog(attestationId);

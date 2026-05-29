@@ -46,6 +46,24 @@ type Attestation {
   updatedAt: String!
 }
 
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
+
+type AttestationEdge {
+  node: Attestation!
+  cursor: String!
+}
+
+type AttestationConnection {
+  edges: [AttestationEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
 type IssuerStats {
   issuer: String!
   total: Int!
@@ -61,22 +79,82 @@ type IssuerStats {
 
 ### `attestations`
 
-Fetch attestations with optional filters.
+Fetch attestations with optional filters and cursor-based pagination.
 
 ```graphql
 query {
-  attestations(subject: "G...", claimType: "KYC", status: ACTIVE) {
-    id
-    issuer
-    subject
-    claimType
-    timestamp
-    isRevoked
+  attestations(
+    subject: "G...", 
+    claimType: "KYC", 
+    status: ACTIVE,
+    first: 10,
+    after: "eyJpZCI6ImF0dF8xMjM0NTY3ODkifQ=="
+  ) {
+    edges {
+      node {
+        id
+        issuer
+        subject
+        claimType
+        timestamp
+        isRevoked
+      }
+      cursor
+    }
+    pageInfo {
+      hasNextPage
+      hasPreviousPage
+      startCursor
+      endCursor
+    }
+    totalCount
   }
 }
 ```
 
-All arguments are optional — omitting them returns all attestations.
+**Parameters:**
+- `subject` (optional): Filter by subject address
+- `claimType` (optional): Filter by claim type
+- `status` (optional): Filter by ACTIVE or REVOKED status
+- `first` (optional): Number of results to return (default: 50, max: 100)
+- `after` (optional): Cursor for pagination
+
+### `attestationsByIssuer`
+
+Fetch attestations by issuer with cursor-based pagination.
+
+```graphql
+query {
+  attestationsByIssuer(
+    issuer: "G...",
+    first: 20,
+    after: "eyJpZCI6ImF0dF85ODc2NTQzMjEifQ=="
+  ) {
+    edges {
+      node {
+        id
+        subject
+        claimType
+        timestamp
+        isRevoked
+      }
+      cursor
+    }
+    pageInfo {
+      hasNextPage
+      hasPreviousPage
+      startCursor
+      endCursor
+    }
+    totalCount
+  }
+}
+```
+
+**Parameters:**
+- `issuer` (required): Issuer address to filter by
+- `first` (optional): Number of results to return (default: 50, max: 100)
+- `after` (optional): Cursor for pagination
 
 ### `issuerStats`
 
@@ -90,6 +168,96 @@ query {
     active
     revoked
     claimTypes
+  }
+}
+```
+
+---
+
+## Pagination Examples
+
+### Basic Pagination
+
+```graphql
+# First page
+query {
+  attestations(first: 10) {
+    edges {
+      node { id subject claimType }
+      cursor
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}
+
+# Next page using endCursor from previous response
+query {
+  attestations(first: 10, after: "eyJpZCI6ImF0dF8xMjM0NTY3ODkifQ==") {
+    edges {
+      node { id subject claimType }
+      cursor
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+  }
+}
+```
+
+### Paginated Filtering
+
+```graphql
+# Get active KYC attestations for a subject with pagination
+query {
+  attestations(
+    subject: "GDXLKEY5TR4IDEVSTRYUNYY3DPXQKQNSTDJ7HIVNFTJYQHOZXB7CRQME",
+    claimType: "KYC",
+    status: ACTIVE,
+    first: 25
+  ) {
+    edges {
+      node {
+        id
+        timestamp
+        expiration
+        metadata
+      }
+    }
+    pageInfo {
+      hasNextPage
+      totalCount
+    }
+  }
+}
+```
+
+### Issuer-Specific Pagination
+
+```graphql
+# Get all attestations issued by a specific issuer
+query {
+  attestationsByIssuer(
+    issuer: "GCKFBEIYTKP6RCZX6LRQW2JVDVKV6WATK4BKDNFPVAH6TWMA6N2JQHSR",
+    first: 50
+  ) {
+    edges {
+      node {
+        id
+        subject
+        claimType
+        timestamp
+        isRevoked
+      }
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    totalCount
   }
 }
 ```

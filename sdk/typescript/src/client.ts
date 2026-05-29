@@ -155,6 +155,10 @@ export class TrustLinkClient {
     return this.simulate("get_admin");
   }
 
+  async getAdminCouncil(): Promise<string[]> {
+    return this.simulate("get_admin_council");
+  }
+
   async getVersion(): Promise<string> {
     return this.simulate("get_version");
   }
@@ -276,11 +280,35 @@ export class TrustLinkClient {
     );
   }
 
-  async getAttestationsByTag(subject: string, tag: string): Promise<string[]> {
-    return this.simulate(
+  async getAttestationsByTag(subject: string, tag: string, start = 0, limit = 20): Promise<string[]> {
+    const all = await this.simulate<string[]>(
       "get_attestations_by_tag",
       this.addr(subject),
       this.str(tag)
+    );
+    return all.slice(start, start + limit);
+  }
+
+  /**
+   * Returns a paginated list of attestation IDs for a subject filtered by jurisdiction.
+   *
+   * @param subject     - Stellar address of the subject.
+   * @param jurisdiction - Jurisdiction code to filter by (e.g. "US", "EU").
+   * @param start       - Zero-based page offset.
+   * @param limit       - Maximum number of IDs to return.
+   */
+  async getAttestationsByJurisdiction(
+    subject: string,
+    jurisdiction: string,
+    start: number,
+    limit: number
+  ): Promise<string[]> {
+    return this.simulate(
+      "get_attestations_by_jurisdiction",
+      this.addr(subject),
+      this.str(jurisdiction),
+      this.u32(start),
+      this.u32(limit)
     );
   }
 
@@ -492,6 +520,29 @@ export class TrustLinkClient {
 
   async getEndorsementCount(attestationId: string): Promise<number> {
     return this.simulate("get_endorsement_count", this.str(attestationId));
+  }
+
+  // ── Confidence Score ───────────────────────────────────────────────────────
+
+  /**
+   * Return a confidence score (30–100) for an attestation, or `null` if the
+   * attestation does not exist.
+   *
+   * The score is computed from two signals:
+   *  - Issuer tier:       Basic → 30  |  Verified → 60  |  Premium → 90
+   *  - Endorsement bonus: +2 per endorsement, capped at +10
+   *
+   * @param attestationId - The attestation ID to score.
+   */
+  async getConfidenceScore(attestationId: string): Promise<number | null> {
+    return this.simulate("get_confidence_score", this.str(attestationId));
+  async listEndorsementsByEndorser(endorser: string, start: number, limit: number): Promise<Endorsement[]> {
+    return this.simulate("list_endorsements_by_endorser", this.addr(endorser), this.u32(start), this.u32(limit));
+  }
+
+  async bulkAddToWhitelist(issuer: string, subjects: string[]): Promise<void> {
+    const subjectsVal = xdr.ScVal.scvVec(subjects.map(s => this.addr(s)));
+    return this.simulate("bulk_add_to_whitelist", this.addr(issuer), subjectsVal);
   }
 
   // ── Pagination Helpers ─────────────────────────────────────────────────────

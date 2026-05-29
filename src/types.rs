@@ -33,6 +33,7 @@ pub enum RequestStatus {
     Pending = 0,
     Fulfilled = 1,
     Rejected = 2,
+    Cancelled = 3,
 }
 
 /// A pull-based attestation request submitted by a subject to a registered issuer.
@@ -219,6 +220,7 @@ pub enum AuditAction {
     Renewed,
     Updated,
     Transferred,
+    Deleted,
 }
 
 /// A single immutable entry in an attestation's audit log.
@@ -293,6 +295,55 @@ pub struct Delegation {
     pub expiration: Option<u64>,
 }
 
+/// A reusable template that pre-populates common attestation fields.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AttestationTemplate {
+    /// Unique name for the template (scoped per issuer).
+    pub name: String,
+    /// The issuer that owns this template.
+    pub issuer: Address,
+    /// Claim type this template issues.
+    pub claim_type: String,
+    /// Optional default metadata applied to attestations created from this template.
+    pub default_metadata: Option<String>,
+    /// Optional default expiration offset in seconds from issuance time.
+    pub default_expiration_secs: Option<u64>,
+}
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum Error {
+    AlreadyInitialized = 1,
+    NotInitialized = 2,
+    Unauthorized = 3,
+    NotFound = 4,
+    DuplicateAttestation = 5,
+    AlreadyRevoked = 6,
+    Expired = 7,
+    InvalidValidFrom = 8,
+    InvalidExpiration = 9,
+    MetadataTooLong = 10,
+    InvalidTimestamp = 11,
+    InvalidFee = 12,
+    FeeTokenRequired = 13,
+    TooManyTags = 14,
+    TagTooLong = 15,
+    /// Threshold must be >= 1 and <= number of required signers.
+    InvalidThreshold = 16,
+    /// The signer is not in the proposal's required_signers list.
+    NotRequiredSigner = 17,
+    /// The signer has already co-signed this proposal.
+    AlreadySigned = 18,
+    /// The proposal has already been finalized.
+    ProposalFinalized = 19,
+    /// The proposal has expired without reaching threshold.
+    ProposalExpired = 20,
+    /// The contract is paused and cannot accept state-changing operations.
+    ContractPaused = 21,
+}
+
+/// A multi-sig attestation proposal requiring M-of-N issuer signatures.
 
 /// A named attestation template owned by an issuer.
 #[contracttype]

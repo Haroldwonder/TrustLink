@@ -106,6 +106,10 @@ pub fn get_admin(env: &Env) -> Result<Address, Error> {
     Storage::get_admin(env)
 }
 
+pub fn get_admin_council(env: &Env) -> Result<AdminCouncil, Error> {
+    Storage::get_admin_council(env)
+}
+
 // -----------------------------------------------------------------------
 // Issuer management
 // -----------------------------------------------------------------------
@@ -140,6 +144,19 @@ pub fn add_to_whitelist(env: &Env, issuer: Address, subject: Address) -> Result<
     issuer.require_auth();
     Validation::require_issuer(env, &issuer)?;
     Storage::add_to_whitelist(env, &issuer, &subject);
+    Ok(())
+}
+
+pub fn bulk_add_to_whitelist(env: &Env, issuer: Address, subjects: Vec<Address>) -> Result<(), Error> {
+    const MAX_BATCH: u32 = 50;
+    issuer.require_auth();
+    Validation::require_issuer(env, &issuer)?;
+    if subjects.len() > MAX_BATCH {
+        return Err(Error::LimitExceeded);
+    }
+    for subject in subjects.iter() {
+        Storage::add_to_whitelist(env, &issuer, &subject);
+    }
     Ok(())
 }
 
@@ -435,11 +452,44 @@ pub fn revoke_delegation(
     Ok(())
 }
 
+pub fn list_delegations_by_delegator(
+    env: &Env,
+    delegator: Address,
+    start: u32,
+    limit: u32,
+) -> Vec<Delegation> {
+    let current_time = env.ledger().timestamp();
+    let index = Storage::get_delegator_index(env, &delegator);
+    let mut result = Vec::new(env);
+    let mut count: u32 = 0;
+    let mut skipped: u32 = 0;
+    for (delegate, claim_type) in index.iter() {
+        if let Some(d) = Storage::get_delegation(env, &delegator, &delegate, &claim_type) {
+            // Only include non-expired delegations
+            if d.expiration.map_or(true, |exp| current_time < exp) {
+                if skipped < start {
+                    skipped += 1;
+                    continue;
+                }
+                if count >= limit {
+                    break;
+                }
+                result.push_back(d);
+                count += 1;
+            }
+        }
+    }
+    result
+}
+
 // -----------------------------------------------------------------------
 // Expiration hooks
 // -----------------------------------------------------------------------
 
 pub fn register_expiration_hook(env: &Env, subject: Address, callback_contract: Address, notify_days_before: u32) -> Result<(), Error> {
+    if notify_days_before == 0 {
+        return Err(Error::InvalidExpiration);
+    }
     subject.require_auth();
     Storage::set_expiration_hook(env, &subject, &ExpirationHook { callback_contract, notify_days_before });
     Ok(())

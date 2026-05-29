@@ -272,3 +272,60 @@ fn snapshot_after_expiration_hook_triggered() {
     assert_eq!(hook.callback_contract, callback_contract);
     assert_eq!(hook.notify_days_before, 7);
 }
+
+// ── 11. Multisig proposal lifecycle ─────────────────────────────────────────
+
+/// Snapshot: contract state after a multisig proposal is proposed, cosigned to
+/// threshold, and the resulting attestation is activated.
+/// Captures: MultiSigProposal (finalized=true), Attestation record,
+/// SubjectAttestations index, GlobalStats.total_attestations,
+/// multisig_proposed / multisig_cosigned / multisig_activated events.
+#[test]
+fn snapshot_after_multisig_activation() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|l| l.timestamp = 1_000);
+
+    let client = deploy(&env);
+    let admin = Address::generate(&env);
+    let proposer = Address::generate(&env);
+    let cosigner = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    client.initialize(&admin, &None);
+    client.register_issuer(&admin, &proposer);
+    client.register_issuer(&admin, &cosigner);
+
+    // Build required_signers vec: proposer + cosigner, threshold = 2.
+    let mut required_signers = soroban_sdk::Vec::new(&env);
+    required_signers.push_back(proposer.clone());
+    required_signers.push_back(cosigner.clone());
+
+    let proposal_id = client.propose_attestation(
+        &proposer,
+        &subject,
+        &claim_type,
+        &required_signers,
+        &2,
+    );
+
+    // Proposal exists and is not yet finalized.
+    let proposal = client.get_multisig_proposal(&proposal_id);
+    assert!(!proposal.finalized);
+    assert_eq!(proposal.signers.len(), 1);
+
+    // Cosigner brings the signature count to threshold → activates.
+    client.cosign_attestation(&cosigner, &proposal_id);
+
+    // Proposal is now finalized.
+    let proposal = client.get_multisig_proposal(&proposal_id);
+    assert!(proposal.finalized);
+
+    // Attestation was created for the subject.
+    assert_eq!(client.get_subject_attestations(&subject, &0, &10).len(), 1);
+    assert_eq!(client.get_global_stats().total_attestations, 1);
+
+    // Subject holds a valid claim.
+    assert!(client.has_valid_claim(&subject, &claim_type));
+}

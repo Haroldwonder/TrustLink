@@ -27,6 +27,7 @@ const TOPIC_EXP_HOOK: Symbol = symbol_short!("exp_hook");
 const TOPIC_REQ: Symbol = symbol_short!("att_req");
 const TOPIC_REQ_OK: Symbol = symbol_short!("req_ok");
 const TOPIC_REQ_NO: Symbol = symbol_short!("req_no");
+const TOPIC_REQ_CANCEL: Symbol = symbol_short!("req_cncl");
 
 const TOPIC_WL_ADD: Symbol = symbol_short!("wl_add");
 const TOPIC_WL_REM: Symbol = symbol_short!("wl_rem");
@@ -162,10 +163,14 @@ impl Events {
     }
 
     /// Emitted when an issuer's tier is set or updated by the admin.
-    pub fn issuer_tier_updated(env: &Env, issuer: &Address, tier: &IssuerTier) {
+    ///
+    /// Both the previous tier (`old_tier`, `None` if tier was never set) and the
+    /// new tier are included so that monitoring systems can detect downgrades
+    /// without needing to maintain separate state.
+    pub fn issuer_tier_updated(env: &Env, issuer: &Address, old_tier: Option<IssuerTier>, new_tier: IssuerTier) {
         // TOPIC_ISS_TIER
         env.events()
-            .publish((TOPIC_ISS_TIER, issuer.clone()), *tier);
+            .publish((TOPIC_ISS_TIER, issuer.clone()), (old_tier, new_tier));
     }
 
     pub fn issuer_removed(env: &Env, issuer: &Address, admin: &Address, timestamp: u64) {
@@ -298,9 +303,14 @@ impl Events {
     }
 
     /// Emitted when the admin pauses the contract.
-    pub fn contract_paused(env: &Env, admin: &Address, timestamp: u64) {
+    ///
+    /// `reason` is `Some` when the caller provided an explanation (e.g.
+    /// "routine maintenance" vs "security incident"); `None` means no reason
+    /// was given.
+    pub fn contract_paused(env: &Env, admin: &Address, timestamp: u64, reason: &Option<String>) {
         // TOPIC_PAUSED
         env.events()
+            .publish((symbol_short!("paused"),), (admin.clone(), timestamp, reason.clone()));
             .publish((symbol_short!("paused"),), (admin.clone(), timestamp));
     }
 
@@ -357,6 +367,14 @@ impl Events {
         env.events().publish(
             (TOPIC_REQ_NO, issuer.clone()),
             (request_id.clone(), reason.clone()),
+        );
+    }
+
+    /// Emitted when a subject cancels their own pending attestation request.
+    pub fn request_cancelled(env: &Env, request_id: &String, subject: &Address) {
+        env.events().publish(
+            (TOPIC_REQ_CANCEL, subject.clone()),
+            request_id.clone(),
         );
     }
 

@@ -57,6 +57,8 @@ pub enum Error {
     InvalidJurisdiction = 32,
     LimitExceeded = 33,
     BatchTooLarge = 34,
+    /// Template claim_type is not registered in the registry (when require_registered_claim_type is enabled).
+    ClaimTypeNotRegistered = 35,
     InvalidFeeToken = 35,
     /// An attestation request with the same ID already exists.
     DuplicateRequest = 36,
