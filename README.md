@@ -1031,6 +1031,9 @@ Key design choices are documented as ADRs in [docs/adr/](docs/adr/):
 | [ADR-002](docs/adr/ADR-002-persistent-storage.md) | Persistent storage instead of temporary storage  |
 | [ADR-003](docs/adr/ADR-003-immutable-history.md)  | Immutable attestation history (no delete)        |
 | [ADR-004](docs/adr/ADR-004-dual-indexes.md)       | Separate issuer and subject indexes              |
+| [ADR-007](docs/adr/ADR-007-attestation-requests.md) | Pull-based attestation request workflow        |
+| [ADR-008](docs/adr/ADR-008-rate-limiting.md)      | Rate limiting design and known limitations       |
+| [ADR-009](docs/adr/ADR-009-delegation-model.md)   | Delegation model and trust chain implications    |
 
 A blank [template](docs/adr/ADR-000-template.md) is available for new decisions.
 
