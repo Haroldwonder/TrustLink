@@ -15,6 +15,9 @@ mod validation;
 pub use crate::validation::Validation;
 
 #[cfg(test)]
+extern crate std;
+
+#[cfg(test)]
 mod test;
 
 use soroban_sdk::{contract, contractimpl, token::TokenClient, Address, Env, String, Vec};
@@ -151,12 +154,9 @@ use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::{
     AdminCouncil, Attestation, AttestationRequest, AttestationStatus, AttestationTemplate,
-    AuditEntry, Endorsement, Error, ExpirationHook, FeeConfig, GlobalStats, HealthStatus,
-    IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, PendingAdminTransfer,
+    AuditEntry, Delegation, Endorsement, Error, ExpirationHook, FeeConfig, GlobalStats,
+    HealthStatus, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, PendingAdminTransfer,
     RateLimitConfig, StorageLimits,
-    Attestation, AttestationRequest, AttestationStatus, AttestationTemplate, AuditEntry, Delegation, Error,
-    ExpirationHook, FeeConfig, GlobalStats, HealthStatus, IssuerMetadata, IssuerStats, IssuerTier,
-    MultiSigProposal, PendingAdminTransfer, RateLimitConfig, StorageLimits,
 };
 
 #[contract]
@@ -495,11 +495,13 @@ impl TrustLinkContract {
     // Contract Config
     // -----------------------------------------------------------------------
 
+    pub fn set_require_registered_claim_typ(env: Env, admin: Address, require: bool) -> Result<(), Error> {
     pub fn set_registered_claim_type(env: Env, admin: Address, require: bool) -> Result<(), Error> {
         admin::set_require_registered_claim_type(&env, admin, require)
     }
 
     #[must_use]
+    pub fn get_require_registered_claim_typ(env: Env) -> bool {
     pub fn get_registered_claim_type(env: Env) -> bool {
         admin::get_require_registered_claim_type(&env)
     }

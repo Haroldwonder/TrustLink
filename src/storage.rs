@@ -94,6 +94,8 @@ pub enum StorageKey {
     EndorserIndex(Address),
     /// Per-claim-type rate limit override (claim_type -> min_issuance_interval).
     ClaimTypeRateLimit(String),
+    /// Ordered list of all registered issuer addresses.
+    IssuerList,
 }
 
 fn get_ttl_lifetime(env: &Env) -> u32 {
@@ -1193,6 +1195,57 @@ impl Storage {
             .persistent()
             .get(&StorageKey::AttestationTemplateList(issuer.clone()))
             .unwrap_or(Vec::new(env))
+    }
+}
+
+/// Thin wrapper that provides the `ChunkedIndex` API expected by attestation.rs and query.rs.
+/// Delegates to the existing flat-list Storage methods.
+pub struct ChunkedIndex;
+
+impl ChunkedIndex {
+    pub fn add_subject(env: &Env, subject: &soroban_sdk::Address, id: &String) {
+        Storage::add_subject_attestation(env, subject, id);
+    }
+
+    pub fn add_issuer(env: &Env, issuer: &soroban_sdk::Address, id: &String) {
+        Storage::add_issuer_attestation(env, issuer, id);
+    }
+
+    pub fn add_issuer_bulk(env: &Env, issuer: &soroban_sdk::Address, ids: &Vec<String>) {
+        for id in ids.iter() {
+            Storage::add_issuer_attestation(env, issuer, &id);
+        }
+    }
+
+    pub fn remove_subject(env: &Env, subject: &soroban_sdk::Address, id: &String) {
+        Storage::remove_subject_attestation(env, subject, id);
+    }
+
+    pub fn remove_issuer(env: &Env, issuer: &soroban_sdk::Address, id: &String) {
+        Storage::remove_issuer_attestation(env, issuer, id);
+    }
+
+    pub fn get_subject_page(env: &Env, subject: &soroban_sdk::Address, start: u32, limit: u32) -> Vec<String> {
+        let ids = Storage::get_subject_attestations(env, subject);
+        paginate(env, &ids, start, limit)
+    }
+
+    pub fn get_issuer_page(env: &Env, issuer: &soroban_sdk::Address, start: u32, limit: u32) -> Vec<String> {
+        let ids = Storage::get_issuer_attestations(env, issuer);
+        paginate(env, &ids, start, limit)
+    }
+
+    pub fn subject_count(env: &Env, subject: &soroban_sdk::Address) -> u32 {
+        Storage::get_subject_attestations(env, subject).len()
+    }
+
+    pub fn issuer_count(env: &Env, issuer: &soroban_sdk::Address) -> u32 {
+        Storage::get_issuer_attestations(env, issuer).len()
+    }
+
+    /// Return all attestation IDs for a subject (no pagination).
+    pub fn get_subject_all(env: &Env, subject: &soroban_sdk::Address) -> Vec<String> {
+        Storage::get_subject_attestations(env, subject)
     }
 }
 
