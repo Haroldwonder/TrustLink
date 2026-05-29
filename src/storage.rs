@@ -5,6 +5,9 @@
 use crate::constants::{DAY_IN_LEDGERS, DEFAULT_INSTANCE_LIFETIME};
 use crate::types::{
     AdminCouncil, Attestation, AttestationRequest, AttestationTemplate, AuditEntry, ClaimTypeInfo,
+    CouncilProposal, Delegation, Endorsement, Error, ExpirationHook, FeeConfig, GlobalStats,
+    IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, PendingAdminTransfer,
+    RateLimitConfig, StorageLimits, TtlConfig,
     Endorsement, Error, ExpirationHook, FeeConfig, GlobalStats, IssuerMetadata, IssuerStats,
     IssuerTier, MultiSigProposal, PendingAdminTransfer, RateLimitConfig, StorageLimits, TtlConfig,
     CouncilProposal,
@@ -60,6 +63,10 @@ pub enum StorageKey {
     PendingAdminTransfer,
     AttestationTemplate(Address, String),
     AttestationTemplateList(Address),
+    /// Optional reason stored when the contract is paused.
+    PauseReason,
+    /// Flag: when `true`, `create_template` rejects claim types not in the registry.
+    RequireRegisteredClaimType,
     Delegation(Address, Address, String),
     /// Index of (delegate, claim_type) pairs for a delegator.
     DelegatorIndex(Address),
@@ -927,5 +934,1910 @@ pub fn paginate_addresses(env: &Env, list: &Vec<Address>, start: u32, limit: u32
             result.push_back(item);
         }
     }
+    pub fn get_request(env: &Env, request_id: &String) -> Result<AttestationRequest, Error> {
+        env.storage().persistent().get(&StorageKey::Request(request_id.clone())).ok_or(Error::NotFound)
+    }
+    pub fn set_request(env: &Env, request: &AttestationRequest) {
+        let key = StorageKey::Request(request.id.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, request);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn get_pending_request_ids(env: &Env, issuer: &Address) -> Vec<String> {
+        env.storage().persistent().get(&StorageKey::PendingRequests(issuer.clone())).unwrap_or(Vec::new(env))
+    }
+    pub fn add_pending_request(env: &Env, issuer: &Address, request_id: &String) {
+        let key = StorageKey::PendingRequests(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut list = Self::get_pending_request_ids(env, issuer);
+        list.push_back(request_id.clone());
+        env.storage().persistent().set(&key, &list);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn remove_pending_request(env: &Env, issuer: &Address, request_id: &String) {
+        let key = StorageKey::PendingRequests(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        let existing = Self::get_pending_request_ids(env, issuer);
+        let mut updated = Vec::new(env);
+        for id in existing.iter() { if &id != request_id { updated.push_back(id); } }
+        env.storage().persistent().set(&key, &updated);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn set_issuer_tier(env: &Env, issuer: &Address, tier: &IssuerTier) {
+        let key = StorageKey::IssuerTier(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, tier);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn get_issuer_tier(env: &Env, issuer: &Address) -> Option<IssuerTier> {
+        env.storage().persistent().get(&StorageKey::IssuerTier(issuer.clone()))
+    }
+    pub fn get_issuer_stats(env: &Env, issuer: &Address) -> IssuerStats {
+        env.storage().persistent().get(&StorageKey::IssuerStats(issuer.clone()))
+            .unwrap_or(IssuerStats { total_issued: 0 })
+    }
+    pub fn set_issuer_stats(env: &Env, issuer: &Address, stats: &IssuerStats) {
+        let key = StorageKey::IssuerStats(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, stats);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    fn get_global_stats_raw(env: &Env) -> GlobalStats {
+        env.storage().instance().get(&StorageKey::GlobalStats)
+            .unwrap_or(GlobalStats { total_attestations: 0, total_revocations: 0, total_issuers: 0 })
+    }
+    fn set_global_stats_raw(env: &Env, stats: &GlobalStats) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::GlobalStats, stats);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+    pub fn get_global_stats(env: &Env) -> GlobalStats { Self::get_global_stats_raw(env) }
+    pub fn increment_total_attestations(env: &Env, by: u64) {
+        let mut s = Self::get_global_stats_raw(env); s.total_attestations = s.total_attestations.saturating_add(by); Self::set_global_stats_raw(env, &s);
+    }
+    pub fn increment_total_issuers(env: &Env) {
+        let mut s = Self::get_global_stats_raw(env); s.total_issuers = s.total_issuers.saturating_add(1); Self::set_global_stats_raw(env, &s);
+    }
+    pub fn decrement_total_issuers(env: &Env) {
+        let mut s = Self::get_global_stats_raw(env); s.total_issuers = s.total_issuers.saturating_sub(1); Self::set_global_stats_raw(env, &s);
+    }
+    pub fn increment_total_revocations(env: &Env, by: u64) {
+        let mut s = Self::get_global_stats_raw(env); s.total_revocations = s.total_revocations.saturating_add(by); Self::set_global_stats_raw(env, &s);
+    }
+    pub fn get_expiration_hook(env: &Env, subject: &Address) -> Option<ExpirationHook> {
+        env.storage().persistent().get(&StorageKey::ExpirationHook(subject.clone()))
+    }
+    pub fn set_expiration_hook(env: &Env, subject: &Address, hook: &ExpirationHook) {
+        let key = StorageKey::ExpirationHook(subject.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, hook);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn remove_expiration_hook(env: &Env, subject: &Address) {
+        env.storage().persistent().remove(&StorageKey::ExpirationHook(subject.clone()));
+    }
+    pub fn get_endorsements(env: &Env, attestation_id: &String) -> Vec<Endorsement> {
+        env.storage().persistent().get(&StorageKey::Endorsements(attestation_id.clone())).unwrap_or(Vec::new(env))
+    }
+    pub fn add_endorsement(env: &Env, attestation_id: &String, endorsement: &Endorsement) {
+        let key = StorageKey::Endorsements(attestation_id.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut list = Self::get_endorsements(env, attestation_id);
+        list.push_back(endorsement.clone());
+        env.storage().persistent().set(&key, &list);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn get_limits(env: &Env) -> StorageLimits {
+        env.storage().instance().get(&StorageKey::Limits).unwrap_or_default()
+    }
+    pub fn set_limits(env: &Env, limits: &StorageLimits) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::Limits, limits);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+    pub fn get_rate_limit_config(env: &Env) -> Option<RateLimitConfig> {
+        env.storage().instance().get(&StorageKey::RateLimitConfig)
+    }
+    pub fn set_rate_limit_config(env: &Env, config: &RateLimitConfig) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::RateLimitConfig, config);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+    pub fn get_last_issuance_time(env: &Env, issuer: &Address) -> Option<u64> {
+        env.storage().persistent().get(&StorageKey::LastIssuanceTime(issuer.clone()))
+    }
+    pub fn set_last_issuance_time(env: &Env, issuer: &Address, timestamp: u64) {
+        let key = StorageKey::LastIssuanceTime(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, &timestamp);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn get_multisig_proposal(env: &Env, proposal_id: &String) -> Result<MultiSigProposal, Error> {
+        env.storage().persistent().get(&StorageKey::MultisigProposal(proposal_id.clone())).ok_or(Error::NotFound)
+    }
+    pub fn set_multisig_proposal(env: &Env, proposal: &MultiSigProposal) {
+        let key = StorageKey::MultisigProposal(proposal.id.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, proposal);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn get_audit_log(env: &Env, attestation_id: &String) -> Vec<AuditEntry> {
+        env.storage().persistent().get(&StorageKey::AuditLog(attestation_id.clone())).unwrap_or(Vec::new(env))
+    }
+    pub fn append_audit_entry(env: &Env, attestation_id: &String, entry: &AuditEntry) {
+        let key = StorageKey::AuditLog(attestation_id.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut log = Self::get_audit_log(env, attestation_id);
+        log.push_back(entry.clone());
+        env.storage().persistent().set(&key, &log);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn is_whitelist_enabled(env: &Env, issuer: &Address) -> bool {
+        env.storage().persistent().get(&StorageKey::WhitelistEnabled(issuer.clone())).unwrap_or(false)
+    }
+    pub fn set_whitelist_enabled(env: &Env, issuer: &Address, enabled: bool) {
+        let key = StorageKey::WhitelistEnabled(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, &enabled);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn set_whitelist_mode(env: &Env, issuer: &Address, enabled: bool) { Self::set_whitelist_enabled(env, issuer, enabled); }
+    pub fn is_subject_whitelisted(env: &Env, issuer: &Address, subject: &Address) -> bool {
+        env.storage().persistent().has(&StorageKey::Whitelist(issuer.clone(), subject.clone()))
+    }
+    pub fn add_subject_to_whitelist(env: &Env, issuer: &Address, subject: &Address) {
+        let key = StorageKey::Whitelist(issuer.clone(), subject.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, &true);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn remove_subject_from_whitelist(env: &Env, issuer: &Address, subject: &Address) {
+        env.storage().persistent().remove(&StorageKey::Whitelist(issuer.clone(), subject.clone()));
+    }
+    pub fn add_to_whitelist(env: &Env, issuer: &Address, subject: &Address) { Self::add_subject_to_whitelist(env, issuer, subject); }
+    pub fn remove_from_whitelist(env: &Env, issuer: &Address, subject: &Address) { Self::remove_subject_from_whitelist(env, issuer, subject); }
+    pub fn is_whitelisted(env: &Env, issuer: &Address, subject: &Address) -> bool { Self::is_subject_whitelisted(env, issuer, subject) }
+    pub fn is_whitelist_mode(env: &Env, issuer: &Address) -> bool { Self::is_whitelist_enabled(env, issuer) }
+    pub fn is_paused(env: &Env) -> bool {
+        env.storage().instance().get(&StorageKey::Paused).unwrap_or(false)
+    }
+    pub fn set_paused(env: &Env, paused: bool) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::Paused, &paused);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+    pub fn get_request(env: &Env, request_id: &String) -> Result<AttestationRequest, Error> {
+        env.storage().persistent().get(&StorageKey::Request(request_id.clone())).ok_or(Error::NotFound)
+    }
+    pub fn set_request(env: &Env, request: &AttestationRequest) {
+        let key = StorageKey::Request(request.id.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, request);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn get_pending_request_ids(env: &Env, issuer: &Address) -> Vec<String> {
+        env.storage().persistent().get(&StorageKey::PendingRequests(issuer.clone())).unwrap_or(Vec::new(env))
+    }
+    pub fn add_pending_request(env: &Env, issuer: &Address, request_id: &String) {
+        let key = StorageKey::PendingRequests(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut list = Self::get_pending_request_ids(env, issuer);
+        list.push_back(request_id.clone());
+        env.storage().persistent().set(&key, &list);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn remove_pending_request(env: &Env, issuer: &Address, request_id: &String) {
+        let key = StorageKey::PendingRequests(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        let existing = Self::get_pending_request_ids(env, issuer);
+        let mut updated = Vec::new(env);
+        for id in existing.iter() { if &id != request_id { updated.push_back(id); } }
+        env.storage().persistent().set(&key, &updated);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn set_issuer_tier(env: &Env, issuer: &Address, tier: &IssuerTier) {
+        let key = StorageKey::IssuerTier(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, tier);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn get_issuer_tier(env: &Env, issuer: &Address) -> Option<IssuerTier> {
+        env.storage().persistent().get(&StorageKey::IssuerTier(issuer.clone()))
+    }
+    pub fn get_issuer_stats(env: &Env, issuer: &Address) -> IssuerStats {
+        env.storage().persistent().get(&StorageKey::IssuerStats(issuer.clone()))
+            .unwrap_or(IssuerStats { total_issued: 0 })
+    }
+    pub fn set_issuer_stats(env: &Env, issuer: &Address, stats: &IssuerStats) {
+        let key = StorageKey::IssuerStats(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, stats);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    fn get_global_stats_raw(env: &Env) -> GlobalStats {
+        env.storage().instance().get(&StorageKey::GlobalStats)
+            .unwrap_or(GlobalStats { total_attestations: 0, total_revocations: 0, total_issuers: 0 })
+    }
+    fn set_global_stats_raw(env: &Env, stats: &GlobalStats) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::GlobalStats, stats);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+    pub fn get_global_stats(env: &Env) -> GlobalStats { Self::get_global_stats_raw(env) }
+    pub fn increment_total_attestations(env: &Env, by: u64) {
+        let mut s = Self::get_global_stats_raw(env); s.total_attestations = s.total_attestations.saturating_add(by); Self::set_global_stats_raw(env, &s);
+    }
+    pub fn increment_total_issuers(env: &Env) {
+        let mut s = Self::get_global_stats_raw(env); s.total_issuers = s.total_issuers.saturating_add(1); Self::set_global_stats_raw(env, &s);
+    }
+    pub fn decrement_total_issuers(env: &Env) {
+        let mut s = Self::get_global_stats_raw(env); s.total_issuers = s.total_issuers.saturating_sub(1); Self::set_global_stats_raw(env, &s);
+    }
+    pub fn increment_total_revocations(env: &Env, by: u64) {
+        let mut s = Self::get_global_stats_raw(env); s.total_revocations = s.total_revocations.saturating_add(by); Self::set_global_stats_raw(env, &s);
+    }
+    pub fn get_expiration_hook(env: &Env, subject: &Address) -> Option<ExpirationHook> {
+        env.storage().persistent().get(&StorageKey::ExpirationHook(subject.clone()))
+    }
+    pub fn set_expiration_hook(env: &Env, subject: &Address, hook: &ExpirationHook) {
+        let key = StorageKey::ExpirationHook(subject.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, hook);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn remove_expiration_hook(env: &Env, subject: &Address) {
+        env.storage().persistent().remove(&StorageKey::ExpirationHook(subject.clone()));
+    }
+    pub fn get_endorsements(env: &Env, attestation_id: &String) -> Vec<Endorsement> {
+        env.storage().persistent().get(&StorageKey::Endorsements(attestation_id.clone())).unwrap_or(Vec::new(env))
+    }
+    pub fn add_endorsement(env: &Env, attestation_id: &String, endorsement: &Endorsement) {
+        let key = StorageKey::Endorsements(attestation_id.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut list = Self::get_endorsements(env, attestation_id);
+        list.push_back(endorsement.clone());
+        env.storage().persistent().set(&key, &list);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn get_limits(env: &Env) -> StorageLimits {
+        env.storage().instance().get(&StorageKey::Limits).unwrap_or_default()
+    }
+    pub fn set_limits(env: &Env, limits: &StorageLimits) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::Limits, limits);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+    pub fn get_rate_limit_config(env: &Env) -> Option<RateLimitConfig> {
+        env.storage().instance().get(&StorageKey::RateLimitConfig)
+    }
+    pub fn set_rate_limit_config(env: &Env, config: &RateLimitConfig) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::RateLimitConfig, config);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+    pub fn get_last_issuance_time(env: &Env, issuer: &Address) -> Option<u64> {
+        env.storage().persistent().get(&StorageKey::LastIssuanceTime(issuer.clone()))
+    }
+    pub fn set_last_issuance_time(env: &Env, issuer: &Address, timestamp: u64) {
+        let key = StorageKey::LastIssuanceTime(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, &timestamp);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn get_multisig_proposal(env: &Env, proposal_id: &String) -> Result<MultiSigProposal, Error> {
+        env.storage().persistent().get(&StorageKey::MultisigProposal(proposal_id.clone())).ok_or(Error::NotFound)
+    }
+    pub fn set_multisig_proposal(env: &Env, proposal: &MultiSigProposal) {
+        let key = StorageKey::MultisigProposal(proposal.id.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, proposal);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn get_audit_log(env: &Env, attestation_id: &String) -> Vec<AuditEntry> {
+        env.storage().persistent().get(&StorageKey::AuditLog(attestation_id.clone())).unwrap_or(Vec::new(env))
+    }
+    pub fn append_audit_entry(env: &Env, attestation_id: &String, entry: &AuditEntry) {
+        let key = StorageKey::AuditLog(attestation_id.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut log = Self::get_audit_log(env, attestation_id);
+        log.push_back(entry.clone());
+        env.storage().persistent().set(&key, &log);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn is_whitelist_enabled(env: &Env, issuer: &Address) -> bool {
+        env.storage().persistent().get(&StorageKey::WhitelistEnabled(issuer.clone())).unwrap_or(false)
+    }
+    pub fn set_whitelist_enabled(env: &Env, issuer: &Address, enabled: bool) {
+        let key = StorageKey::WhitelistEnabled(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, &enabled);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn set_whitelist_mode(env: &Env, issuer: &Address, enabled: bool) { Self::set_whitelist_enabled(env, issuer, enabled); }
+    pub fn is_subject_whitelisted(env: &Env, issuer: &Address, subject: &Address) -> bool {
+        env.storage().persistent().has(&StorageKey::Whitelist(issuer.clone(), subject.clone()))
+    }
+    pub fn add_subject_to_whitelist(env: &Env, issuer: &Address, subject: &Address) {
+        let key = StorageKey::Whitelist(issuer.clone(), subject.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, &true);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn remove_subject_from_whitelist(env: &Env, issuer: &Address, subject: &Address) {
+        env.storage().persistent().remove(&StorageKey::Whitelist(issuer.clone(), subject.clone()));
+    }
+    pub fn add_to_whitelist(env: &Env, issuer: &Address, subject: &Address) { Self::add_subject_to_whitelist(env, issuer, subject); }
+    pub fn remove_from_whitelist(env: &Env, issuer: &Address, subject: &Address) { Self::remove_subject_from_whitelist(env, issuer, subject); }
+    pub fn is_whitelisted(env: &Env, issuer: &Address, subject: &Address) -> bool { Self::is_subject_whitelisted(env, issuer, subject) }
+    pub fn is_whitelist_mode(env: &Env, issuer: &Address) -> bool { Self::is_whitelist_enabled(env, issuer) }
+    pub fn is_paused(env: &Env) -> bool {
+        env.storage().instance().get(&StorageKey::Paused).unwrap_or(false)
+    }
+    pub fn set_paused(env: &Env, paused: bool) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::Paused, &paused);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+    pub fn get_request(env: &Env, request_id: &String) -> Result<AttestationRequest, Error> {
+        env.storage().persistent().get(&StorageKey::Request(request_id.clone())).ok_or(Error::NotFound)
+    }
+    pub fn set_request(env: &Env, request: &AttestationRequest) {
+        let key = StorageKey::Request(request.id.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, request);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn get_pending_request_ids(env: &Env, issuer: &Address) -> Vec<String> {
+        env.storage().persistent().get(&StorageKey::PendingRequests(issuer.clone())).unwrap_or(Vec::new(env))
+    }
+    pub fn add_pending_request(env: &Env, issuer: &Address, request_id: &String) {
+        let key = StorageKey::PendingRequests(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut list = Self::get_pending_request_ids(env, issuer);
+        list.push_back(request_id.clone());
+        env.storage().persistent().set(&key, &list);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn remove_pending_request(env: &Env, issuer: &Address, request_id: &String) {
+        let key = StorageKey::PendingRequests(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        let existing = Self::get_pending_request_ids(env, issuer);
+        let mut updated = Vec::new(env);
+        for id in existing.iter() { if &id != request_id { updated.push_back(id); } }
+        env.storage().persistent().set(&key, &updated);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+}
+}
+}
+}
+
+/// Paginate a `Vec<String>` index, returning a slice starting at `start` with at most `limit` items.
+pub fn paginate(env: &Env, list: &Vec<String>, start: u32, limit: u32) -> Vec<String> {
+    let mut result = Vec::new(env);
+    let len = list.len();
+    if start >= len {
+        return result;
+    }
+    let end = (start + limit).min(len);
+    for i in start..end {
+        if let Some(item) = list.get(i) {
+            result.push_back(item);
+        }
+    }
+
+    // --- IssuerTier ---
+
+    pub fn set_issuer_tier(env: &Env, issuer: &Address, tier: &IssuerTier) {
+        let key = StorageKey::IssuerTier(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, tier);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn get_issuer_tier(env: &Env, issuer: &Address) -> Option<IssuerTier> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::IssuerTier(issuer.clone()))
+    }
+
+    // --- IssuerStats ---
+
+    pub fn get_issuer_stats(env: &Env, issuer: &Address) -> IssuerStats {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::IssuerStats(issuer.clone()))
+            .unwrap_or(IssuerStats { total_issued: 0 })
+    }
+
+    pub fn set_issuer_stats(env: &Env, issuer: &Address, stats: &IssuerStats) {
+        let key = StorageKey::IssuerStats(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, stats);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // --- GlobalStats ---
+
+    fn get_global_stats_raw(env: &Env) -> GlobalStats {
+        env.storage()
+            .instance()
+            .get(&StorageKey::GlobalStats)
+            .unwrap_or(GlobalStats {
+                total_attestations: 0,
+                total_revocations: 0,
+                total_issuers: 0,
+            })
+    }
+
+    fn set_global_stats_raw(env: &Env, stats: &GlobalStats) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::GlobalStats, stats);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    pub fn get_global_stats(env: &Env) -> GlobalStats {
+        Self::get_global_stats_raw(env)
+    }
+
+    pub fn increment_total_attestations(env: &Env, by: u64) {
+        let mut stats = Self::get_global_stats_raw(env);
+        stats.total_attestations = stats.total_attestations.saturating_add(by);
+        Self::set_global_stats_raw(env, &stats);
+    }
+
+    pub fn increment_total_issuers(env: &Env) {
+        let mut stats = Self::get_global_stats_raw(env);
+        stats.total_issuers = stats.total_issuers.saturating_add(1);
+        Self::set_global_stats_raw(env, &stats);
+    }
+
+    pub fn decrement_total_issuers(env: &Env) {
+        let mut stats = Self::get_global_stats_raw(env);
+        stats.total_issuers = stats.total_issuers.saturating_sub(1);
+        Self::set_global_stats_raw(env, &stats);
+    }
+
+    pub fn increment_total_revocations(env: &Env, by: u64) {
+        let mut stats = Self::get_global_stats_raw(env);
+        stats.total_revocations = stats.total_revocations.saturating_add(by);
+        Self::set_global_stats_raw(env, &stats);
+    }
+
+    // --- ExpirationHook ---
+
+    pub fn get_expiration_hook(env: &Env, subject: &Address) -> Option<ExpirationHook> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::ExpirationHook(subject.clone()))
+    }
+
+    pub fn set_expiration_hook(env: &Env, subject: &Address, hook: &ExpirationHook) {
+        let key = StorageKey::ExpirationHook(subject.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, hook);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn remove_expiration_hook(env: &Env, subject: &Address) {
+        env.storage()
+            .persistent()
+            .remove(&StorageKey::ExpirationHook(subject.clone()));
+    }
+
+    // --- Endorsements ---
+
+    pub fn get_endorsements(env: &Env, attestation_id: &String) -> Vec<Endorsement> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::Endorsements(attestation_id.clone()))
+            .unwrap_or(Vec::new(env))
+    }
+
+    pub fn add_endorsement(env: &Env, attestation_id: &String, endorsement: &Endorsement) {
+        let key = StorageKey::Endorsements(attestation_id.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut list = Self::get_endorsements(env, attestation_id);
+        list.push_back(endorsement.clone());
+        env.storage().persistent().set(&key, &list);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // --- StorageLimits ---
+
+    pub fn get_limits(env: &Env) -> StorageLimits {
+        env.storage()
+            .instance()
+            .get(&StorageKey::Limits)
+            .unwrap_or_default()
+    }
+
+    pub fn set_limits(env: &Env, limits: &StorageLimits) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::Limits, limits);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    // --- RateLimitConfig ---
+
+    pub fn get_rate_limit_config(env: &Env) -> Option<RateLimitConfig> {
+        env.storage().instance().get(&StorageKey::RateLimitConfig)
+    }
+
+    pub fn set_rate_limit_config(env: &Env, config: &RateLimitConfig) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage()
+            .instance()
+            .set(&StorageKey::RateLimitConfig, config);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    // --- LastIssuanceTime ---
+
+    pub fn get_last_issuance_time(env: &Env, issuer: &Address) -> Option<u64> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::LastIssuanceTime(issuer.clone()))
+    }
+
+    pub fn set_last_issuance_time(env: &Env, issuer: &Address, timestamp: u64) {
+        let key = StorageKey::LastIssuanceTime(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, &timestamp);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // --- MultisigProposal ---
+
+    pub fn get_multisig_proposal(env: &Env, proposal_id: &String) -> Result<MultiSigProposal, Error> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::MultisigProposal(proposal_id.clone()))
+            .ok_or(Error::NotFound)
+    }
+
+    pub fn set_multisig_proposal(env: &Env, proposal: &MultiSigProposal) {
+        let key = StorageKey::MultisigProposal(proposal.id.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, proposal);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // --- AuditLog ---
+
+    pub fn get_audit_log(env: &Env, attestation_id: &String) -> Vec<AuditEntry> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::AuditLog(attestation_id.clone()))
+            .unwrap_or(Vec::new(env))
+    }
+
+    pub fn append_audit_entry(env: &Env, attestation_id: &String, entry: &AuditEntry) {
+        let key = StorageKey::AuditLog(attestation_id.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut log = Self::get_audit_log(env, attestation_id);
+        log.push_back(entry.clone());
+        env.storage().persistent().set(&key, &log);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // --- Whitelist ---
+
+    pub fn is_whitelist_enabled(env: &Env, issuer: &Address) -> bool {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::WhitelistEnabled(issuer.clone()))
+            .unwrap_or(false)
+    }
+
+    pub fn set_whitelist_enabled(env: &Env, issuer: &Address, enabled: bool) {
+        let key = StorageKey::WhitelistEnabled(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, &enabled);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn set_whitelist_mode(env: &Env, issuer: &Address, enabled: bool) {
+        Self::set_whitelist_enabled(env, issuer, enabled);
+    }
+
+    pub fn is_subject_whitelisted(env: &Env, issuer: &Address, subject: &Address) -> bool {
+        env.storage()
+            .persistent()
+            .has(&StorageKey::Whitelist(issuer.clone(), subject.clone()))
+    }
+
+    pub fn add_subject_to_whitelist(env: &Env, issuer: &Address, subject: &Address) {
+        let key = StorageKey::Whitelist(issuer.clone(), subject.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, &true);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn remove_subject_from_whitelist(env: &Env, issuer: &Address, subject: &Address) {
+        env.storage()
+            .persistent()
+            .remove(&StorageKey::Whitelist(issuer.clone(), subject.clone()));
+    }
+
+    /// Alias for `add_subject_to_whitelist` (used by some call sites).
+    pub fn add_to_whitelist(env: &Env, issuer: &Address, subject: &Address) {
+        Self::add_subject_to_whitelist(env, issuer, subject);
+    }
+
+    /// Alias for `remove_subject_from_whitelist` (used by some call sites).
+    pub fn remove_from_whitelist(env: &Env, issuer: &Address, subject: &Address) {
+        Self::remove_subject_from_whitelist(env, issuer, subject);
+    }
+
+    /// Alias for `is_subject_whitelisted` (used by some call sites).
+    pub fn is_whitelisted(env: &Env, issuer: &Address, subject: &Address) -> bool {
+        Self::is_subject_whitelisted(env, issuer, subject)
+    }
+
+    /// Alias for `is_whitelist_enabled` (used by some call sites).
+    pub fn is_whitelist_mode(env: &Env, issuer: &Address) -> bool {
+        Self::is_whitelist_enabled(env, issuer)
+    }
+
+    // --- Paused ---
+
+    pub fn is_paused(env: &Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&StorageKey::Paused)
+            .unwrap_or(false)
+    }
+
+    pub fn set_paused(env: &Env, paused: bool) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::Paused, &paused);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    // --- AttestationRequest ---
+
+    pub fn get_request(env: &Env, request_id: &String) -> Result<AttestationRequest, Error> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::Request(request_id.clone()))
+            .ok_or(Error::NotFound)
+    }
+
+    pub fn set_request(env: &Env, request: &AttestationRequest) {
+        let key = StorageKey::Request(request.id.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, request);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn get_pending_request_ids(env: &Env, issuer: &Address) -> Vec<String> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::PendingRequests(issuer.clone()))
+            .unwrap_or(Vec::new(env))
+    }
+
+    pub fn add_pending_request(env: &Env, issuer: &Address, request_id: &String) {
+        let key = StorageKey::PendingRequests(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut list = Self::get_pending_request_ids(env, issuer);
+        list.push_back(request_id.clone());
+        env.storage().persistent().set(&key, &list);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn remove_pending_request(env: &Env, issuer: &Address, request_id: &String) {
+        let key = StorageKey::PendingRequests(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        let existing = Self::get_pending_request_ids(env, issuer);
+        let mut updated = Vec::new(env);
+        for id in existing.iter() {
+            if &id != request_id {
+                updated.push_back(id);
+            }
+        }
+        env.storage().persistent().set(&key, &updated);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // --- IssuerTier ---
+
+    pub fn set_issuer_tier(env: &Env, issuer: &Address, tier: &IssuerTier) {
+        let key = StorageKey::IssuerTier(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, tier);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn get_issuer_tier(env: &Env, issuer: &Address) -> Option<IssuerTier> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::IssuerTier(issuer.clone()))
+    }
+
+    // --- IssuerStats ---
+
+    pub fn get_issuer_stats(env: &Env, issuer: &Address) -> IssuerStats {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::IssuerStats(issuer.clone()))
+            .unwrap_or(IssuerStats { total_issued: 0 })
+    }
+
+    pub fn set_issuer_stats(env: &Env, issuer: &Address, stats: &IssuerStats) {
+        let key = StorageKey::IssuerStats(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, stats);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // --- GlobalStats ---
+
+    fn get_global_stats_raw(env: &Env) -> GlobalStats {
+        env.storage()
+            .instance()
+            .get(&StorageKey::GlobalStats)
+            .unwrap_or(GlobalStats {
+                total_attestations: 0,
+                total_revocations: 0,
+                total_issuers: 0,
+            })
+    }
+
+    fn set_global_stats_raw(env: &Env, stats: &GlobalStats) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::GlobalStats, stats);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    pub fn get_global_stats(env: &Env) -> GlobalStats {
+        Self::get_global_stats_raw(env)
+    }
+
+    pub fn increment_total_attestations(env: &Env, by: u64) {
+        let mut stats = Self::get_global_stats_raw(env);
+        stats.total_attestations = stats.total_attestations.saturating_add(by);
+        Self::set_global_stats_raw(env, &stats);
+    }
+
+    pub fn increment_total_issuers(env: &Env) {
+        let mut stats = Self::get_global_stats_raw(env);
+        stats.total_issuers = stats.total_issuers.saturating_add(1);
+        Self::set_global_stats_raw(env, &stats);
+    }
+
+    pub fn decrement_total_issuers(env: &Env) {
+        let mut stats = Self::get_global_stats_raw(env);
+        stats.total_issuers = stats.total_issuers.saturating_sub(1);
+        Self::set_global_stats_raw(env, &stats);
+    }
+
+    pub fn increment_total_revocations(env: &Env, by: u64) {
+        let mut stats = Self::get_global_stats_raw(env);
+        stats.total_revocations = stats.total_revocations.saturating_add(by);
+        Self::set_global_stats_raw(env, &stats);
+    }
+
+    // --- ExpirationHook ---
+
+    pub fn get_expiration_hook(env: &Env, subject: &Address) -> Option<ExpirationHook> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::ExpirationHook(subject.clone()))
+    }
+
+    pub fn set_expiration_hook(env: &Env, subject: &Address, hook: &ExpirationHook) {
+        let key = StorageKey::ExpirationHook(subject.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, hook);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn remove_expiration_hook(env: &Env, subject: &Address) {
+        env.storage()
+            .persistent()
+            .remove(&StorageKey::ExpirationHook(subject.clone()));
+    }
+
+    // --- Endorsements ---
+
+    pub fn get_endorsements(env: &Env, attestation_id: &String) -> Vec<Endorsement> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::Endorsements(attestation_id.clone()))
+            .unwrap_or(Vec::new(env))
+    }
+
+    pub fn add_endorsement(env: &Env, attestation_id: &String, endorsement: &Endorsement) {
+        let key = StorageKey::Endorsements(attestation_id.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut list = Self::get_endorsements(env, attestation_id);
+        list.push_back(endorsement.clone());
+        env.storage().persistent().set(&key, &list);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // --- StorageLimits ---
+
+    pub fn get_limits(env: &Env) -> StorageLimits {
+        env.storage()
+            .instance()
+            .get(&StorageKey::Limits)
+            .unwrap_or_default()
+    }
+
+    pub fn set_limits(env: &Env, limits: &StorageLimits) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::Limits, limits);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    // --- RateLimitConfig ---
+
+    pub fn get_rate_limit_config(env: &Env) -> Option<RateLimitConfig> {
+        env.storage().instance().get(&StorageKey::RateLimitConfig)
+    }
+
+    pub fn set_rate_limit_config(env: &Env, config: &RateLimitConfig) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage()
+            .instance()
+            .set(&StorageKey::RateLimitConfig, config);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    // --- LastIssuanceTime ---
+
+    pub fn get_last_issuance_time(env: &Env, issuer: &Address) -> Option<u64> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::LastIssuanceTime(issuer.clone()))
+    }
+
+    pub fn set_last_issuance_time(env: &Env, issuer: &Address, timestamp: u64) {
+        let key = StorageKey::LastIssuanceTime(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, &timestamp);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // --- MultisigProposal ---
+
+    pub fn get_multisig_proposal(env: &Env, proposal_id: &String) -> Result<MultiSigProposal, Error> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::MultisigProposal(proposal_id.clone()))
+            .ok_or(Error::NotFound)
+    }
+
+    pub fn set_multisig_proposal(env: &Env, proposal: &MultiSigProposal) {
+        let key = StorageKey::MultisigProposal(proposal.id.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, proposal);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // --- AuditLog ---
+
+    pub fn get_audit_log(env: &Env, attestation_id: &String) -> Vec<AuditEntry> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::AuditLog(attestation_id.clone()))
+            .unwrap_or(Vec::new(env))
+    }
+
+    pub fn append_audit_entry(env: &Env, attestation_id: &String, entry: &AuditEntry) {
+        let key = StorageKey::AuditLog(attestation_id.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut log = Self::get_audit_log(env, attestation_id);
+        log.push_back(entry.clone());
+        env.storage().persistent().set(&key, &log);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // --- Whitelist ---
+
+    pub fn is_whitelist_enabled(env: &Env, issuer: &Address) -> bool {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::WhitelistEnabled(issuer.clone()))
+            .unwrap_or(false)
+    }
+
+    pub fn set_whitelist_enabled(env: &Env, issuer: &Address, enabled: bool) {
+        let key = StorageKey::WhitelistEnabled(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, &enabled);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn set_whitelist_mode(env: &Env, issuer: &Address, enabled: bool) {
+        Self::set_whitelist_enabled(env, issuer, enabled);
+    }
+
+    pub fn is_subject_whitelisted(env: &Env, issuer: &Address, subject: &Address) -> bool {
+        env.storage()
+            .persistent()
+            .has(&StorageKey::Whitelist(issuer.clone(), subject.clone()))
+    }
+
+    pub fn add_subject_to_whitelist(env: &Env, issuer: &Address, subject: &Address) {
+        let key = StorageKey::Whitelist(issuer.clone(), subject.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, &true);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn remove_subject_from_whitelist(env: &Env, issuer: &Address, subject: &Address) {
+        env.storage()
+            .persistent()
+            .remove(&StorageKey::Whitelist(issuer.clone(), subject.clone()));
+    }
+
+    pub fn add_to_whitelist(env: &Env, issuer: &Address, subject: &Address) {
+        Self::add_subject_to_whitelist(env, issuer, subject);
+    }
+
+    pub fn remove_from_whitelist(env: &Env, issuer: &Address, subject: &Address) {
+        Self::remove_subject_from_whitelist(env, issuer, subject);
+    }
+
+    pub fn is_whitelisted(env: &Env, issuer: &Address, subject: &Address) -> bool {
+        Self::is_subject_whitelisted(env, issuer, subject)
+    }
+
+    pub fn is_whitelist_mode(env: &Env, issuer: &Address) -> bool {
+        Self::is_whitelist_enabled(env, issuer)
+    }
+
+    // --- Paused ---
+
+    pub fn is_paused(env: &Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&StorageKey::Paused)
+            .unwrap_or(false)
+    }
+
+    pub fn set_paused(env: &Env, paused: bool) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::Paused, &paused);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    // --- AttestationRequest ---
+
+    pub fn get_request(env: &Env, request_id: &String) -> Result<AttestationRequest, Error> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::Request(request_id.clone()))
+            .ok_or(Error::NotFound)
+    }
+
+    pub fn set_request(env: &Env, request: &AttestationRequest) {
+        let key = StorageKey::Request(request.id.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, request);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn get_pending_request_ids(env: &Env, issuer: &Address) -> Vec<String> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::PendingRequests(issuer.clone()))
+            .unwrap_or(Vec::new(env))
+    }
+
+    pub fn add_pending_request(env: &Env, issuer: &Address, request_id: &String) {
+        let key = StorageKey::PendingRequests(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut list = Self::get_pending_request_ids(env, issuer);
+        list.push_back(request_id.clone());
+        env.storage().persistent().set(&key, &list);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn remove_pending_request(env: &Env, issuer: &Address, request_id: &String) {
+        let key = StorageKey::PendingRequests(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        let existing = Self::get_pending_request_ids(env, issuer);
+        let mut updated = Vec::new(env);
+        for id in existing.iter() {
+            if &id != request_id {
+                updated.push_back(id);
+            }
+        }
+        env.storage().persistent().set(&key, &updated);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // --- IssuerTier ---
+
+    pub fn set_issuer_tier(env: &Env, issuer: &Address, tier: &IssuerTier) {
+        let key = StorageKey::IssuerTier(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, tier);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn get_issuer_tier(env: &Env, issuer: &Address) -> Option<IssuerTier> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::IssuerTier(issuer.clone()))
+    }
+
+    // --- IssuerStats ---
+
+    pub fn get_issuer_stats(env: &Env, issuer: &Address) -> IssuerStats {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::IssuerStats(issuer.clone()))
+            .unwrap_or(IssuerStats { total_issued: 0 })
+    }
+
+    pub fn set_issuer_stats(env: &Env, issuer: &Address, stats: &IssuerStats) {
+        let key = StorageKey::IssuerStats(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, stats);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // --- GlobalStats ---
+
+    fn get_global_stats_raw(env: &Env) -> GlobalStats {
+        env.storage()
+            .instance()
+            .get(&StorageKey::GlobalStats)
+            .unwrap_or(GlobalStats {
+                total_attestations: 0,
+                total_revocations: 0,
+                total_issuers: 0,
+            })
+    }
+
+    fn set_global_stats_raw(env: &Env, stats: &GlobalStats) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::GlobalStats, stats);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    pub fn get_global_stats(env: &Env) -> GlobalStats {
+        Self::get_global_stats_raw(env)
+    }
+
+    pub fn increment_total_attestations(env: &Env, by: u64) {
+        let mut stats = Self::get_global_stats_raw(env);
+        stats.total_attestations = stats.total_attestations.saturating_add(by);
+        Self::set_global_stats_raw(env, &stats);
+    }
+
+    pub fn increment_total_issuers(env: &Env) {
+        let mut stats = Self::get_global_stats_raw(env);
+        stats.total_issuers = stats.total_issuers.saturating_add(1);
+        Self::set_global_stats_raw(env, &stats);
+    }
+
+    pub fn decrement_total_issuers(env: &Env) {
+        let mut stats = Self::get_global_stats_raw(env);
+        stats.total_issuers = stats.total_issuers.saturating_sub(1);
+        Self::set_global_stats_raw(env, &stats);
+    }
+
+    pub fn increment_total_revocations(env: &Env, by: u64) {
+        let mut stats = Self::get_global_stats_raw(env);
+        stats.total_revocations = stats.total_revocations.saturating_add(by);
+        Self::set_global_stats_raw(env, &stats);
+    }
+
+    // --- ExpirationHook ---
+
+    pub fn get_expiration_hook(env: &Env, subject: &Address) -> Option<ExpirationHook> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::ExpirationHook(subject.clone()))
+    }
+
+    pub fn set_expiration_hook(env: &Env, subject: &Address, hook: &ExpirationHook) {
+        let key = StorageKey::ExpirationHook(subject.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, hook);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn remove_expiration_hook(env: &Env, subject: &Address) {
+        env.storage()
+            .persistent()
+            .remove(&StorageKey::ExpirationHook(subject.clone()));
+    }
+
+    // --- Endorsements ---
+
+    pub fn get_endorsements(env: &Env, attestation_id: &String) -> Vec<Endorsement> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::Endorsements(attestation_id.clone()))
+            .unwrap_or(Vec::new(env))
+    }
+
+    pub fn add_endorsement(env: &Env, attestation_id: &String, endorsement: &Endorsement) {
+        let key = StorageKey::Endorsements(attestation_id.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut list = Self::get_endorsements(env, attestation_id);
+        list.push_back(endorsement.clone());
+        env.storage().persistent().set(&key, &list);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // --- StorageLimits ---
+
+    pub fn get_limits(env: &Env) -> StorageLimits {
+        env.storage()
+            .instance()
+            .get(&StorageKey::Limits)
+            .unwrap_or_default()
+    }
+
+    pub fn set_limits(env: &Env, limits: &StorageLimits) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::Limits, limits);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    // --- RateLimitConfig ---
+
+    pub fn get_rate_limit_config(env: &Env) -> Option<RateLimitConfig> {
+        env.storage().instance().get(&StorageKey::RateLimitConfig)
+    }
+
+    pub fn set_rate_limit_config(env: &Env, config: &RateLimitConfig) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage()
+            .instance()
+            .set(&StorageKey::RateLimitConfig, config);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    // --- LastIssuanceTime ---
+
+    pub fn get_last_issuance_time(env: &Env, issuer: &Address) -> Option<u64> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::LastIssuanceTime(issuer.clone()))
+    }
+
+    pub fn set_last_issuance_time(env: &Env, issuer: &Address, timestamp: u64) {
+        let key = StorageKey::LastIssuanceTime(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, &timestamp);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // --- MultisigProposal ---
+
+    pub fn get_multisig_proposal(env: &Env, proposal_id: &String) -> Result<MultiSigProposal, Error> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::MultisigProposal(proposal_id.clone()))
+            .ok_or(Error::NotFound)
+    }
+
+    pub fn set_multisig_proposal(env: &Env, proposal: &MultiSigProposal) {
+        let key = StorageKey::MultisigProposal(proposal.id.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, proposal);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // --- AuditLog ---
+
+    pub fn get_audit_log(env: &Env, attestation_id: &String) -> Vec<AuditEntry> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::AuditLog(attestation_id.clone()))
+            .unwrap_or(Vec::new(env))
+    }
+
+    pub fn append_audit_entry(env: &Env, attestation_id: &String, entry: &AuditEntry) {
+        let key = StorageKey::AuditLog(attestation_id.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut log = Self::get_audit_log(env, attestation_id);
+        log.push_back(entry.clone());
+        env.storage().persistent().set(&key, &log);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // --- Whitelist ---
+
+    pub fn is_whitelist_enabled(env: &Env, issuer: &Address) -> bool {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::WhitelistEnabled(issuer.clone()))
+            .unwrap_or(false)
+    }
+
+    pub fn set_whitelist_enabled(env: &Env, issuer: &Address, enabled: bool) {
+        let key = StorageKey::WhitelistEnabled(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, &enabled);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn set_whitelist_mode(env: &Env, issuer: &Address, enabled: bool) {
+        Self::set_whitelist_enabled(env, issuer, enabled);
+    }
+
+    pub fn is_subject_whitelisted(env: &Env, issuer: &Address, subject: &Address) -> bool {
+        env.storage()
+            .persistent()
+            .has(&StorageKey::Whitelist(issuer.clone(), subject.clone()))
+    }
+
+    pub fn add_subject_to_whitelist(env: &Env, issuer: &Address, subject: &Address) {
+        let key = StorageKey::Whitelist(issuer.clone(), subject.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, &true);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn remove_subject_from_whitelist(env: &Env, issuer: &Address, subject: &Address) {
+        env.storage()
+            .persistent()
+            .remove(&StorageKey::Whitelist(issuer.clone(), subject.clone()));
+    }
+
+    pub fn add_to_whitelist(env: &Env, issuer: &Address, subject: &Address) {
+        Self::add_subject_to_whitelist(env, issuer, subject);
+    }
+
+    pub fn remove_from_whitelist(env: &Env, issuer: &Address, subject: &Address) {
+        Self::remove_subject_from_whitelist(env, issuer, subject);
+    }
+
+    pub fn is_whitelisted(env: &Env, issuer: &Address, subject: &Address) -> bool {
+        Self::is_subject_whitelisted(env, issuer, subject)
+    }
+
+    pub fn is_whitelist_mode(env: &Env, issuer: &Address) -> bool {
+        Self::is_whitelist_enabled(env, issuer)
+    }
+
+    // --- Paused ---
+
+    pub fn is_paused(env: &Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&StorageKey::Paused)
+            .unwrap_or(false)
+    }
+
+    pub fn set_paused(env: &Env, paused: bool) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::Paused, &paused);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    // --- AttestationRequest ---
+
+    pub fn get_request(env: &Env, request_id: &String) -> Result<AttestationRequest, Error> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::Request(request_id.clone()))
+            .ok_or(Error::NotFound)
+    }
+
+    pub fn set_request(env: &Env, request: &AttestationRequest) {
+        let key = StorageKey::Request(request.id.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, request);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn get_pending_request_ids(env: &Env, issuer: &Address) -> Vec<String> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::PendingRequests(issuer.clone()))
+            .unwrap_or(Vec::new(env))
+    }
+
+    pub fn add_pending_request(env: &Env, issuer: &Address, request_id: &String) {
+        let key = StorageKey::PendingRequests(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut list = Self::get_pending_request_ids(env, issuer);
+        list.push_back(request_id.clone());
+        env.storage().persistent().set(&key, &list);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn remove_pending_request(env: &Env, issuer: &Address, request_id: &String) {
+        let key = StorageKey::PendingRequests(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        let existing = Self::get_pending_request_ids(env, issuer);
+        let mut updated = Vec::new(env);
+        for id in existing.iter() {
+            if &id != request_id {
+                updated.push_back(id);
+            }
+        }
+        env.storage().persistent().set(&key, &updated);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // -------------------------------------------------------------------------
+    // Whitelist (alias names used by lib.rs)
+    // -------------------------------------------------------------------------
+
+    pub fn set_whitelist_enabled(env: &Env, issuer: &Address, enabled: bool) {
+        let key = StorageKey::IssuerWhitelistEnabled(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, &enabled);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn is_whitelist_enabled(env: &Env, issuer: &Address) -> bool {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::IssuerWhitelistEnabled(issuer.clone()))
+            .unwrap_or(false)
+    }
+
+    pub fn add_subject_to_whitelist(env: &Env, issuer: &Address, subject: &Address) {
+        Self::add_to_whitelist(env, issuer, subject);
+    }
+
+    pub fn remove_subject_from_whitelist(env: &Env, issuer: &Address, subject: &Address) {
+        Self::remove_from_whitelist(env, issuer, subject);
+    }
+
+    pub fn is_subject_whitelisted(env: &Env, issuer: &Address, subject: &Address) -> bool {
+        Self::is_whitelisted(env, issuer, subject)
+    }
+
+    // -------------------------------------------------------------------------
+    // Global stats
+    // -------------------------------------------------------------------------
+
+    pub fn get_global_stats(env: &Env) -> GlobalStats {
+        env.storage()
+            .instance()
+            .get(&StorageKey::GlobalStats)
+            .unwrap_or(GlobalStats {
+                total_attestations: 0,
+                total_revocations: 0,
+                total_issuers: 0,
+            })
+    }
+
+    fn set_global_stats(env: &Env, stats: &GlobalStats) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::GlobalStats, stats);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    pub fn increment_total_attestations(env: &Env, count: u64) {
+        let mut stats = Self::get_global_stats(env);
+        stats.total_attestations = stats.total_attestations.saturating_add(count);
+        Self::set_global_stats(env, &stats);
+    }
+
+    pub fn increment_total_revocations(env: &Env, count: u64) {
+        let mut stats = Self::get_global_stats(env);
+        stats.total_revocations = stats.total_revocations.saturating_add(count);
+        Self::set_global_stats(env, &stats);
+    }
+
+    pub fn increment_total_issuers(env: &Env) {
+        let mut stats = Self::get_global_stats(env);
+        stats.total_issuers = stats.total_issuers.saturating_add(1);
+        Self::set_global_stats(env, &stats);
+    }
+
+    pub fn decrement_total_issuers(env: &Env) {
+        let mut stats = Self::get_global_stats(env);
+        stats.total_issuers = stats.total_issuers.saturating_sub(1);
+        Self::set_global_stats(env, &stats);
+    }
+
+    // -------------------------------------------------------------------------
+    // Per-issuer stats
+    // -------------------------------------------------------------------------
+
+    pub fn get_issuer_stats(env: &Env, issuer: &Address) -> IssuerStats {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::IssuerStats(issuer.clone()))
+            .unwrap_or(IssuerStats { total_issued: 0 })
+    }
+
+    pub fn set_issuer_stats(env: &Env, issuer: &Address, stats: &IssuerStats) {
+        let key = StorageKey::IssuerStats(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, stats);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // -------------------------------------------------------------------------
+    // Issuer tier
+    // -------------------------------------------------------------------------
+
+    pub fn set_issuer_tier(env: &Env, issuer: &Address, tier: &IssuerTier) {
+        let key = StorageKey::IssuerTier(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, tier);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn get_issuer_tier(env: &Env, issuer: &Address) -> Option<IssuerTier> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::IssuerTier(issuer.clone()))
+    }
+
+    // -------------------------------------------------------------------------
+    // Pause
+    // -------------------------------------------------------------------------
+
+    pub fn set_paused(env: &Env, paused: bool) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::Paused, &paused);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    pub fn is_paused(env: &Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&StorageKey::Paused)
+            .unwrap_or(false)
+    }
+
+    // -------------------------------------------------------------------------
+    // Storage limits
+    // -------------------------------------------------------------------------
+
+    pub fn get_limits(env: &Env) -> StorageLimits {
+        env.storage()
+            .instance()
+            .get(&StorageKey::StorageLimits)
+            .unwrap_or_default()
+    }
+
+    pub fn set_limits(env: &Env, limits: &StorageLimits) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::StorageLimits, limits);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    // -------------------------------------------------------------------------
+    // Audit log
+    // -------------------------------------------------------------------------
+
+    pub fn get_audit_log(env: &Env, attestation_id: &String) -> Vec<AuditEntry> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::AuditLog(attestation_id.clone()))
+            .unwrap_or(Vec::new(env))
+    }
+
+    pub fn append_audit_entry(env: &Env, attestation_id: &String, entry: &AuditEntry) {
+        let key = StorageKey::AuditLog(attestation_id.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut log = Self::get_audit_log(env, attestation_id);
+        log.push_back(entry.clone());
+        env.storage().persistent().set(&key, &log);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // -------------------------------------------------------------------------
+    // Expiration hooks
+    // -------------------------------------------------------------------------
+
+    pub fn get_expiration_hook(env: &Env, subject: &Address) -> Option<ExpirationHook> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::ExpirationHook(subject.clone()))
+    }
+
+    pub fn set_expiration_hook(env: &Env, subject: &Address, hook: &ExpirationHook) {
+        let key = StorageKey::ExpirationHook(subject.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, hook);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn remove_expiration_hook(env: &Env, subject: &Address) {
+        env.storage()
+            .persistent()
+            .remove(&StorageKey::ExpirationHook(subject.clone()));
+    }
+
+    // -------------------------------------------------------------------------
+    // Multi-sig proposals
+    // -------------------------------------------------------------------------
+
+    pub fn get_multisig_proposal(env: &Env, proposal_id: &String) -> Result<MultiSigProposal, Error> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::MultiSigProposal(proposal_id.clone()))
+            .ok_or(Error::NotFound)
+    }
+
+    pub fn set_multisig_proposal(env: &Env, proposal: &MultiSigProposal) {
+        let key = StorageKey::MultiSigProposal(proposal.id.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, proposal);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // -------------------------------------------------------------------------
+    // Endorsements
+    // -------------------------------------------------------------------------
+
+    pub fn get_endorsements(env: &Env, attestation_id: &String) -> Vec<crate::types::Endorsement> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::Endorsements(attestation_id.clone()))
+            .unwrap_or(Vec::new(env))
+    }
+
+    pub fn add_endorsement(env: &Env, endorsement: &crate::types::Endorsement) {
+        let key = StorageKey::Endorsements(endorsement.attestation_id.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut list = Self::get_endorsements(env, &endorsement.attestation_id);
+        list.push_back(endorsement.clone());
+        env.storage().persistent().set(&key, &list);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // -------------------------------------------------------------------------
+    // Rate limiting
+    // -------------------------------------------------------------------------
+
+    pub fn get_rate_limit_config(env: &Env) -> Option<RateLimitConfig> {
+        env.storage()
+            .instance()
+            .get(&StorageKey::RateLimitConfig)
+    }
+
+    pub fn set_rate_limit_config(env: &Env, config: &RateLimitConfig) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::RateLimitConfig, config);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    pub fn get_last_issuance_time(env: &Env, issuer: &Address) -> Option<u64> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::LastIssuance(issuer.clone()))
+    }
+
+    pub fn set_last_issuance_time(env: &Env, issuer: &Address, timestamp: u64) {
+        let key = StorageKey::LastIssuance(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, &timestamp);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // -------------------------------------------------------------------------
+    // Attestation requests
+    // -------------------------------------------------------------------------
+
+    pub fn get_attestation_request(env: &Env, request_id: &String) -> Result<AttestationRequest, Error> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::AttestationRequest(request_id.clone()))
+            .ok_or(Error::NotFound)
+    }
+
+    pub fn set_attestation_request(env: &Env, request: &AttestationRequest) {
+        let key = StorageKey::AttestationRequest(request.id.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, request);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn get_issuer_pending_requests(env: &Env, issuer: &Address) -> Vec<String> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::IssuerPendingRequests(issuer.clone()))
+            .unwrap_or(Vec::new(env))
+    }
+
+    pub fn add_issuer_pending_request(env: &Env, issuer: &Address, request_id: &String) {
+        let key = StorageKey::IssuerPendingRequests(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut list = Self::get_issuer_pending_requests(env, issuer);
+        list.push_back(request_id.clone());
+        env.storage().persistent().set(&key, &list);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn remove_issuer_pending_request(env: &Env, issuer: &Address, request_id: &String) {
+        let key = StorageKey::IssuerPendingRequests(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        let existing = Self::get_issuer_pending_requests(env, issuer);
+        let mut updated = Vec::new(env);
+        for id in existing.iter() {
+            if &id != request_id {
+                updated.push_back(id);
+            }
+        }
+        env.storage().persistent().set(&key, &updated);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // -------------------------------------------------------------------------
+    // Pause reason (issue #528)
+    // -------------------------------------------------------------------------
+
+    /// Persist the pause reason (stored until next unpause clears it).
+    pub fn set_pause_reason(env: &Env, reason: &Option<String>) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::PauseReason, reason);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    /// Return the reason stored when `pause()` was last called, or `None`.
+    pub fn get_pause_reason(env: &Env) -> Option<String> {
+        env.storage()
+            .instance()
+            .get::<StorageKey, Option<String>>(&StorageKey::PauseReason)
+            .flatten()
+    }
+
+    /// Clear the stored pause reason (called by `unpause`).
+    pub fn clear_pause_reason(env: &Env) {
+        env.storage().instance().remove(&StorageKey::PauseReason);
+    }
+
+    // -------------------------------------------------------------------------
+    // Require-registered-claim-type flag (issue #529)
+    // -------------------------------------------------------------------------
+
+    /// Set whether `create_template` must reject unregistered claim types.
+    pub fn set_require_registered_claim_type(env: &Env, required: bool) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage()
+            .instance()
+            .set(&StorageKey::RequireRegisteredClaimType, &required);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    /// Return `true` if `create_template` must reject unregistered claim types.
+    pub fn get_require_registered_claim_type(env: &Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&StorageKey::RequireRegisteredClaimType)
+            .unwrap_or(false)
+    }
+
+    // -------------------------------------------------------------------------
+    // Attestation templates (issue #529)
+    // -------------------------------------------------------------------------
+
+    /// Persist an [`AttestationTemplate`] and update the issuer's template list.
+    pub fn set_attestation_template(env: &Env, template: &AttestationTemplate) {
+        let key = StorageKey::AttestationTemplate(template.issuer.clone(), template.name.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, template);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+
+        let list_key = StorageKey::AttestationTemplateList(template.issuer.clone());
+        let mut list: Vec<String> = env
+            .storage()
+            .persistent()
+            .get(&list_key)
+            .unwrap_or(Vec::new(env));
+        let mut already_listed = false;
+        for n in list.iter() {
+            if n == template.name {
+                already_listed = true;
+                break;
+            }
+        }
+        if !already_listed {
+            list.push_back(template.name.clone());
+            env.storage().persistent().set(&list_key, &list);
+            env.storage().persistent().extend_ttl(&list_key, ttl, ttl);
+        }
+    }
+
+    /// Retrieve an [`AttestationTemplate`] by issuer and name, or `None`.
+    pub fn get_attestation_template(
+        env: &Env,
+        issuer: &Address,
+        name: &String,
+    ) -> Option<AttestationTemplate> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::AttestationTemplate(issuer.clone(), name.clone()))
+    }
+}
+
+/// Paginate a `Vec<String>` index, returning a slice starting at `start` with at most `limit` items.
+pub fn paginate(env: &Env, list: &Vec<String>, start: u32, limit: u32) -> Vec<String> {
+    let mut result = Vec::new(env);
+    let len = list.len();
+    if start >= len {
+        return result;
+    }
+    let end = (start + limit).min(len);
+    for i in start..end {
+        if let Some(item) = list.get(i) {
+            result.push_back(item);
+        }
+    }
+    pub fn set_issuer_tier(env: &Env, issuer: &Address, tier: &IssuerTier) {
+        let key = StorageKey::IssuerTier(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, tier);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn get_issuer_tier(env: &Env, issuer: &Address) -> Option<IssuerTier> {
+        env.storage().persistent().get(&StorageKey::IssuerTier(issuer.clone()))
+    }
+    pub fn get_issuer_stats(env: &Env, issuer: &Address) -> IssuerStats {
+        env.storage().persistent().get(&StorageKey::IssuerStats(issuer.clone()))
+            .unwrap_or(IssuerStats { total_issued: 0 })
+    }
+    pub fn set_issuer_stats(env: &Env, issuer: &Address, stats: &IssuerStats) {
+        let key = StorageKey::IssuerStats(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, stats);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    fn get_global_stats_raw(env: &Env) -> GlobalStats {
+        env.storage().instance().get(&StorageKey::GlobalStats)
+            .unwrap_or(GlobalStats { total_attestations: 0, total_revocations: 0, total_issuers: 0 })
+    }
+    fn set_global_stats_raw(env: &Env, stats: &GlobalStats) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::GlobalStats, stats);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+    pub fn get_global_stats(env: &Env) -> GlobalStats { Self::get_global_stats_raw(env) }
+    pub fn increment_total_attestations(env: &Env, by: u64) {
+        let mut s = Self::get_global_stats_raw(env); s.total_attestations = s.total_attestations.saturating_add(by); Self::set_global_stats_raw(env, &s);
+    }
+    pub fn increment_total_issuers(env: &Env) {
+        let mut s = Self::get_global_stats_raw(env); s.total_issuers = s.total_issuers.saturating_add(1); Self::set_global_stats_raw(env, &s);
+    }
+    pub fn decrement_total_issuers(env: &Env) {
+        let mut s = Self::get_global_stats_raw(env); s.total_issuers = s.total_issuers.saturating_sub(1); Self::set_global_stats_raw(env, &s);
+    }
+    pub fn increment_total_revocations(env: &Env, by: u64) {
+        let mut s = Self::get_global_stats_raw(env); s.total_revocations = s.total_revocations.saturating_add(by); Self::set_global_stats_raw(env, &s);
+    }
+    pub fn get_expiration_hook(env: &Env, subject: &Address) -> Option<ExpirationHook> {
+        env.storage().persistent().get(&StorageKey::ExpirationHook(subject.clone()))
+    }
+    pub fn set_expiration_hook(env: &Env, subject: &Address, hook: &ExpirationHook) {
+        let key = StorageKey::ExpirationHook(subject.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, hook);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn remove_expiration_hook(env: &Env, subject: &Address) {
+        env.storage().persistent().remove(&StorageKey::ExpirationHook(subject.clone()));
+    }
+    pub fn get_endorsements(env: &Env, attestation_id: &String) -> Vec<Endorsement> {
+        env.storage().persistent().get(&StorageKey::Endorsements(attestation_id.clone())).unwrap_or(Vec::new(env))
+    }
+    pub fn add_endorsement(env: &Env, attestation_id: &String, endorsement: &Endorsement) {
+        let key = StorageKey::Endorsements(attestation_id.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut list = Self::get_endorsements(env, attestation_id);
+        list.push_back(endorsement.clone());
+        env.storage().persistent().set(&key, &list);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn get_limits(env: &Env) -> StorageLimits {
+        env.storage().instance().get(&StorageKey::Limits).unwrap_or_default()
+    }
+    pub fn set_limits(env: &Env, limits: &StorageLimits) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::Limits, limits);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+    pub fn get_rate_limit_config(env: &Env) -> Option<RateLimitConfig> {
+        env.storage().instance().get(&StorageKey::RateLimitConfig)
+    }
+    pub fn set_rate_limit_config(env: &Env, config: &RateLimitConfig) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::RateLimitConfig, config);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+    pub fn get_last_issuance_time(env: &Env, issuer: &Address) -> Option<u64> {
+        env.storage().persistent().get(&StorageKey::LastIssuanceTime(issuer.clone()))
+    }
+    pub fn set_last_issuance_time(env: &Env, issuer: &Address, timestamp: u64) {
+        let key = StorageKey::LastIssuanceTime(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, &timestamp);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn get_multisig_proposal(env: &Env, proposal_id: &String) -> Result<MultiSigProposal, Error> {
+        env.storage().persistent().get(&StorageKey::MultisigProposal(proposal_id.clone())).ok_or(Error::NotFound)
+    }
+    pub fn set_multisig_proposal(env: &Env, proposal: &MultiSigProposal) {
+        let key = StorageKey::MultisigProposal(proposal.id.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, proposal);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn get_audit_log(env: &Env, attestation_id: &String) -> Vec<AuditEntry> {
+        env.storage().persistent().get(&StorageKey::AuditLog(attestation_id.clone())).unwrap_or(Vec::new(env))
+    }
+    pub fn append_audit_entry(env: &Env, attestation_id: &String, entry: &AuditEntry) {
+        let key = StorageKey::AuditLog(attestation_id.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut log = Self::get_audit_log(env, attestation_id);
+        log.push_back(entry.clone());
+        env.storage().persistent().set(&key, &log);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn is_whitelist_enabled(env: &Env, issuer: &Address) -> bool {
+        env.storage().persistent().get(&StorageKey::WhitelistEnabled(issuer.clone())).unwrap_or(false)
+    }
+    pub fn set_whitelist_enabled(env: &Env, issuer: &Address, enabled: bool) {
+        let key = StorageKey::WhitelistEnabled(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, &enabled);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn set_whitelist_mode(env: &Env, issuer: &Address, enabled: bool) { Self::set_whitelist_enabled(env, issuer, enabled); }
+    pub fn is_subject_whitelisted(env: &Env, issuer: &Address, subject: &Address) -> bool {
+        env.storage().persistent().has(&StorageKey::Whitelist(issuer.clone(), subject.clone()))
+    }
+    pub fn add_subject_to_whitelist(env: &Env, issuer: &Address, subject: &Address) {
+        let key = StorageKey::Whitelist(issuer.clone(), subject.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, &true);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn remove_subject_from_whitelist(env: &Env, issuer: &Address, subject: &Address) {
+        env.storage().persistent().remove(&StorageKey::Whitelist(issuer.clone(), subject.clone()));
+    }
+    pub fn add_to_whitelist(env: &Env, issuer: &Address, subject: &Address) { Self::add_subject_to_whitelist(env, issuer, subject); }
+    pub fn remove_from_whitelist(env: &Env, issuer: &Address, subject: &Address) { Self::remove_subject_from_whitelist(env, issuer, subject); }
+    pub fn is_whitelisted(env: &Env, issuer: &Address, subject: &Address) -> bool { Self::is_subject_whitelisted(env, issuer, subject) }
+    pub fn is_whitelist_mode(env: &Env, issuer: &Address) -> bool { Self::is_whitelist_enabled(env, issuer) }
+    pub fn is_paused(env: &Env) -> bool {
+        env.storage().instance().get(&StorageKey::Paused).unwrap_or(false)
+    }
+    pub fn set_paused(env: &Env, paused: bool) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::Paused, &paused);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+    pub fn get_request(env: &Env, request_id: &String) -> Result<AttestationRequest, Error> {
+        env.storage().persistent().get(&StorageKey::Request(request_id.clone())).ok_or(Error::NotFound)
+    }
+    pub fn set_request(env: &Env, request: &AttestationRequest) {
+        let key = StorageKey::Request(request.id.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, request);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn get_pending_request_ids(env: &Env, issuer: &Address) -> Vec<String> {
+        env.storage().persistent().get(&StorageKey::PendingRequests(issuer.clone())).unwrap_or(Vec::new(env))
+    }
+    pub fn add_pending_request(env: &Env, issuer: &Address, request_id: &String) {
+        let key = StorageKey::PendingRequests(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut list = Self::get_pending_request_ids(env, issuer);
+        list.push_back(request_id.clone());
+        env.storage().persistent().set(&key, &list);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+    pub fn remove_pending_request(env: &Env, issuer: &Address, request_id: &String) {
+        let key = StorageKey::PendingRequests(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        let existing = Self::get_pending_request_ids(env, issuer);
+        let mut updated = Vec::new(env);
+        for id in existing.iter() { if &id != request_id { updated.push_back(id); } }
+        env.storage().persistent().set(&key, &updated);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+}
     result
 }

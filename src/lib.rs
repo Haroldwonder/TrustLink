@@ -16,6 +16,25 @@ mod validation;
 #[cfg(test)]
 mod test;
 
+use soroban_sdk::{contract, contractimpl, token::TokenClient, Address, Env, String, Vec};
+
+use crate::constants::SECS_PER_DAY;
+use crate::events::Events;
+use crate::storage::Storage;
+use crate::types::{
+    AdminCouncil, Attestation, AttestationOrigin, AttestationRequest, AttestationStatus,
+    AttestationTemplate, AuditAction, AuditEntry, ClaimTypeInfo, ContractConfig, ContractMetadata,
+    CouncilOperation, CouncilProposal, Endorsement, Error, FeeConfig, GlobalStats, HealthStatus,
+    IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, PendingAdminTransfer,
+    RateLimitConfig, RequestStatus, StorageLimits, TtlConfig, ATTESTATION_REQUEST_TTL_SECS,
+    MULTISIG_PROPOSAL_TTL_SECS,
+};
+use crate::validation::Validation;
+
+const MAX_SOURCE_CHAIN_LEN: u32 = 32;
+const MAX_SOURCE_TX_LEN: u32 = 128;
+
+mod callback {
 pub(crate) mod callback {
     use soroban_sdk::{contractclient, Address, Env, String};
     #[contractclient(name = "ExpirationCallbackClient")]
@@ -130,6 +149,69 @@ impl TrustLinkContract {
         admin::is_whitelist_enabled(&env, issuer)
     }
 
+    /// Update the trust tier of an already-registered issuer.
+    ///
+    /// Reads the current tier before updating so that the emitted
+    /// `issuer_tier_updated` event carries both the old and new values.
+    /// Monitoring systems can use this to detect tier downgrades without
+    /// maintaining separate state.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — caller is not admin, or `issuer` is not registered.
+    pub fn set_issuer_tier(
+        env: Env,
+        admin: Address,
+        issuer: Address,
+        tier: IssuerTier,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        Validation::require_admin(&env, &admin)?;
+        Validation::require_issuer(&env, &issuer)?;
+        let old_tier = Storage::get_issuer_tier(&env, &issuer);
+        Storage::set_issuer_tier(&env, &issuer, &tier);
+        Events::issuer_tier_updated(&env, &issuer, old_tier, tier);
+        Ok(())
+    }
+
+    /// Return a confidence score (0–100) for an attestation.
+    ///
+    /// ## Scoring formula
+    ///
+    /// ```text
+    /// score = tier_score + endorsement_bonus
+    ///
+    /// tier_score:
+    ///   Basic (or unset)  → 30
+    ///   Verified          → 60
+    ///   Premium           → 90
+    ///
+    /// endorsement_bonus:
+    ///   +2 per endorsement, capped at 10 (i.e. 5+ endorsements → +10)
+    /// ```
+    ///
+    /// The score therefore ranges from **30** (Basic, no endorsements) to **100**
+    /// (Premium, 5+ endorsements).
+    ///
+    /// Returns `None` if the attestation does not exist.
+    pub fn get_confidence_score(env: Env, attestation_id: String) -> Option<u32> {
+        let attestation = Storage::get_attestation(&env, &attestation_id).ok()?;
+
+        let tier_score = match Storage::get_issuer_tier(&env, &attestation.issuer) {
+            Some(IssuerTier::Premium) => 90u32,
+            Some(IssuerTier::Verified) => 60u32,
+            Some(IssuerTier::Basic) | None => 30u32,
+        };
+
+        let endorsements = Storage::get_endorsements(&env, &attestation_id);
+        let endorsement_bonus = (endorsements.len() * 2).min(10);
+
+        Some(tier_score + endorsement_bonus)
+    }
+
+    /// Return `true` if `subject` is on `issuer`'s whitelist.
+    #[must_use]
+    pub fn is_whitelisted(env: Env, issuer: Address, subject: Address) -> bool {
+        Storage::is_subject_whitelisted(&env, &issuer, &subject)
     pub fn set_issuer_tier(env: Env, admin: Address, issuer: Address, tier: IssuerTier) -> Result<(), Error> {
         admin::set_issuer_tier(&env, admin, issuer, tier)
     }
@@ -234,11 +316,47 @@ impl TrustLinkContract {
     // Pause / unpause
     // -----------------------------------------------------------------------
 
+    /// Pause all write operations on the contract.
+    ///
+    /// The optional `reason` (max 256 characters) is persisted in storage and
+    /// included in the emitted `contract_paused` event. This allows operators to
+    /// distinguish routine maintenance pauses from emergency security pauses
+    /// without maintaining external state.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — caller is not admin.
+    /// - [`Error::ReasonTooLong`] — reason exceeds 256 characters.
+    pub fn pause(env: Env, admin: Address, reason: Option<String>) -> Result<(), Error> {
+        admin.require_auth();
+        Validation::require_admin(&env, &admin)?;
+        if let Some(ref r) = reason {
+            if r.len() > 256 {
+                return Err(Error::ReasonTooLong);
+            }
+        }
+        Storage::set_paused(&env, true);
+        Storage::set_pause_reason(&env, &reason);
+        Events::contract_paused(&env, &admin, env.ledger().timestamp(), &reason);
+        Ok(())
     pub fn pause(env: Env, admin: Address) -> Result<(), Error> {
         admin::pause(&env, admin)
     }
 
+    /// Return the reason stored when `pause()` was last called, or `None`.
+    ///
+    /// The reason is cleared automatically when `unpause()` is called.
+    #[must_use]
+    pub fn get_pause_reason(env: Env) -> Option<String> {
+        Storage::get_pause_reason(&env)
+    }
+
     pub fn unpause(env: Env, admin: Address) -> Result<(), Error> {
+        admin.require_auth();
+        Validation::require_admin(&env, &admin)?;
+        Storage::set_paused(&env, false);
+        Storage::clear_pause_reason(&env);
+        Events::contract_unpaused(&env, &admin, env.ledger().timestamp());
+        Ok(())
         admin::unpause(&env, admin)
     }
 
@@ -320,6 +438,31 @@ impl TrustLinkContract {
         admin::get_expiration_hook(&env, subject)
     }
 
+    /// Internal: execute the action encoded in a council proposal.
+    fn execute_council_action(
+        env: &Env,
+        action: &CouncilAction,
+        proposer: &Address,
+    ) -> Result<(), Error> {
+        match action {
+            CouncilAction::Pause => {
+                Storage::set_paused(env, true);
+                Events::contract_paused(env, proposer, env.ledger().timestamp(), &None);
+            }
+            CouncilAction::Unpause => {
+                Storage::set_paused(env, false);
+                Events::contract_unpaused(env, proposer, env.ledger().timestamp());
+            }
+            CouncilAction::SetFee(fee_config) => {
+                Storage::set_fee_config(env, fee_config);
+            }
+            CouncilAction::RemoveIssuer(issuer) => {
+                Storage::remove_issuer(env, issuer);
+                Storage::decrement_total_issuers(env);
+                Events::issuer_removed(env, issuer, proposer, env.ledger().timestamp());
+            }
+        }
+        Ok(())
     pub fn remove_expiration_hook(env: Env, subject: Address) -> Result<(), Error> {
         admin::remove_expiration_hook(&env, subject)
     }
@@ -631,6 +774,87 @@ impl TrustLinkContract {
     }
 
     // -----------------------------------------------------------------------
+    // Attestation templates (issue #529)
+    // -----------------------------------------------------------------------
+
+    /// Enable or disable mandatory claim-type registry validation for templates.
+    ///
+    /// When `required` is `true`, `create_template` will return
+    /// [`Error::ClaimTypeNotRegistered`] if the template's `claim_type` does not
+    /// exist in the registry.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — caller is not admin.
+    pub fn set_require_registered_claim_type(
+        env: Env,
+        admin: Address,
+        required: bool,
+    ) -> Result<(), Error> {
+        admin.require_auth();
+        Validation::require_admin(&env, &admin)?;
+        Storage::set_require_registered_claim_type(&env, required);
+        Ok(())
+    }
+
+    /// Return `true` if `create_template` enforces registered claim types.
+    #[must_use]
+    pub fn get_require_registered_claim_type(env: Env) -> bool {
+        Storage::get_require_registered_claim_type(&env)
+    }
+
+    /// Create (or overwrite) an attestation template owned by `issuer`.
+    ///
+    /// When `require_registered_claim_type` is enabled the `claim_type` field
+    /// must already exist in the claim-type registry; otherwise
+    /// [`Error::ClaimTypeNotRegistered`] is returned.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — `issuer` is not a registered issuer.
+    /// - [`Error::InvalidClaimType`] — `claim_type` fails format validation.
+    /// - [`Error::ClaimTypeNotRegistered`] — `claim_type` is not in the registry
+    ///   and `require_registered_claim_type` is enabled.
+    pub fn create_template(
+        env: Env,
+        issuer: Address,
+        name: String,
+        claim_type: String,
+        default_metadata: Option<String>,
+        default_expiration_secs: Option<u64>,
+    ) -> Result<(), Error> {
+        issuer.require_auth();
+        Validation::require_issuer(&env, &issuer)?;
+        Validation::validate_claim_type(&claim_type)?;
+        validate_metadata(&env, &default_metadata)?;
+
+        if Storage::get_require_registered_claim_type(&env) {
+            if Storage::get_claim_type(&env, &claim_type).is_none() {
+                return Err(Error::ClaimTypeNotRegistered);
+            }
+        }
+
+        let template = AttestationTemplate {
+            name: name.clone(),
+            issuer: issuer.clone(),
+            claim_type,
+            default_metadata,
+            default_expiration_secs,
+        };
+        Storage::set_attestation_template(&env, &template);
+        Ok(())
+    }
+
+    /// Retrieve a template owned by `issuer` with the given `name`, or `None`.
+    #[must_use]
+    pub fn get_template(
+        env: Env,
+        issuer: Address,
+        name: String,
+    ) -> Option<AttestationTemplate> {
+        Storage::get_attestation_template(&env, &issuer, &name)
+    }
+
+    // -----------------------------------------------------------------------
+    // Multi-sig attestation proposals
     // Attestation Templates
     // -----------------------------------------------------------------------
 

@@ -521,6 +521,20 @@ export class TrustLinkClient {
     return this.simulate("get_endorsement_count", this.str(attestationId));
   }
 
+  // ── Confidence Score ───────────────────────────────────────────────────────
+
+  /**
+   * Return a confidence score (30–100) for an attestation, or `null` if the
+   * attestation does not exist.
+   *
+   * The score is computed from two signals:
+   *  - Issuer tier:       Basic → 30  |  Verified → 60  |  Premium → 90
+   *  - Endorsement bonus: +2 per endorsement, capped at +10
+   *
+   * @param attestationId - The attestation ID to score.
+   */
+  async getConfidenceScore(attestationId: string): Promise<number | null> {
+    return this.simulate("get_confidence_score", this.str(attestationId));
   async listEndorsementsByEndorser(endorser: string, start: number, limit: number): Promise<Endorsement[]> {
     return this.simulate("list_endorsements_by_endorser", this.addr(endorser), this.u32(start), this.u32(limit));
   }
