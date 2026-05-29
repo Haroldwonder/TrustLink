@@ -516,6 +516,19 @@ When you merge commits to `main`:
 
 **Example:** If you merge `feat: ...` and `fix: ...` commits, the next release will be a **minor version bump** (0.1.0 → 0.2.0).
 
+## Review Routing (CODEOWNERS)
+
+TrustLink uses a [`.github/CODEOWNERS`](.github/CODEOWNERS) file to automatically request reviews from the right team when a pull request touches sensitive paths:
+
+| Path | Responsible team |
+|------|-----------------|
+| `src/` | `@Haroldwonder/contract-team` — core contract logic |
+| `sdk/` | `@Haroldwonder/sdk-team` — TypeScript/React SDKs |
+| `docs/security*.md` | `@Haroldwonder/security-team` — security documentation |
+| `docs/compliance.md` | `@Haroldwonder/compliance-team` — compliance documentation |
+
+GitHub will add the matching team as a required reviewer automatically when you open a PR. You do not need to request them manually.
+
 ## PR Process
 
 1. **Branch** off `main` with a descriptive name:

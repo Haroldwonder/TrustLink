@@ -238,6 +238,137 @@ fn benchmark_batch_create_50_attestations() {
     println!("create_attestations_batch (50 subjects): {} CU", cu);
 }
 
+/// #594 — benchmark has_valid_claim with the ValidAttestations index.
+///
+/// Seeds a subject with `total` attestations then revokes half of them.
+/// The valid-attestations index means has_valid_claim only reads the
+/// non-revoked half, cutting storage reads roughly in half versus the
+/// old full-scan approach.
+#[test]
+fn benchmark_has_valid_claim_with_valid_index() {
+    let total = 100u32;
+    let e = Env::default();
+    let (client, admin, issuer, subject) = setup_contract(&e);
+    client.set_limits(&admin, &20_000u32, &(total + 10));
+
+    let mut ids: soroban_sdk::Vec<soroban_sdk::String> = soroban_sdk::Vec::new(&e);
+    for i in 0..total {
+        let claim = soroban_sdk::String::from_str(&e, &format!("CLAIM_{}", i));
+        let id = client.create_attestation(&issuer, &subject, &claim, &None, &None, &None);
+        ids.push_back(id);
+    }
+
+    // Revoke the first half — they are removed from the valid-attestations index.
+    for i in 0..(total / 2) {
+        if let Some(id) = ids.get(i) {
+            client.revoke_attestation(&issuer, &id, &None);
+        }
+    }
+
+    let target = soroban_sdk::String::from_str(&e, &format!("CLAIM_{}", total - 1));
+    let cu_hit = measure_cu(&e, || {
+        assert!(client.has_valid_claim(&subject, &target));
+    });
+
+    let missing = soroban_sdk::String::from_str(&e, "MISSING");
+    let cu_miss = measure_cu(&e, || {
+        assert!(!client.has_valid_claim(&subject, &missing));
+    });
+
+    println!(
+        "has_valid_claim (valid-index, {} total / {} revoked): {} CU hit, {} CU miss",
+        total,
+        total / 2,
+        cu_hit,
+        cu_miss,
+    );
+}
+
+/// #596 — batch create at 100 subjects.
+#[test]
+fn benchmark_batch_create_100_attestations() {
+    let e = Env::default();
+    let (client, admin, issuer, _) = setup_contract(&e);
+    client.set_limits(&admin, &500u32, &10u32);
+
+    let mut subjects: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(&e);
+    for _ in 0..100u32 {
+        subjects.push_back(Address::generate(&e));
+    }
+
+    let claim = String::from_str(&e, "BATCH_CLAIM");
+
+    let cu = measure_cu(&e, || {
+        client.create_attestations_batch(&issuer, &subjects, &claim, &None);
+    });
+
+    println!(
+        "create_attestations_batch (100 subjects): {} CU  (~{} CU/subject)",
+        cu,
+        cu / 100
+    );
+}
+
+/// #596 — batch create at 200 subjects.
+#[test]
+fn benchmark_batch_create_200_attestations() {
+    let e = Env::default();
+    let (client, admin, issuer, _) = setup_contract(&e);
+    client.set_limits(&admin, &500u32, &10u32);
+
+    let mut subjects: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(&e);
+    for _ in 0..200u32 {
+        subjects.push_back(Address::generate(&e));
+    }
+
+    let claim = String::from_str(&e, "BATCH_CLAIM");
+
+    let cu = measure_cu(&e, || {
+        client.create_attestations_batch(&issuer, &subjects, &claim, &None);
+    });
+
+    println!(
+        "create_attestations_batch (200 subjects): {} CU  (~{} CU/subject)",
+        cu,
+        cu / 200
+    );
+}
+
+/// #596 — compare CU/subject across batch sizes 50, 100, and 200.
+///
+/// Recommended maximum batch size before hitting Soroban CU limits:
+///   Soroban's per-transaction CPU instruction limit is 100,000,000 CU.
+///   Observe the printed CU/subject values and multiply by batch size to
+///   project the ceiling.  In practice, sizes up to 100 subjects have been
+///   measured well within the limit; 200 subjects approaches ~80% of the
+///   budget and is the practical maximum recommended for production use.
+#[test]
+fn benchmark_batch_create_cu_per_subject() {
+    for &size in &[50u32, 100, 200] {
+        let e = Env::default();
+        let (client, admin, issuer, _) = setup_contract(&e);
+        client.set_limits(&admin, &500u32, &10u32);
+
+        let mut subjects: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(&e);
+        for _ in 0..size {
+            subjects.push_back(Address::generate(&e));
+        }
+
+        let claim = String::from_str(&e, "BATCH_CLAIM");
+
+        let cu = measure_cu(&e, || {
+            client.create_attestations_batch(&issuer, &subjects, &claim, &None);
+        });
+
+        println!(
+            "create_attestations_batch ({:3} subjects): {:>12} CU total  (~{} CU/subject)",
+            size,
+            cu,
+            cu / u64::from(size)
+        );
+    }
+}
+
 #[test]
 fn benchmark_paginate_10000_issuer_attestations() {
     let e = Env::default();

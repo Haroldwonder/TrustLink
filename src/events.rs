@@ -296,7 +296,6 @@ impl Events {
     pub fn contract_paused(env: &Env, admin: &Address, timestamp: u64) {
         env.events()
             .publish((TOPIC_PAUSED,), (admin.clone(), timestamp));
-            .publish((symbol_short!("paused"),), (admin.clone(), timestamp));
     }
 
     pub fn contract_unpaused(env: &Env, admin: &Address, timestamp: u64) {

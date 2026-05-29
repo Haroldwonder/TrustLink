@@ -30,6 +30,7 @@ pub enum StorageKey {
     Bridge(Address),
     Attestation(String),
     SubjectAttestations(Address),
+    ValidAttestations(Address),
     IssuerAttestations(Address),
     IssuerMetadata(Address),
     SubjectAttestationChunk(Address, u32),
@@ -276,19 +277,6 @@ impl Storage {
     }
 
     // ── Bridge registry ───────────────────────────────────────────────────────
-        // Remove from IssuerList
-        let existing = Self::get_issuer_list(env);
-        let mut updated = Vec::new(env);
-        for addr in existing.iter() {
-            if &addr != issuer {
-                updated.push_back(addr);
-            }
-        }
-        let list_key = StorageKey::IssuerList;
-        let ttl = get_ttl_lifetime(env);
-        env.storage().persistent().set(&list_key, &updated);
-        env.storage().persistent().extend_ttl(&list_key, ttl, ttl);
-    }
 
     pub fn get_issuer_list(env: &Env) -> Vec<Address> {
         env.storage()
@@ -331,7 +319,6 @@ impl Storage {
         env.storage().persistent().has(&StorageKey::Attestation(id.clone()))
     }
 
-    pub fn set_attestation(env: &Env, attestation: &crate::types::Attestation) {
     pub fn set_attestation(env: &Env, attestation: &Attestation) {
         let key = StorageKey::Attestation(attestation.id.clone());
         let ttl = get_ttl_lifetime(env);
@@ -344,13 +331,6 @@ impl Storage {
             .persistent()
             .get(&StorageKey::Attestation(id.clone()))
             .ok_or(Error::NotFound)
-    }
-
-    pub fn get_subject_attestations(env: &Env, subject: &Address) -> Vec<String> {
-        let key = StorageKey::SubjectAttestations(subject.clone());
-        env.storage().persistent().get(&key).unwrap_or(Vec::new(env))
-    pub fn get_attestation(env: &Env, id: &String) -> Result<Attestation, Error> {
-        env.storage().persistent().get(&StorageKey::Attestation(id.clone())).ok_or(Error::NotFound)
     }
 
     pub fn get_subject_attestations(env: &Env, subject: &Address) -> Vec<String> {
@@ -1055,6 +1035,42 @@ impl Storage {
         let ttl = get_ttl_lifetime(env);
         let current = Self::get_claim_type_count(env, claim_type);
         env.storage().persistent().set(&key, &current.saturating_sub(1));
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // ── Valid attestations index (non-revoked, non-deleted) ───────────────────
+    //
+    // This is a subject-scoped index of attestation IDs that are neither revoked
+    // nor deleted.  has_valid_claim uses this index to avoid reading records that
+    // can never be valid, reducing storage reads from O(all) to O(active).
+
+    pub fn get_valid_attestations(env: &Env, subject: &Address) -> Vec<String> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::ValidAttestations(subject.clone()))
+            .unwrap_or(Vec::new(env))
+    }
+
+    pub fn add_valid_attestation(env: &Env, subject: &Address, attestation_id: &String) {
+        let key = StorageKey::ValidAttestations(subject.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut list = Self::get_valid_attestations(env, subject);
+        list.push_back(attestation_id.clone());
+        env.storage().persistent().set(&key, &list);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn remove_valid_attestation(env: &Env, subject: &Address, attestation_id: &String) {
+        let key = StorageKey::ValidAttestations(subject.clone());
+        let ttl = get_ttl_lifetime(env);
+        let existing = Self::get_valid_attestations(env, subject);
+        let mut updated = Vec::new(env);
+        for id in existing.iter() {
+            if &id != attestation_id {
+                updated.push_back(id);
+            }
+        }
+        env.storage().persistent().set(&key, &updated);
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 }

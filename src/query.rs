@@ -17,12 +17,14 @@ use crate::types::{Attestation, AttestationStatus, AuditEntry, Error, GlobalStat
 /// the last indexed entry. The best case is O(1) attestation reads when the first
 /// indexed entry is a valid match.
 pub fn has_valid_claim(env: &Env, subject: Address, claim_type: String) -> bool {
-    let attestation_ids = Storage::get_subject_attestations(env, &subject);
+    // Use the pre-filtered valid-attestations index (non-revoked, non-deleted)
+    // to avoid reading records that can never produce a true result.
+    let attestation_ids = Storage::get_valid_attestations(env, &subject);
     let current_time = env.ledger().timestamp();
 
     for attestation_id in attestation_ids.iter() {
         if let Ok(attestation) = Storage::get_attestation(env, &attestation_id) {
-            if attestation.deleted || attestation.claim_type != claim_type {
+            if attestation.claim_type != claim_type {
                 continue;
             }
             if attestation.get_status(current_time) == AttestationStatus::Valid {
