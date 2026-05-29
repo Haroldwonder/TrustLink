@@ -196,4 +196,19 @@ body {
 .connect-screen h2 { font-size: 1.5rem; color: var(--accent-light); }
 .connect-screen p { color: var(--text-muted); max-width: 360px; }
 
-.empty { color: var(--text-muted); font-size: 0.875rem; padding: 1rem 0; }
+.empty { color: #64748b; font-size: 0.875rem; padding: 1rem 0; }
+/* Error Boundary */
+.error-boundary {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 2rem;
+  text-align: center;
+  background: #1a1d27;
+  border: 1px solid #7f1d1d;
+  border-radius: 0.75rem;
+  margin: 1rem;
+}
+.error-boundary h3 { color: #fca5a5; font-size: 1.1rem; margin-bottom: 0.5rem; }
+.error-boundary p { color: #94a3b8; font-size: 0.9rem; margin-bottom: 1rem; }
