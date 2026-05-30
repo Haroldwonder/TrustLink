@@ -60,7 +60,7 @@ else
   PASSPHRASE = $(TESTNET_PASSPHRASE)
 endif
 
-.PHONY: build test optimize clean install fmt clippy \
+.PHONY: build test snapshot-update optimize clean install fmt clippy deny \
         deploy invoke \
         testnet mainnet local \
         bindings check-bindings \
@@ -75,9 +75,13 @@ help:
 	@echo "============================================="
 	@echo "make build          - Build the contract in debug mode"
 	@echo "make test           - Run all unit tests"
+	@echo "make snapshot-update - Regenerate test_snapshots/ after intentional behaviour changes"
 	@echo "make optimize       - Build release WASM and run wasm-opt -Oz"
 	@echo "make check-size     - Verify optimized WASM is under 100 KB"
 	@echo "make clean          - Clean build artifacts"
+	@echo "make fmt            - Format source code"
+	@echo "make clippy         - Run clippy linter"
+	@echo "make deny           - Run cargo-deny (licenses, advisories, bans, sources)"
 	@echo "make install        - Install required dependencies"
 	@echo "make local-deploy   - Deploy and initialize contract on local Stellar network"
 	@echo "make bindings       - Generate TypeScript bindings from compiled WASM"
@@ -144,6 +148,12 @@ fmt:
 clippy:
 	@echo "Running clippy..."
 	cargo clippy --all-targets -- -D warnings
+
+## Run cargo-deny to check licenses, advisories, bans, and sources.
+## Requires: cargo install --locked cargo-deny
+deny:
+	@echo "Running cargo-deny checks..."
+	cargo deny check
 
 local-deploy: build
 	@echo "Deploying TrustLink contract to local Stellar network..."
