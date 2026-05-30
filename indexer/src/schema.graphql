@@ -113,6 +113,12 @@ type Query {
 
   """List all multi-sig proposals"""
   proposals(subject: String, finalized: Boolean): [MultisigProposal!]!
+
+  """Get a multi-sig proposal by ID"""
+  multiSigProposal(id: String!): MultisigProposal
+
+  """List open (non-finalized) multi-sig proposals for a subject"""
+  openProposals(subject: String!): [MultisigProposal!]!
 }
 
 type Subscription {

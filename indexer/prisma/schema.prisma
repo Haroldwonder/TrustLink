@@ -36,7 +36,7 @@ model MultisigProposal {
   proposer        String
   claimType       String
   threshold       Int
-  signers         String[] // array of signer addresses
+  signers         String[] // array of signer addresses that have co-signed
   signatureCount  Int      @default(1)
   finalized       Boolean  @default(false)
   expiresAt       BigInt
@@ -45,6 +45,8 @@ model MultisigProposal {
 
   @@index([subject])
   @@index([proposer])
+  @@index([finalized])
+  @@index([subject, finalized])
 }
 
 // Singleton row (id=1) tracking the last fully-processed ledger sequence.

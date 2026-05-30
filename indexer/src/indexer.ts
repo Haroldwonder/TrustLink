@@ -166,13 +166,15 @@ async function handleEvent(
 
   // Handle multi-sig events
   if (topicStr === "ms_prop") {
-    // data: [proposal_id, proposer, threshold]
+    // topics: ["ms_prop", subject_address]  data: (proposal_id, proposer, threshold)
     const proposalId = String(data[0]);
     const proposer = String(data[1]);
     const threshold = Number(data[2]);
     const subject = ev.topic[1] ? String(scValToNative(ev.topic[1])) : "";
+    // claimType is not in the event; default to empty string — updated via ms_sign if needed
+    const expiresAt = BigInt(Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60);
 
-    // For now, we'll store basic proposal info. Full details would come from contract state.
+    // Idempotent: upsert with no-op on conflict so replays are safe
     await db.multisigProposal.upsert({
       where: { id: proposalId },
       update: {},
@@ -180,34 +182,47 @@ async function handleEvent(
         id: proposalId,
         subject,
         proposer,
-        claimType: "", // Will be updated when we get more info
+        claimType: "",
         threshold,
         signers: [proposer],
         signatureCount: 1,
-        expiresAt: BigInt(Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60), // 7 days
+        finalized: false,
+        expiresAt,
       },
     });
     return;
   }
 
   if (topicStr === "ms_sign") {
-    // data: [proposal_id, signatures_so_far, threshold]
+    // topics: ["ms_sign", signer_address]  data: (proposal_id, signatures_so_far, threshold)
     const proposalId = String(data[0]);
     const signatureCount = Number(data[1]);
+    const signer = ev.topic[1] ? String(scValToNative(ev.topic[1])) : "";
+
+    // Fetch current signers to append idempotently
+    const existing = await db.multisigProposal.findUnique({
+      where: { id: proposalId },
+      select: { signers: true },
+    });
+    if (!existing) return; // proposal not yet indexed; skip
+
+    const updatedSigners = existing.signers.includes(signer)
+      ? existing.signers
+      : [...existing.signers, signer];
 
     await db.multisigProposal.update({
       where: { id: proposalId },
-      data: { signatureCount },
+      data: { signatureCount, signers: updatedSigners },
     });
     return;
   }
 
   if (topicStr === "ms_actv") {
-    // data: [proposal_id, attestation_id]
+    // topics: ["ms_actv"]  data: (proposal_id, attestation_id)
     const proposalId = String(data[0]);
 
-    await db.multisigProposal.update({
-      where: { id: proposalId },
+    await db.multisigProposal.updateMany({
+      where: { id: proposalId, finalized: false },
       data: { finalized: true },
     });
     attestationsTotal.inc();

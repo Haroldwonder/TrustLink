@@ -150,6 +150,23 @@ export function buildResolvers(db: PrismaClient) {
         });
         return rows.map(mapProposal);
       },
+
+      multiSigProposal: async (_: unknown, args: { id: string }) => {
+        if (!args.id) return null;
+        const proposal = await db.multisigProposal.findUnique({
+          where: { id: args.id },
+        });
+        return proposal ? mapProposal(proposal) : null;
+      },
+
+      openProposals: async (_: unknown, args: { subject: string }) => {
+        if (!args.subject) return [];
+        const rows = await db.multisigProposal.findMany({
+          where: { subject: args.subject, finalized: false },
+          orderBy: { createdAt: "desc" },
+        });
+        return rows.map(mapProposal);
+      },
     },
 
     Subscription: {
