@@ -60,7 +60,7 @@ else
   PASSPHRASE = $(TESTNET_PASSPHRASE)
 endif
 
-.PHONY: build test optimize clean install fmt clippy \
+.PHONY: build test snapshot-update optimize clean install fmt clippy \
         deploy invoke \
         testnet mainnet local \
         bindings check-bindings \
@@ -75,6 +75,7 @@ help:
 	@echo "============================================="
 	@echo "make build          - Build the contract in debug mode"
 	@echo "make test           - Run all unit tests"
+	@echo "make snapshot-update - Regenerate test_snapshots/ after intentional behaviour changes"
 	@echo "make optimize       - Build release WASM and run wasm-opt -Oz"
 	@echo "make check-size     - Verify optimized WASM is under 100 KB"
 	@echo "make clean          - Clean build artifacts"
@@ -102,6 +103,15 @@ build:
 test:
 	@echo "Running tests..."
 	cargo test
+
+## Regenerate all snapshot files in test_snapshots/.
+## Use this after intentional contract behaviour changes to accept new snapshots.
+## Review the diff with: git diff test_snapshots/
+## See docs/snapshot-testing.md for the full workflow.
+snapshot-update:
+	@echo "Regenerating snapshots..."
+	cargo test
+	@echo "Snapshots updated. Review changes with: git diff test_snapshots/"
 
 ## Build release WASM, then run wasm-opt -Oz for maximum size reduction.
 ## Typical reduction: ~30–50% vs the raw release binary.
