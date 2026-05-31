@@ -917,6 +917,42 @@ fn test_bridge_attestation_rejects_source_tx_too_long() {
 }
 
 #[test]
+fn test_bridge_attestation_rejects_empty_source_chain() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let source_chain = String::from_str(&env, "");
+    let source_tx = String::from_str(&env, "0xabc123");
+
+    client.register_bridge(&admin, &bridge);
+    let result = client.try_bridge_attestation(&bridge, &subject, &claim_type, &source_chain, &source_tx);
+
+    assert_eq!(result, Err(Ok(types::Error::InvalidSourceReference)));
+}
+
+#[test]
+fn test_bridge_attestation_rejects_empty_source_tx() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let source_chain = String::from_str(&env, "ethereum");
+    let source_tx = String::from_str(&env, "");
+
+    client.register_bridge(&admin, &bridge);
+    let result = client.try_bridge_attestation(&bridge, &subject, &claim_type, &source_chain, &source_tx);
+
+    assert_eq!(result, Err(Ok(types::Error::InvalidSourceReference)));
+}
+
+#[test]
 fn test_bridge_attestation_emits_event() {
     let env = Env::default();
     env.mock_all_auths();

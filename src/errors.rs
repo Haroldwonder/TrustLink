@@ -18,6 +18,8 @@ pub enum Error {
     InvalidValidFrom = 8,
     InvalidExpiration = 9,
     MetadataTooLong = 10,
+    /// Source reference string is missing or empty.
+    InvalidSourceReference = 43,
     InvalidTimestamp = 11,
     InvalidFee = 12,
     FeeTokenRequired = 13,

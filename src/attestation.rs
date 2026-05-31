@@ -71,6 +71,9 @@ pub fn validate_reason(reason: &Option<String>) -> Result<(), Error> {
 }
 
 pub fn validate_source_reference(source_chain: &String, source_tx: &String) -> Result<(), Error> {
+    if source_chain.is_empty() || source_tx.is_empty() {
+        return Err(Error::InvalidSourceReference);
+    }
     if source_chain.len() > MAX_SOURCE_CHAIN_LEN || source_tx.len() > MAX_SOURCE_TX_LEN {
         return Err(Error::MetadataTooLong);
     }
