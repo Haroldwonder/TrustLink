@@ -38,6 +38,21 @@ type MultisigProposal {
   updatedAt: String!
 }
 
+type Issuer {
+  address: String!
+  name: String!
+  url: String
+  description: String
+  tier: String!
+  registeredAt: String!
+  updatedAt: String!
+}
+
+type IssuerList {
+  items: [Issuer!]!
+  total: Int!
+}
+
 type IssuerStats {
   issuer: String!
   total: Int!
@@ -46,9 +61,49 @@ type IssuerStats {
   claimTypes: [String!]!
 }
 
+"""Pagination info for cursor-based pagination"""
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
+
+"""Edge type for attestation connections"""
+type AttestationEdge {
+  node: Attestation!
+  cursor: String!
+}
+
+"""Connection type for paginated attestations"""
+type AttestationConnection {
+  edges: [AttestationEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
 type Query {
-  """Query attestations with optional filters"""
-  attestations(subject: String, claimType: String, status: Status): [Attestation!]!
+  """Query attestations with optional filters and pagination"""
+  attestations(
+    subject: String, 
+    claimType: String, 
+    status: Status,
+    first: Int,
+    after: String
+  ): AttestationConnection!
+
+  """Query attestations by issuer with pagination"""
+  attestationsByIssuer(
+    issuer: String!,
+    first: Int,
+    after: String
+  ): AttestationConnection!
+
+  """Get an issuer by address"""
+  issuer(address: String!): Issuer
+
+  """List all issuers with pagination"""
+  issuers(start: Int, limit: Int): IssuerList!
 
   """Get statistics for a specific issuer"""
   issuerStats(issuer: String!): IssuerStats!
@@ -58,6 +113,18 @@ type Query {
 
   """List all multi-sig proposals"""
   proposals(subject: String, finalized: Boolean): [MultisigProposal!]!
+
+  """Get a multi-sig proposal by ID"""
+  multiSigProposal(id: String!): MultisigProposal
+
+  """List open (non-finalized) multi-sig proposals for a subject"""
+  openProposals(subject: String!): [MultisigProposal!]!
+
+  """Get an attestation request by ID"""
+  attestationRequest(id: String!): AttestationRequest
+
+  """List pending attestation requests for an issuer"""
+  pendingRequests(issuer: String!): [AttestationRequest!]!
 }
 
 type Subscription {
@@ -80,4 +147,24 @@ type AttestationRevoked {
 type IssuerRegistered {
   issuer: String!
   registeredAt: String!
+}
+
+enum RequestStatus {
+  PENDING
+  FULFILLED
+  REJECTED
+}
+
+type AttestationRequest {
+  id: String!
+  subject: String!
+  issuer: String!
+  claimType: String!
+  requestedAt: String!
+  expiresAt: String!
+  status: RequestStatus!
+  fulfillmentId: String
+  rejectionReason: String
+  createdAt: String!
+  updatedAt: String!
 }

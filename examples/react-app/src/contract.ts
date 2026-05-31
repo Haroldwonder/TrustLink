@@ -252,6 +252,18 @@ export async function getMultiSigProposal(proposalId: string): Promise<MultiSigP
   return simulate("get_multisig_proposal", str(proposalId));
 }
 
+// ── global stats ─────────────────────────────────────────────────────────────
+
+export interface GlobalStats {
+  total_attestations: bigint;
+  total_revocations: bigint;
+  total_issuers: bigint;
+}
+
+export async function getGlobalStats(): Promise<GlobalStats> {
+  return simulate("get_global_stats");
+}
+
 // ── issuer stats ─────────────────────────────────────────────────────────────
 
 export interface IssuerStats {
@@ -265,6 +277,20 @@ export async function getIssuerStats(issuer: string): Promise<IssuerStats> {
   return simulate("get_issuer_stats", addr(issuer));
 }
 
+export async function getIssuerAttestations(
+  issuer: string,
+  start: number,
+  limit: number
+): Promise<Attestation[]> {
+  const ids: string[] = await simulate(
+    "get_issuer_attestations",
+    addr(issuer),
+    nativeToScVal(start, { type: "u32" }),
+    nativeToScVal(limit, { type: "u32" })
+  );
+  return Promise.all(ids.map((id) => simulate<Attestation>("get_attestation", str(id))));
+}
+
 export async function getExpiringAttestations(
   issuer: string,
   daysWindow: number
@@ -275,5 +301,19 @@ export async function getExpiringAttestations(
     nativeToScVal(daysWindow, { type: "u32" }),
     nativeToScVal(0, { type: "u32" }),
     nativeToScVal(50, { type: "u32" })
+  );
+}
+
+export async function renewAttestation(
+  issuer: string,
+  attestationId: string,
+  newExpiration: bigint | null
+): Promise<void> {
+  return invoke(
+    issuer,
+    "renew_attestation",
+    addr(issuer),
+    str(attestationId),
+    optU64(newExpiration)
   );
 }

@@ -227,14 +227,6 @@
                   "map": [
                     {
                       "key": {
-                        "symbol": "bridged"
-                      },
-                      "val": {
-                        "bool": false
-                      }
-                    },
-                    {
-                      "key": {
                         "symbol": "claim_type"
                       },
                       "val": {
@@ -265,14 +257,6 @@
                     },
                     {
                       "key": {
-                        "symbol": "imported"
-                      },
-                      "val": {
-                        "bool": false
-                      }
-                    },
-                    {
-                      "key": {
                         "symbol": "issuer"
                       },
                       "val": {
@@ -290,6 +274,18 @@
                         "symbol": "metadata"
                       },
                       "val": "void"
+                    },
+                    {
+                      "key": {
+                        "symbol": "origin"
+                      },
+                      "val": {
+                        "vec": [
+                          {
+                            "symbol": "Native"
+                          }
+                        ]
+                      }
                     },
                     {
                       "key": {
@@ -599,7 +595,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "MultisigProposal"
+                  "symbol": "MultiSigProposal"
                 },
                 {
                   "string": "f2eac624c10e2cf1d5c726c1b07434d6784eb0304eb51dfdeeba25f18e8406aa"
@@ -619,7 +615,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "MultisigProposal"
+                      "symbol": "MultiSigProposal"
                     },
                     {
                       "string": "f2eac624c10e2cf1d5c726c1b07434d6784eb0304eb51dfdeeba25f18e8406aa"

@@ -19,14 +19,14 @@ repos:
     hooks:
       - id: cargo-fmt
         name: cargo fmt
-        entry: bash -c 'source "$HOME/.cargo/env" 2>/dev/null; cargo fmt --all -- --check'
+        entry: cargo fmt --all -- --check
         language: system
         types: [rust]
         pass_filenames: false
 
       - id: cargo-clippy
         name: cargo clippy
-        entry: bash -c 'source "$HOME/.cargo/env" 2>/dev/null; cargo clippy --all-targets --all-features -- -D warnings'
+        entry: cargo clippy --all-targets --all-features -- -D warnings
         language: system
         types: [rust]
         pass_filenames: false

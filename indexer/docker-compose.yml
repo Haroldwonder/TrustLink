@@ -31,5 +31,30 @@ services:
     ports:
       - "3000:3000"
 
+  seed:
+    build: .
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+      indexer:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql://trustlink:trustlink@db:5432/trustlink
+      CONTRACT_ID: ${CONTRACT_ID}
+      RPC_URL: ${RPC_URL:-https://soroban-testnet.stellar.org}
+      NETWORK_NAME: ${NETWORK_NAME:-local}
+      ADMIN_IDENTITY: ${ADMIN_IDENTITY:-local-admin}
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        echo "Waiting for indexer to be ready..."
+        sleep 5
+        echo "Running seed script..."
+        cd /app
+        chmod +x scripts/setup_local.sh
+        scripts/setup_local.sh
+        echo "Seed data created successfully"
+
 volumes:
   pgdata:

@@ -110,11 +110,18 @@ class TrustLinkClient:
 
         Args:
             subject: Subject address
-            claim_types: List of claim type identifiers
+            claim_types: List of claim type identifiers (empty list always returns False)
 
         Returns:
-            True if subject has any of the claim types
+            True if subject has at least one of the claim types
         """
+        if not isinstance(claim_types, list):
+            raise TrustLinkError("claim_types must be a list")
+        for ct in claim_types:
+            if not isinstance(ct, str) or not ct:
+                raise TrustLinkError("Each claim type must be a non-empty string")
+        if not claim_types:
+            return False
         return self._simulate(
             "has_any_claim",
             self._addr(subject),
@@ -126,11 +133,18 @@ class TrustLinkClient:
 
         Args:
             subject: Subject address
-            claim_types: List of claim type identifiers
+            claim_types: List of claim type identifiers (empty list always returns True)
 
         Returns:
-            True if subject has all claim types
+            True if subject has every claim type in the list
         """
+        if not isinstance(claim_types, list):
+            raise TrustLinkError("claim_types must be a list")
+        for ct in claim_types:
+            if not isinstance(ct, str) or not ct:
+                raise TrustLinkError("Each claim type must be a non-empty string")
+        if not claim_types:
+            return True
         return self._simulate(
             "has_all_claims",
             self._addr(subject),

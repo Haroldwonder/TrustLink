@@ -1,0 +1,72 @@
+# cargo-deny configuration for TrustLink
+# Docs: https://embarkstudios.github.io/cargo-deny/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Advisories — reject crates with known security vulnerabilities
+# ─────────────────────────────────────────────────────────────────────────────
+[advisories]
+version = 2
+db-urls = ["https://github.com/rustsec/advisory-db"]
+
+# Warn on yanked crate versions (deny would block CI on upstream yanks).
+yanked = "warn"
+# Fail on unmaintained advisories for any crate in the graph.
+unmaintained = "all"
+
+ignore = [
+    # paste v1.0.15 — RUSTSEC-2024-0436 (unmaintained)
+    # Pulled in transitively by wasmi_core → soroban-wasmi → soroban-sdk.
+    # No safe upgrade is available; the soroban-sdk team must resolve this upstream.
+    # Tracking: https://rustsec.org/advisories/RUSTSEC-2024-0436
+    { id = "RUSTSEC-2024-0436", reason = "transitive dep via soroban-wasmi; no upstream fix available" },
+]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Licenses — only permit the project's approved SPDX identifiers
+# ─────────────────────────────────────────────────────────────────────────────
+[licenses]
+version = 2
+
+# Approved license list.  All transitive dependencies must satisfy at least
+# one of these identifiers (SPDX expression evaluation applies).
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    # Additional identifiers required by the current dependency tree:
+    "0BSD",                           # adler2
+    "BSD-1-Clause",                   # fiat-crypto (MIT OR Apache-2.0 OR BSD-1-Clause)
+    "Unlicense",                      # memchr (Unlicense OR MIT)
+    "Zlib",                           # miniz_oxide, tinyvec, tinyvec_macros
+    "Unicode-3.0",                    # unicode-ident ((MIT OR Apache-2.0) AND Unicode-3.0)
+    "Apache-2.0 WITH LLVM-exception", # wasi, wasip2, wasmparser, wasmparser-nostd, wit-bindgen
+]
+
+# Confidence threshold for license text detection (0.0–1.0).
+confidence-threshold = 0.8
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Bans — reject specific crates and control duplicate versions
+# ─────────────────────────────────────────────────────────────────────────────
+[bans]
+# Warn when multiple versions of the same crate appear in the graph.
+multiple-versions = "warn"
+# Deny wildcard dependencies (e.g. foo = "*").
+wildcards = "deny"
+
+# Permitted duplicate versions that are unavoidable given the current
+# dependency tree (soroban-sdk pulls in two generations of darling).
+skip = [
+    { name = "darling",       reason = "soroban-sdk requires both 0.20 and 0.23" },
+    { name = "darling_core",  reason = "soroban-sdk requires both 0.20 and 0.23" },
+    { name = "darling_macro", reason = "soroban-sdk requires both 0.20 and 0.23" },
+]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sources — only allow crates from crates.io and the project itself
+# ─────────────────────────────────────────────────────────────────────────────
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

@@ -36,7 +36,7 @@ model MultisigProposal {
   proposer        String
   claimType       String
   threshold       Int
-  signers         String[] // array of signer addresses
+  signers         String[] // array of signer addresses that have co-signed
   signatureCount  Int      @default(1)
   finalized       Boolean  @default(false)
   expiresAt       BigInt
@@ -45,10 +45,86 @@ model MultisigProposal {
 
   @@index([subject])
   @@index([proposer])
+  @@index([finalized])
+  @@index([subject, finalized])
 }
 
 // Singleton row (id=1) tracking the last fully-processed ledger sequence.
 model Checkpoint {
   id     Int @id @default(1)
   ledger Int
+}
+
+model Webhook {
+  id        String   @id @default(cuid())
+  url       String
+  secret    String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum WebhookFailureStatus {
+  FAILED
+  RETRYING
+  RECOVERED
+}
+
+model WebhookFailure {
+  id           String               @id @default(cuid())
+  webhookId    String?              // nullable — webhook may be deleted
+  url          String
+  eventType    String
+  payload      String               // JSON body sent
+  statusCode   Int?                 // HTTP status if a response was received
+  errorMessage String?
+  attemptCount Int                  @default(5)
+  status       WebhookFailureStatus @default(FAILED)
+  failedAt     DateTime             @default(now())
+  resolvedAt   DateTime?
+  updatedAt    DateTime             @updatedAt
+
+  @@index([status])
+  @@index([webhookId])
+  @@index([eventType])
+  @@index([failedAt])
+  @@map("webhook_failures")
+}
+
+model Issuer {
+  address      String   @id // issuer address
+  name         String
+  url          String?
+  description  String?
+  tier         String   @default("basic")
+  registeredAt DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([tier])
+}
+
+enum RequestStatus {
+  PENDING
+  FULFILLED
+  REJECTED
+}
+
+model AttestationRequest {
+  id              String        @id           // deterministic hash ID from the contract
+  subject         String
+  issuer          String
+  claimType       String
+  requestedAt     BigInt
+  expiresAt       BigInt
+  status          RequestStatus @default(PENDING)
+  fulfillmentId   String?                     // attestation ID when fulfilled
+  rejectionReason String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([issuer])
+  @@index([subject])
+  @@index([status])
+  @@index([issuer, status])
+  @@map("attestation_requests")
 }

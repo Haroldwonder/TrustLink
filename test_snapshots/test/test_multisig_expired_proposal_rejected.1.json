@@ -285,7 +285,7 @@
             "key": {
               "vec": [
                 {
-                  "symbol": "MultisigProposal"
+                  "symbol": "MultiSigProposal"
                 },
                 {
                   "string": "a15078e6f4cc776c11a0747b829a1a87a33d3fc5b65a3869ae6a3ca2ff5408de"
@@ -305,7 +305,7 @@
                 "key": {
                   "vec": [
                     {
-                      "symbol": "MultisigProposal"
+                      "symbol": "MultiSigProposal"
                     },
                     {
                       "string": "a15078e6f4cc776c11a0747b829a1a87a33d3fc5b65a3869ae6a3ca2ff5408de"

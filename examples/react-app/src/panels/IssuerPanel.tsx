@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { createAttestation, revokeAttestation, getSubjectAttestations, Attestation } from "../contract";
+import { SkeletonAttestationList } from "../SkeletonList";
 import IssuerDashboard from "./IssuerDashboard";
 
 interface Props { address: string; }
@@ -17,6 +18,7 @@ export default function IssuerPanel({ address }: Props) {
 
   const [lookupAddr, setLookupAddr] = useState("");
   const [attestations, setAttestations] = useState<Attestation[]>([]);
+  const [lookupLoading, setLookupLoading] = useState(false);
 
   async function handleCreate() {
     if (!subject || !claimType) return;
@@ -51,6 +53,7 @@ export default function IssuerPanel({ address }: Props) {
   async function handleLookup() {
     if (!lookupAddr) return;
     setLoading(true);
+    setLookupLoading(true);
     try {
       const list = await getSubjectAttestations(lookupAddr.trim());
       setAttestations(list.filter((a) => a.issuer === address));
@@ -58,6 +61,7 @@ export default function IssuerPanel({ address }: Props) {
       setStatus({ type: "error", msg: (e as Error).message });
     } finally {
       setLoading(false);
+      setLookupLoading(false);
     }
   }
 
@@ -183,9 +187,11 @@ export default function IssuerPanel({ address }: Props) {
               Load
             </button>
           </div>
-          {attestations.length === 0
-            ? <p className="empty">No attestations found.</p>
-            : <AttestationList items={attestations} />}
+          {lookupLoading
+            ? <SkeletonAttestationList />
+            : attestations.length === 0
+              ? <p className="empty">No attestations found.</p>
+              : <AttestationList items={attestations} />}
         </div>
       )}
     </div>
