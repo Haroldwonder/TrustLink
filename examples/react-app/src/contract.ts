@@ -252,6 +252,18 @@ export async function getMultiSigProposal(proposalId: string): Promise<MultiSigP
   return simulate("get_multisig_proposal", str(proposalId));
 }
 
+// ── global stats ─────────────────────────────────────────────────────────────
+
+export interface GlobalStats {
+  total_attestations: bigint;
+  total_revocations: bigint;
+  total_issuers: bigint;
+}
+
+export async function getGlobalStats(): Promise<GlobalStats> {
+  return simulate("get_global_stats");
+}
+
 // ── issuer stats ─────────────────────────────────────────────────────────────
 
 export interface IssuerStats {

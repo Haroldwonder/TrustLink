@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { registerIssuer, removeIssuer, isIssuer } from "../contract";
+import { useGlobalStats } from "../hooks/useGlobalStats";
 
 interface Props { address: string; }
 
@@ -9,6 +10,8 @@ export default function AdminPanel({ address }: Props) {
   const [loading, setLoading] = useState(false);
   const [checkAddr, setCheckAddr] = useState("");
   const [checkResult, setCheckResult] = useState<boolean | null>(null);
+
+  const { data: stats, loading: statsLoading, error: statsError } = useGlobalStats(30_000);
 
   async function handle(action: "register" | "remove") {
     if (!issuerAddr.trim()) return;
@@ -48,6 +51,28 @@ export default function AdminPanel({ address }: Props) {
       <h2>Admin Panel</h2>
 
       {status && <div className={`alert alert-${status.type}`}>{status.msg}</div>}
+
+      <div className="card">
+        <h3>Global Stats</h3>
+        {statsLoading && <p className="empty">Loading…</p>}
+        {statsError && <div className="alert alert-error">{statsError}</div>}
+        {stats && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "1rem" }}>
+            <div style={{ background: "#0f1117", border: "1px solid #2d3148", borderRadius: "0.5rem", padding: "1rem" }}>
+              <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginBottom: "0.5rem" }}>Total Attestations</div>
+              <div style={{ fontSize: "1.75rem", fontWeight: "bold", color: "#7c6af7" }}>{stats.total_attestations.toString()}</div>
+            </div>
+            <div style={{ background: "#0f1117", border: "1px solid #2d3148", borderRadius: "0.5rem", padding: "1rem" }}>
+              <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginBottom: "0.5rem" }}>Total Revocations</div>
+              <div style={{ fontSize: "1.75rem", fontWeight: "bold", color: "#ef4444" }}>{stats.total_revocations.toString()}</div>
+            </div>
+            <div style={{ background: "#0f1117", border: "1px solid #2d3148", borderRadius: "0.5rem", padding: "1rem" }}>
+              <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginBottom: "0.5rem" }}>Total Issuers</div>
+              <div style={{ fontSize: "1.75rem", fontWeight: "bold", color: "#10b981" }}>{stats.total_issuers.toString()}</div>
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="card">
         <h3>Register / Remove Issuer</h3>
