@@ -64,7 +64,7 @@ else
 endif
 
 .PHONY: build test optimize clean install fmt clippy \
-        deploy invoke \
+        deploy invoke verify \
         testnet mainnet local \
         bindings check-bindings \
         check-size rollback \
@@ -86,6 +86,13 @@ help:
 	@echo "make rollback       - Redeploy a verified WASM hash to a specified network"
 	@echo "make bindings       - Generate TypeScript bindings from compiled WASM"
 	@echo "make check-bindings - Fail if committed bindings are out of date"
+	@echo "make deploy         - Build, optimize, and deploy to NETWORK (default: testnet)"
+	@echo "                      Requires: ADMIN_SECRET=<secret>  SOURCE=<key-alias>"
+	@echo "                      Example:  make deploy NETWORK=testnet SOURCE=deployer"
+	@echo "make verify         - Run post-deployment verification against a live contract"
+	@echo "                      Requires: CONTRACT_ID=<id>  SOURCE=<key-alias>"
+	@echo "                      Optional: NETWORK=testnet|mainnet (default: testnet)"
+	@echo "                      Example:  make verify CONTRACT_ID=C... SOURCE=deployer NETWORK=testnet"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Build & test
@@ -203,3 +210,65 @@ check-bindings: bindings
 	@echo "Checking bindings are up to date..."
 	git diff --exit-code bindings/typescript/ || \
 		(echo "ERROR: TypeScript bindings are out of date. Run 'make bindings' and commit the result." && exit 1)
+
+# ── Signing key alias (used by deploy and verify) ─────────────────────────────
+# SOURCE is the stellar key alias (not the raw secret) passed to stellar CLI.
+# For deploy, ADMIN_SECRET must also be exported so the CLI can sign.
+SOURCE ?= deployer
+
+## Build, optimize, and deploy the contract to NETWORK.
+## Requires: ADMIN_SECRET exported in the environment; SOURCE set to a key alias.
+## After deploy, note the printed CONTRACT_ID and run: make verify CONTRACT_ID=... SOURCE=...
+deploy: optimize
+ifeq ($(NETWORK),mainnet)
+	@echo "⚠  WARNING: Deploying to MAINNET. Press Ctrl-C within 5 seconds to abort."
+	@sleep 5
+endif
+	@echo "Deploying TrustLink to $(NETWORK)..."
+	stellar contract deploy \
+		--wasm $(WASM_OPT) \
+		--source $(SOURCE) \
+		--network $(NETWORK)
+	@echo ""
+	@echo "════════════════════════════════════════════════════════════════"
+	@echo "  Deployment complete."
+	@echo "  ⚠  Run post-deployment verification before considering this done:"
+	@echo "     make verify CONTRACT_ID=<printed-above> SOURCE=$(SOURCE) NETWORK=$(NETWORK)"
+	@echo "════════════════════════════════════════════════════════════════"
+
+## Invoke any contract function on NETWORK.
+## Usage: make invoke ARGS="-- <function> [--param value ...]"
+invoke:
+	@test -n "$(CONTRACT_ID)" || (echo "Error: CONTRACT_ID is required. Export it or pass CONTRACT_ID=C..."; exit 1)
+	stellar contract invoke \
+		--id $(CONTRACT_ID) \
+		--source $(SOURCE) \
+		--network $(NETWORK) \
+		$(ARGS)
+
+testnet:
+	$(MAKE) deploy NETWORK=testnet
+
+mainnet:
+	$(MAKE) deploy NETWORK=mainnet
+
+local:
+	$(MAKE) deploy NETWORK=local
+
+## Run post-deployment verification against a live TrustLink contract.
+## Executes scripts/verify_deployment.sh which creates a temporary issuer,
+## issues a test attestation, verifies it, revokes it, and cleans up.
+##
+## Required: CONTRACT_ID=<contract-id>  SOURCE=<stellar-key-alias>
+## Optional: NETWORK=testnet|mainnet    (default: testnet)
+##
+## Example:
+##   make verify CONTRACT_ID=CABC...XYZ SOURCE=deployer NETWORK=testnet
+verify:
+	@test -n "$(CONTRACT_ID)" || (echo "Error: CONTRACT_ID is required.  Usage: make verify CONTRACT_ID=C... SOURCE=<alias> [NETWORK=testnet|mainnet]"; exit 1)
+	@test -n "$(SOURCE)"      || (echo "Error: SOURCE is required.  Usage: make verify CONTRACT_ID=C... SOURCE=<alias> [NETWORK=testnet|mainnet]"; exit 1)
+	@echo "Running deployment verification for $(CONTRACT_ID) on $(NETWORK)..."
+	bash scripts/verify_deployment.sh \
+		--contract $(CONTRACT_ID) \
+		--source   $(SOURCE) \
+		--network  $(NETWORK)
