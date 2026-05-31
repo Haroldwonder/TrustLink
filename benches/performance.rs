@@ -75,6 +75,10 @@ fn seed_subject_valid_last(
     target_claim
 }
 
+fn make_claim(e: &Env, name: &str) -> String {
+    String::from_str(e, name)
+}
+
 /// Verifies the attestation scan short-circuits after the first valid match by
 /// comparing compute cost when the valid entry is indexed first vs last.
 #[test]
@@ -190,11 +194,78 @@ fn benchmark_get_subject_attestations() {
 }
 
 #[test]
+fn benchmark_has_all_claims() {
+    for count in [1u32, 5, 10] {
+        let e = Env::default();
+        let (client, _, issuer, subject) = setup_contract(&e);
+
+        let mut claims: Vec<String> = Vec::new(&e);
+        for i in 0..count {
+            let claim = make_claim(&e, &format!("ALL_CLAIM_{}", i));
+            client.create_attestation(&issuer, &subject, &claim, &None, &None, &None);
+            claims.push_back(claim);
+        }
+
+        let cu = measure_cu(&e, || {
+            assert!(client.has_all_claims(&subject, &claims));
+        });
+
+        println!("has_all_claims ({} claims) CU: {}", count, cu);
+    }
+}
+
+#[test]
+fn benchmark_has_any_claim_short_circuit() {
+    let e = Env::default();
+    let (client, _, issuer, subject) = setup_contract(&e);
+
+    let match_claim = make_claim(&e, "MATCH");
+    client.create_attestation(&issuer, &subject, &match_claim, &None, &None, &None);
+
+    let mut claims: Vec<String> = Vec::new(&e);
+    claims.push_back(match_claim.clone());
+    for i in 0..9u32 {
+        claims.push_back(make_claim(&e, &format!("NO_MATCH_{}", i)));
+    }
+
+    let cu = measure_cu(&e, || {
+        assert!(client.has_any_claim(&subject, &claims));
+    });
+
+    println!("has_any_claim early-exit (first match) CU: {}", cu);
+}
+
+#[test]
+fn benchmark_has_any_claim_worst_case() {
+    let e = Env::default();
+    let (client, _, issuer, subject) = setup_contract(&e);
+
+    for i in 0..10u32 {
+        let claim = make_claim(&e, &format!("NO_MATCH_{}", i));
+        client.create_attestation(&issuer, &subject, &claim, &None, &None, &None);
+    }
+
+    let mut claims: Vec<String> = Vec::new(&e);
+    for i in 0..10u32 {
+        claims.push_back(make_claim(&e, &format!("MISSING_{}", i)));
+    }
+
+    let cu = measure_cu(&e, || {
+        assert!(!client.has_any_claim(&subject, &claims));
+    });
+
+    println!("has_any_claim worst-case (10 misses) CU: {}", cu);
+}
+
+#[test]
 fn benchmark_all() {
     benchmark_create_attestation();
     benchmark_revoke_attestation();
     benchmark_has_valid_claim_short_circuit();
     benchmark_get_subject_attestations();
+    benchmark_has_all_claims();
+    benchmark_has_any_claim_short_circuit();
+    benchmark_has_any_claim_worst_case();
 
     println!("All benchmarks complete. Run `cargo test --test performance -- --nocapture` to see CU results.");
 }
