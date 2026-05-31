@@ -9,8 +9,17 @@ TrustLink uses [pre-commit](https://pre-commit.com) to enforce formatting and li
 **Install the hooks once after cloning:**
 
 ```bash
-pip install pre-commit   # or: brew install pre-commit
-pre-commit install
+# Install pre-commit (choose one method):
+pip install --user pre-commit   # or: brew install pre-commit
+
+# Ensure Rust tooling is available for the hooks:
+rustup component add rustfmt clippy
+
+# Install the git hooks (and fetch any hook dependencies):
+pre-commit install --install-hooks
+
+# Verify hooks run cleanly now:
+pre-commit run --all-files
 ```
 
 After that, every `git commit` automatically runs:
@@ -67,6 +76,18 @@ rustup target add wasm32-unknown-unknown
 cargo check
 ```
 
+## Fuzzing
+
+TrustLink includes a cargo-fuzz target for claim type validation edge cases.
+
+```bash
+cargo install --locked cargo-fuzz
+cd fuzz
+cargo fuzz run fuzz_validate_claim_type
+```
+
+The fuzz target exercises `Validation::validate_claim_type` with arbitrary byte sequences, including null bytes, multi-byte UTF-8, and boundary-length inputs.
+
 ## Running Tests
 
 ```bash
@@ -78,6 +99,151 @@ make test
 ```
 
 All tests must pass before submitting a PR.
+
+## Soroban Contract Development
+
+This section covers everything specific to working on the TrustLink Soroban contract — environment setup, running tests, adding new functions, and keeping snapshot files in sync.
+
+### Environment Setup
+
+You need three things beyond a standard Rust install:
+
+**1. WASM compilation target**
+
+```bash
+rustup target add wasm32-unknown-unknown
+```
+
+**2. Stellar CLI** (includes the Soroban contract toolchain)
+
+```bash
+cargo install --locked stellar-cli --features opt
+```
+
+Verify:
+
+```bash
+stellar --version
+```
+
+**3. `wasm-opt`** (required for `make optimize` and `make check-size`)
+
+```bash
+cargo install --locked wasm-opt
+# or on Debian/Ubuntu: apt install binaryen
+```
+
+Confirm everything is in place:
+
+```bash
+rustc --version
+cargo --version
+stellar --version
+rustup target list --installed | grep wasm32
+```
+
+---
+
+### Running the Full Test Suite
+
+TrustLink has three layers of tests. Run them all before opening a PR.
+
+**Unit and integration tests**
+
+```bash
+cargo test
+# or
+make test
+```
+
+**Snapshot tests**
+
+Snapshot tests record the full Soroban auth and event trace for each test case as JSON files in `test_snapshots/`. They fail if the recorded trace no longer matches the contract output.
+
+```bash
+# Run snapshot tests alongside everything else — they are part of cargo test
+cargo test
+
+# Run only a specific snapshot test by name
+cargo test test_initialize_and_get_admin
+```
+
+If a snapshot test fails with a diff, it means the contract's auth or event output changed. See [Updating Snapshot Files](#updating-snapshot-files) below.
+
+**Lints and formatting** (also checked by CI)
+
+```bash
+make fmt     # auto-format
+make clippy  # zero-warning lint check
+```
+
+---
+
+### Adding a New Contract Function
+
+Follow this checklist when adding a public function to the contract:
+
+- [ ] **Define the logic** in the appropriate module under `src/` (`admin.rs`, `query.rs`, `attestation.rs`, etc.)
+- [ ] **Expose it in `src/lib.rs`** inside the `#[contractimpl]` block. Add `#[must_use]` for read-only functions that return a value.
+- [ ] **Add any new storage keys** to the `StorageKey` enum in `src/storage.rs`. Add storage getter/setter methods to the `Storage` struct in the same file.
+- [ ] **Emit an event** via `src/events.rs` if the function mutates state. Follow the existing `topics + data` pattern.
+- [ ] **Add validation** in `src/validation.rs` if the function requires auth or input checks.
+- [ ] **Write tests** in `tests/` or `src/test.rs`. Cover the happy path, error cases, and auth boundaries.
+- [ ] **Add the SDK method** in `sdk/typescript/src/client.ts`. Read-only functions use `this.simulate(...)`, write functions use `this.invoke(...)`.
+- [ ] **Regenerate TypeScript bindings** after any interface change:
+
+  ```bash
+  make bindings
+  ```
+
+  Commit the updated `bindings/typescript/` alongside your contract changes. CI will fail if they are out of date.
+
+- [ ] **Update snapshot files** if the new function changes any existing auth or event traces (see below).
+
+---
+
+### Updating Snapshot Files
+
+Snapshot files in `test_snapshots/` are committed to the repository and checked by CI. When you make an intentional change to a contract function's auth requirements or event output, the corresponding snapshots must be regenerated.
+
+**When do snapshots need updating?**
+
+- You changed which addresses `require_auth()` is called on inside a function.
+- You added, removed, or changed an event emitted by a function.
+- You changed the arguments or return type of an existing function in a way that affects the recorded trace.
+
+**How to regenerate**
+
+Set the `SOROBAN_TEST_REGENERATE_SNAPSHOTS` environment variable and re-run the tests:
+
+```bash
+# Regenerate all snapshots
+SOROBAN_TEST_REGENERATE_SNAPSHOTS=1 cargo test
+
+# Regenerate snapshots for a single test
+SOROBAN_TEST_REGENERATE_SNAPSHOTS=1 cargo test test_register_and_remove_issuer
+```
+
+The test runner will overwrite the relevant JSON files in `test_snapshots/` with the new output.
+
+**Review before committing**
+
+Always diff the regenerated snapshots before committing to confirm only the expected traces changed:
+
+```bash
+git diff test_snapshots/
+```
+
+Commit the updated snapshot files in the same commit as the contract change:
+
+```bash
+git add test_snapshots/
+git commit -m "test: update snapshots for <function name> change"
+```
+
+> Never regenerate all snapshots blindly after an unintended change. If a snapshot you did not expect to change is showing a diff, investigate the root cause before committing.
+
+---
 
 ## Local Stellar Development Workflow
 
@@ -119,6 +285,87 @@ Default local network values used by `scripts/setup_local.sh`:
 
 - Network name: `local`
 - Network passphrase: `Standalone Network ; February 2017`
+
+### 4. Stop local network
+
+```bash
+docker compose down
+```
+
+## SDK End-to-End Tests
+
+The TypeScript SDK ships with an end-to-end test suite (`sdk/typescript/e2e/`) that deploys the contract to a local Stellar node and exercises the SDK against it. These tests catch XDR encoding bugs and RPC parameter issues that unit tests with mocked RPC calls cannot detect.
+
+### Prerequisites
+
+- Docker (for the local Stellar Quickstart node)
+- Node.js ≥ 16
+- Stellar CLI (`cargo install --locked stellar-cli --features opt`)
+- A compiled contract WASM (`make build`)
+
+### 1. Start the local Stellar node
+
+```bash
+docker compose up -d
+```
+
+Wait ~10 seconds for the node to be ready.
+
+### 2. Deploy and initialize the contract
+
+```bash
+bash scripts/setup_local.sh
+```
+
+This script:
+- Configures the `local` Soroban network pointing at `http://localhost:8000/soroban/rpc`
+- Generates (or reuses) a `local-admin` identity
+- Funds the identity via Friendbot
+- Deploys the contract WASM
+- Calls `initialize` with the admin address
+- Writes the deployed contract ID to `.local.contract-id`
+
+### 3. Run the e2e tests
+
+```bash
+cd sdk/typescript
+npm install
+npm run test:e2e
+```
+
+The test runner reads the contract ID from `.local.contract-id` automatically. You can also pass it explicitly:
+
+```bash
+CONTRACT_ID=C... npm run test:e2e
+```
+
+To use a specific admin keypair (e.g. the one used during `setup_local.sh`):
+
+```bash
+ADMIN_SECRET=S... npm run test:e2e
+```
+
+### What the tests cover
+
+| Test | Description |
+|------|-------------|
+| `contract is already initialized` | Calls `get_admin` and asserts a valid address is returned |
+| `admin can register a new issuer` | Calls `register_issuer`, then `is_issuer` to confirm |
+| `registered issuer can create an attestation` | Calls `create_attestation` and retrieves the ID via `get_subject_attestations` |
+| `has_valid_claim returns true` | Verifies the freshly created attestation is valid |
+| `has_valid_claim returns false for unknown claim` | Confirms OR-logic does not leak across claim types |
+| `issuer can revoke the attestation` | Calls `revoke_attestation` and checks `revoked: true` on the record |
+| `has_valid_claim returns false after revocation` | Confirms the claim is no longer valid post-revocation |
+
+### Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CONTRACT_ID` | read from `.local.contract-id` | Deployed contract address |
+| `RPC_URL` | `http://localhost:8000/soroban/rpc` | Soroban RPC endpoint |
+| `NETWORK_PASSPHRASE` | `Standalone Network ; February 2017` | Network passphrase |
+| `ADMIN_SECRET` | random (funded via Friendbot) | Admin keypair secret |
+| `ISSUER_SECRET` | random (funded via Friendbot) | Issuer keypair secret |
 
 ### 4. Stop local network
 
@@ -278,6 +525,19 @@ When you merge commits to `main`:
 
 **Example:** If you merge `feat: ...` and `fix: ...` commits, the next release will be a **minor version bump** (0.1.0 → 0.2.0).
 
+## Review Routing (CODEOWNERS)
+
+TrustLink uses a [`.github/CODEOWNERS`](.github/CODEOWNERS) file to automatically request reviews from the right team when a pull request touches sensitive paths:
+
+| Path | Responsible team |
+|------|-----------------|
+| `src/` | `@Haroldwonder/contract-team` — core contract logic |
+| `sdk/` | `@Haroldwonder/sdk-team` — TypeScript/React SDKs |
+| `docs/security*.md` | `@Haroldwonder/security-team` — security documentation |
+| `docs/compliance.md` | `@Haroldwonder/compliance-team` — compliance documentation |
+
+GitHub will add the matching team as a required reviewer automatically when you open a PR. You do not need to request them manually.
+
 ## PR Process
 
 1. **Branch** off `main` with a descriptive name:
@@ -297,9 +557,11 @@ When you merge commits to `main`:
    - [ ] `cargo clippy --all-targets -- -D warnings` is clean
    - [ ] Commit messages follow Conventional Commits format
 
-4. **Open a PR** against `main`. Include:
+4. **Open a PR** against `main` using the [pull request template](.github/PULL_REQUEST_TEMPLATE.md). GitHub loads it automatically when you open a PR. Fill in:
 
    - What the change does and why
+   - The type of change (bug fix / feature / docs / refactor)
+   - Testing done
    - Any relevant issue numbers (`Closes #123`)
    - Notes for reviewers if the change is non-obvious
 

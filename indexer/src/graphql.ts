@@ -1,5 +1,5 @@
 import { PubSub } from "graphql-subscriptions";
-import { PrismaClient, Attestation, MultisigProposal } from "@prisma/client";
+import { PrismaClient, Attestation, MultisigProposal, AttestationRequest } from "@prisma/client";
 
 export const pubsub = new PubSub();
 export const ATTESTATION_CREATED = "ATTESTATION_CREATED";
@@ -38,24 +38,94 @@ function mapProposal(p: MultisigProposal): MappedProposal {
   };
 }
 
+type MappedRequest = Omit<AttestationRequest, "requestedAt" | "expiresAt" | "createdAt" | "updatedAt"> & {
+  requestedAt: string;
+  expiresAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+function mapRequest(r: AttestationRequest): MappedRequest {
+  return {
+    ...r,
+    requestedAt: String(r.requestedAt),
+    expiresAt: String(r.expiresAt),
+    createdAt: r.createdAt.toISOString(),
+    updatedAt: r.updatedAt.toISOString(),
+  };
+}
+
 export function buildResolvers(db: PrismaClient) {
   return {
     Query: {
       attestations: async (
         _: unknown,
-        args: { subject?: string; claimType?: string; status?: "ACTIVE" | "REVOKED" }
-      ) => {
+        args: { 
+          subject?: string; 
+          claimType?: string; 
+          status?: "ACTIVE" | "REVOKED";
+          first?: number;
+          after?: string;
+        }
+      ): Promise<AttestationConnection> => {
         const where: Record<string, unknown> = {};
         if (args.subject) where.subject = args.subject;
         if (args.claimType) where.claimType = args.claimType;
         if (args.status === "ACTIVE") where.isRevoked = false;
         if (args.status === "REVOKED") where.isRevoked = true;
 
-        const rows = await db.attestation.findMany({
-          where,
-          orderBy: { timestamp: "desc" },
+        return buildAttestationConnection(db, where, args.first, args.after);
+      },
+
+      attestationsByIssuer: async (
+        _: unknown,
+        args: {
+          issuer: string;
+          first?: number;
+          after?: string;
+        }
+      ): Promise<AttestationConnection> => {
+        const where = { issuer: args.issuer };
+        return buildAttestationConnection(db, where, args.first, args.after);
+      },
+
+      issuer: async (_: unknown, args: { address: string }) => {
+        const issuer = await db.issuer.findUnique({
+          where: { address: args.address },
         });
-        return rows.map(mapAttestation);
+        return issuer
+          ? {
+              ...issuer,
+              registeredAt: issuer.registeredAt.toISOString(),
+              updatedAt: issuer.updatedAt.toISOString(),
+            }
+          : null;
+      },
+
+      issuers: async (
+        _: unknown,
+        args: { start?: number; limit?: number }
+      ) => {
+        const start = args.start ?? 0;
+        const limit = args.limit ?? 50;
+
+        const [issuers, total] = await Promise.all([
+          db.issuer.findMany({
+            skip: start,
+            take: limit,
+            orderBy: { registeredAt: "desc" },
+          }),
+          db.issuer.count(),
+        ]);
+
+        return {
+          items: issuers.map((i) => ({
+            ...i,
+            registeredAt: i.registeredAt.toISOString(),
+            updatedAt: i.updatedAt.toISOString(),
+          })),
+          total,
+        };
       },
 
       issuerStats: async (_: unknown, args: { issuer: string }) => {
@@ -96,6 +166,38 @@ export function buildResolvers(db: PrismaClient) {
           orderBy: { createdAt: "desc" },
         });
         return rows.map(mapProposal);
+      },
+
+      multiSigProposal: async (_: unknown, args: { id: string }) => {
+        if (!args.id) return null;
+        const proposal = await db.multisigProposal.findUnique({
+          where: { id: args.id },
+        });
+        return proposal ? mapProposal(proposal) : null;
+      },
+
+      openProposals: async (_: unknown, args: { subject: string }) => {
+        if (!args.subject) return [];
+        const rows = await db.multisigProposal.findMany({
+          where: { subject: args.subject, finalized: false },
+          orderBy: { createdAt: "desc" },
+        });
+        return rows.map(mapProposal);
+      },
+
+      attestationRequest: async (_: unknown, args: { id: string }) => {
+        if (!args.id) return null;
+        const req = await db.attestationRequest.findUnique({ where: { id: args.id } });
+        return req ? mapRequest(req) : null;
+      },
+
+      pendingRequests: async (_: unknown, args: { issuer: string }) => {
+        if (!args.issuer) return [];
+        const rows = await db.attestationRequest.findMany({
+          where: { issuer: args.issuer, status: "PENDING" },
+          orderBy: { createdAt: "asc" },
+        });
+        return rows.map(mapRequest);
       },
     },
 

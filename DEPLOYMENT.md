@@ -71,6 +71,19 @@ Before deploying TrustLink, ensure you have:
    rustup target add wasm32-unknown-unknown
    ```
 
+4. **wasm-opt** (binaryen) — required for the `make optimize` and `make check-size` targets
+
+   ```bash
+   # Ubuntu / Debian
+   sudo apt-get install binaryen
+
+   # macOS
+   brew install binaryen
+
+   # Cargo (cross-platform fallback)
+   cargo install --locked wasm-opt
+   ```
+
 ## Building
 
 ### Development Build
@@ -81,11 +94,36 @@ cargo build --target wasm32-unknown-unknown --release
 
 ### Optimized Build
 
+The production binary must be processed with `wasm-opt -Oz` before deployment to minimize
+ledger storage costs. Use the Makefile target which handles both steps and prints a size report:
+
 ```bash
-cargo build --target wasm32-unknown-unknown --release
-soroban contract optimize \
-  --wasm target/wasm32-unknown-unknown/release/trustlink.wasm
+make optimize
 ```
+
+Example output:
+```
+Building TrustLink (testnet)...
+Optimizing WASM with wasm-opt -Oz...
+--- Size report ---
+  Before: 185344 bytes (181 KB)
+  After:  68420 bytes  (66 KB)
+  Saved:  116924 bytes (~63%)
+Optimized artifact: target/wasm32-unknown-unknown/release/trustlink.optimized.wasm
+```
+
+Typical size reduction is **40–65%** compared to the raw release binary. The Cargo release
+profile already applies `opt-level = "z"`, LTO, and symbol stripping; `wasm-opt -Oz` then
+performs additional dead-code elimination and instruction-level optimizations that the Rust
+compiler cannot do at the WASM IR level.
+
+To verify the optimized binary stays under the 100 KB CI threshold locally:
+
+```bash
+make check-size
+```
+
+Always deploy `trustlink.optimized.wasm`, never the raw `trustlink.wasm`.
 
 ## Testing
 
@@ -188,7 +226,7 @@ make optimize
 
 # 2. Deploy to mainnet
 soroban contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/trustlink_optimized.wasm \
+  --wasm target/wasm32-unknown-unknown/release/trustlink.optimized.wasm \
   --source ADMIN_SECRET_KEY \
   --network mainnet
 
@@ -210,6 +248,53 @@ soroban contract invoke \
   --admin PRODUCTION_ADMIN_ADDRESS \
   --issuer ISSUER_ADDRESS
 ```
+
+## Rollback to a previously built WASM hash
+
+Use rollback only for emergency recovery or when you need to restore a previously audited and verified release artifact.
+It is not intended for normal feature upgrades.
+
+### When to use rollback
+
+- Recover from a live mainnet regression
+- Redeploy a previously verified WASM release artifact
+- Restore service after a failed or unsafe deployment
+
+### Locate a previous WASM hash
+
+If you already have a prior artifact available locally, compute its hash with:
+
+```bash
+find target/wasm32-unknown-unknown/release -name '*.wasm' -exec sha256sum {} +
+```
+
+If you do not have the artifact locally, restore it from your CI/release artifact archive, prior build cache, or deployment records.
+Then verify the hash before running rollback.
+
+### Execute rollback
+
+1. Build or restore the exact release artifact locally:
+
+```bash
+make optimize
+```
+
+2. Run the rollback command for the selected network:
+
+```bash
+make rollback NETWORK=mainnet WASM_HASH=<hash>
+```
+
+3. Confirm the prompt when targeting `mainnet`.
+
+The Makefile rollback target searches `target/wasm32-unknown-unknown/release` for a matching compiled `.wasm` file and deploys it.
+If the hash is not found, restore the matching binary and retry.
+
+### Notes
+
+- Prior deployment logs, release notes, or CI artifact metadata should record the trusted WASM hash.
+- The rollback command requires the exact binary hash and will not deploy a different build.
+- Mainnet rollback includes an explicit confirmation prompt to prevent accidental redeployments.
 
 ## Configuration
 
@@ -324,9 +409,7 @@ TrustLink supports in-place WASM upgrades via Soroban's built-in upgrade mechani
 **1. Build and optimize the new contract version**
 
 ```bash
-cargo build --target wasm32-unknown-unknown --release
-stellar contract optimize \
-  --wasm target/wasm32-unknown-unknown/release/trustlink.wasm
+make optimize
 ```
 
 **2. Upload the new WASM to the network**

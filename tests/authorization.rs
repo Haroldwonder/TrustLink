@@ -5,7 +5,7 @@
 
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
 use trustlink::{types::Error, TrustLinkContract, TrustLinkContractClient};
 
 // ---------------------------------------------------------------------------
@@ -25,6 +25,61 @@ fn setup(env: &Env) -> (Address, Address, Address, TrustLinkContractClient<'_>) 
 
 fn kyc(env: &Env) -> String {
     String::from_str(env, "KYC_PASSED")
+}
+
+fn claim(env: &Env, id: u32) -> String {
+    String::from_str(env, &format!("CLAIM_{}", id))
+}
+
+#[test]
+fn test_global_stats_reflects_mixed_operations() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, TrustLinkContract);
+    let client = TrustLinkContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin, &None);
+
+    let total_issuers = 3u32;
+    let issuer_a = Address::generate(&env);
+    let issuer_b = Address::generate(&env);
+    let issuer_c = Address::generate(&env);
+
+    client.register_issuer(&admin, &issuer_a);
+    client.register_issuer(&admin, &issuer_b);
+    client.register_issuer(&admin, &issuer_c);
+
+    let subject = Address::generate(&env);
+    let total_attestations = 5u32;
+    let total_revocations = 2u32;
+
+    let mut attestation_ids: Vec<String> = Vec::new(&env);
+    for i in 0..total_attestations {
+        let claim_type = claim(&env, i);
+        let id = client.create_attestation(
+            &issuer_a,
+            &subject,
+            &claim_type,
+            &None,
+            &None,
+            &None,
+        );
+        attestation_ids.push_back(id);
+    }
+
+    for i in 0..total_revocations {
+        client.revoke_attestation(
+            &issuer_a,
+            &attestation_ids.get(i as usize).unwrap(),
+            &None,
+        );
+    }
+
+    let stats = client.get_global_stats();
+    assert_eq!(stats.total_attestations, u64::from(total_attestations));
+    assert_eq!(stats.total_revocations, u64::from(total_revocations));
+    assert_eq!(stats.total_issuers, u64::from(total_issuers));
 }
 
 // ---------------------------------------------------------------------------

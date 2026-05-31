@@ -527,4 +527,136 @@ pub enum Error {
 
 ---
 
+---
+
+## 6. Error Handling
+
+TrustLink errors are returned as `Error(Contract, #N)` values. This section covers every error code, whether it is retryable, and how to surface it to end users.
+
+### Error Code Reference
+
+| Code | Name                  | Meaning                                                        | Retryable? |
+|------|-----------------------|----------------------------------------------------------------|------------|
+| `#1` | `AlreadyInitialized`  | `initialize()` was called on an already-initialized contract   | No         |
+| `#2` | `NotInitialized`      | Contract has not been initialized yet                          | No         |
+| `#3` | `Unauthorized`        | Caller is not the admin, a registered issuer, or the subject   | No         |
+| `#4` | `NotFound`            | Attestation ID does not exist                                  | No         |
+| `#5` | `DuplicateAttestation`| An attestation with the same deterministic hash already exists | No         |
+| `#6` | `AlreadyRevoked`      | The attestation has already been revoked                       | No         |
+| `#7` | `Expired`             | The attestation's expiration timestamp has passed              | No         |
+| `#8` | `InvalidThreshold`    | Multi-sig threshold is 0 or exceeds the number of signers      | No         |
+| `#9` | `NotRequiredSigner`   | Cosigner address is not in the proposal's required-signers list| No         |
+| `#10`| `LimitExceeded`       | Issuer or subject has reached the configured attestation limit | No†        |
+| `#11`| `AlreadySigned`       | This issuer has already co-signed the proposal                 | No         |
+| `#12`| `ProposalFinalized`   | The multi-sig proposal has already been activated              | No         |
+| `#13`| `ProposalExpired`     | The 7-day co-signing window elapsed without reaching threshold | No         |
+
+> † `LimitExceeded` is not retryable for the same issuer/subject until the admin raises the limit or stale attestations are revoked.
+
+### TypeScript: Catching and Handling TrustLinkError
+
+```typescript
+/** All TrustLink contract error codes mapped to structured metadata. */
+const TRUSTLINK_ERRORS: Record<
+  number,
+  { name: string; retryable: boolean; userMessage: string }
+> = {
+  1:  { name: "AlreadyInitialized",   retryable: false, userMessage: "The contract is already set up." },
+  2:  { name: "NotInitialized",       retryable: false, userMessage: "The contract is not yet available. Please try again later." },
+  3:  { name: "Unauthorized",         retryable: false, userMessage: "You do not have permission to perform this action." },
+  4:  { name: "NotFound",             retryable: false, userMessage: "The requested attestation could not be found." },
+  5:  { name: "DuplicateAttestation", retryable: false, userMessage: "This attestation already exists." },
+  6:  { name: "AlreadyRevoked",       retryable: false, userMessage: "This attestation has already been revoked." },
+  7:  { name: "Expired",              retryable: false, userMessage: "This attestation has expired. Please renew your verification." },
+  8:  { name: "InvalidThreshold",     retryable: false, userMessage: "The approval threshold is invalid." },
+  9:  { name: "NotRequiredSigner",    retryable: false, userMessage: "Your account is not authorised to co-sign this proposal." },
+  10: { name: "LimitExceeded",        retryable: false, userMessage: "The attestation limit has been reached. Please contact support." },
+  11: { name: "AlreadySigned",        retryable: false, userMessage: "You have already signed this proposal." },
+  12: { name: "ProposalFinalized",    retryable: false, userMessage: "This proposal has already been completed." },
+  13: { name: "ProposalExpired",      retryable: false, userMessage: "The signing window for this proposal has closed." },
+};
+
+interface TrustLinkErrorInfo {
+  code: number;
+  name: string;
+  retryable: boolean;
+  userMessage: string;
+}
+
+/**
+ * Parse a raw error thrown by the Stellar SDK into structured TrustLink error info.
+ * Returns null if the error is not a TrustLink contract error.
+ */
+function parseTrustLinkError(error: unknown): TrustLinkErrorInfo | null {
+  const msg = String(error);
+  const match = msg.match(/Error\(Contract,\s*#(\d+)\)/);
+  if (!match) return null;
+
+  const code = parseInt(match[1], 10);
+  const meta = TRUSTLINK_ERRORS[code];
+  return {
+    code,
+    name: meta?.name ?? "UnknownError",
+    retryable: meta?.retryable ?? false,
+    userMessage: meta?.userMessage ?? `Unexpected error (code ${code}). Please contact support.`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Usage example
+// ---------------------------------------------------------------------------
+async function verifyAndAttest(
+  issuerKeypair: Keypair,
+  subjectAddress: string,
+  claimType: string
+): Promise<void> {
+  try {
+    await createAttestation(issuerKeypair, subjectAddress, claimType);
+    console.log("Attestation created successfully.");
+  } catch (err) {
+    const tlError = parseTrustLinkError(err);
+
+    if (tlError) {
+      console.error(`TrustLink error [${tlError.name}]:`, tlError.userMessage);
+
+      if (tlError.retryable) {
+        // Safe to retry after a short delay
+        console.warn("This error is transient — retrying in 2 s…");
+        await new Promise((r) => setTimeout(r, 2000));
+        await createAttestation(issuerKeypair, subjectAddress, claimType);
+      } else {
+        // Surface the user-facing message in your UI
+        throw new Error(tlError.userMessage);
+      }
+    } else {
+      // Non-contract error (network, RPC, etc.) — may be retryable
+      console.error("Unexpected error:", err);
+      throw err;
+    }
+  }
+}
+```
+
+### User-Facing Message Reference
+
+Use this table to map error codes directly to UI copy:
+
+| Code | Recommended user-facing message                                              |
+|------|------------------------------------------------------------------------------|
+| `#1` | "The contract is already set up."                                            |
+| `#2` | "The contract is not yet available. Please try again later."                 |
+| `#3` | "You do not have permission to perform this action."                         |
+| `#4` | "The requested attestation could not be found."                              |
+| `#5` | "This attestation already exists."                                           |
+| `#6` | "This attestation has already been revoked."                                 |
+| `#7` | "This attestation has expired. Please renew your verification."              |
+| `#8` | "The approval threshold is invalid."                                         |
+| `#9` | "Your account is not authorised to co-sign this proposal."                   |
+| `#10`| "The attestation limit has been reached. Please contact support."            |
+| `#11`| "You have already signed this proposal."                                     |
+| `#12`| "This proposal has already been completed."                                  |
+| `#13`| "The signing window for this proposal has closed."                           |
+
+---
+
 For the full API reference, see the [README](../README.md). For error definitions and type details, see [`src/types.rs`](../src/types.rs).

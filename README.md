@@ -167,9 +167,10 @@ When an issuer is removed via `remove_issuer`:
 | Existing attestations remain valid                       | Yes      | Attestation validity depends only on revocation and expiration status, not issuer registration                       |
 | `has_valid_claim` returns true for existing attestations | Yes      | Validity checks do not verify issuer registration                                                                    |
 | Removed issuer creates new attestations                  | **No**   | `create_attestation` calls `require_issuer`, which rejects unregistered issuers                                      |
-| Removed issuer revokes their own attestations            | Yes      | `revoke_attestation` only checks that the caller matches the attestation's original issuer, not current registration |
+| Removed issuer revokes their own attestations            | **No**   | `revoke_attestation` requires the caller to still be a registered issuer (deregistered issuers cannot revoke) |
 
-This is by design — attestations represent signed facts at a point in time. Removing an issuer prevents future issuance but does not retroactively invalidate previously issued attestations.
+Removing an issuer prevents future issuance and also blocks the removed issuer from revoking attestations after deregistration. Previously issued attestations remain valid unless successfully revoked by a currently-registered issuer.
+
 
 ### Register Bridge Contracts
 
@@ -551,10 +552,26 @@ let valid  = contract.get_valid_claim_count(&user_address);          // only non
 // List user's attestations (paginated)
 let attestations = contract.get_subject_attestations(&user_address, &0, &10);
 
-// Search attestations by date range (paginated)
+// Search attestations by date range (legacy offset pagination)
 let from_ts = 1_700_000_000;
 let to_ts = 1_701_000_000;
 let attestations = contract.get_attestations_in_range(&user_address, &from_ts, &to_ts, &0, &10);
+
+// Preferred page-after cursor pagination for resilient traversal across deletions
+let first_page = contract.get_attestations_in_range_after(
+    &user_address,
+    &from_ts,
+    &to_ts,
+    &None,
+    &10,
+);
+let second_page = contract.get_attestations_in_range_after(
+    &user_address,
+    &from_ts,
+    &to_ts,
+    &Some(first_page.get(9).unwrap().id.clone()),
+    &10,
+);
 
 // List issuer's attestations
 let issued = contract.get_issuer_attestations(&issuer_address, &0, &10);
@@ -664,6 +681,27 @@ soroban contract invoke --id <CONTRACT_ID> --network testnet --source ADMIN_SECR
   --max_attestations_per_issuer 5000 \
   --max_attestations_per_subject 50
 ```
+
+## Storage Cost Estimates
+
+Every attestation written to the Stellar ledger consumes a base reserve (locked XLM). The table below gives issuers a quick budget reference.
+
+| Scenario | Approx. XLM reserve per attestation |
+|----------|-------------------------------------|
+| Baseline (no metadata) | ~15–16 XLM |
+| With ~200-byte metadata | ~18–20 XLM |
+| Revocation only | ~1–2 XLM |
+
+Costs are **reserve**, not fees — the XLM is locked, not burned, and is returned if the entry is evicted or deleted.
+
+Key drivers:
+- The main `Attestation` entry is ~800 bytes → ~13 XLM data reserve + 0.5 XLM entry fee.
+- Each new subject/issuer index Vec entry adds ~1 XLM.
+- Optional metadata adds ~0.5 XLM per 32 bytes.
+
+For full ledger entry size breakdown, XLM calculations, TTL/rent guidance, and bulk cost projections (10 → 10,000 attestations), see [docs/performance.md — Storage Cost Per Attestation](docs/performance.md#storage-cost-per-attestation-xlm).
+
+> Base reserve figures are based on the current Stellar network parameters (0.5 XLM per entry + 0.5 XLM per 32 bytes). Verify with `stellar network info` before budgeting for production.
 
 ## Error Handling
 
@@ -828,7 +866,7 @@ For the pre-mainnet line-by-line authorization audit, see
 - **Payment Systems**: Verify merchant credentials
 - **Governance**: Validate voter eligibility
 - **Marketplaces**: Confirm seller reputation
-- **Insurance**: Verify policyholder identity
+- **Insurance**: Verify policyholder identity — see [examples/insurance/README.md](examples/insurance/README.md)
 - **Stellar Anchors**: End-to-end anchor KYC attestation flow example in [examples/anchor-integration/README.md](examples/anchor-integration/README.md)
 - **Soroban Tokens**: KYC-restricted token transfer example in [examples/kyc-token/README.md](examples/kyc-token/README.md)
 - **DAO Governance**: Voter eligibility-gated voting example in [examples/governance/README.md](examples/governance/README.md)
@@ -993,6 +1031,9 @@ Key design choices are documented as ADRs in [docs/adr/](docs/adr/):
 | [ADR-002](docs/adr/ADR-002-persistent-storage.md) | Persistent storage instead of temporary storage  |
 | [ADR-003](docs/adr/ADR-003-immutable-history.md)  | Immutable attestation history (no delete)        |
 | [ADR-004](docs/adr/ADR-004-dual-indexes.md)       | Separate issuer and subject indexes              |
+| [ADR-007](docs/adr/ADR-007-attestation-requests.md) | Pull-based attestation request workflow        |
+| [ADR-008](docs/adr/ADR-008-rate-limiting.md)      | Rate limiting design and known limitations       |
+| [ADR-009](docs/adr/ADR-009-delegation-model.md)   | Delegation model and trust chain implications    |
 
 A blank [template](docs/adr/ADR-000-template.md) is available for new decisions.
 

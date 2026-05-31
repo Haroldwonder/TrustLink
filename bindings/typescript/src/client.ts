@@ -38,6 +38,15 @@ import {
   CONTRACT_ERRORS,
 } from "./types";
 
+import {
+  validateAddress,
+  validateClaimType,
+  validateNonNegative,
+  validatePositive,
+  validateAttestationId,
+  TrustLinkError,
+} from "./validation";
+
 export type { Attestation, AttestationStatus, AuditEntry, ClaimTypeInfo,
   ContractConfig, ContractMetadata, Endorsement, FeeConfig, GlobalStats,
   HealthStatus, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal,
@@ -275,6 +284,7 @@ export class TrustLinkClient {
 
   /** Return true if the address is a registered issuer. */
   async isIssuer(address: string): Promise<boolean> {
+    validateAddress(address);
     return this.simulate("is_issuer", [addr(address)]) as Promise<boolean>;
   }
 
@@ -289,6 +299,7 @@ export class TrustLinkClient {
 
   /** Return the trust tier of an issuer, or null if not set. */
   async getIssuerTier(issuer: string): Promise<IssuerTier | null> {
+    validateAddress(issuer);
     return this.simulate("get_issuer_tier", [addr(issuer)]) as Promise<IssuerTier | null>;
   }
 
@@ -302,11 +313,13 @@ export class TrustLinkClient {
 
   /** Return metadata for an issuer, or null if not set. */
   async getIssuerMetadata(issuer: string): Promise<IssuerMetadata | null> {
+    validateAddress(issuer);
     return this.simulate("get_issuer_metadata", [addr(issuer)]) as Promise<IssuerMetadata | null>;
   }
 
   /** Return per-issuer statistics. */
   async getIssuerStats(issuer: string): Promise<IssuerStats> {
+    validateAddress(issuer);
     return this.simulate("get_issuer_stats", [addr(issuer)]) as Promise<IssuerStats>;
   }
 
@@ -470,11 +483,13 @@ export class TrustLinkClient {
 
   /** Return a full attestation record by ID. */
   async getAttestation(attestationId: string): Promise<Attestation> {
+    validateAttestationId(attestationId);
     return this.simulate("get_attestation", [str(attestationId)]) as Promise<Attestation>;
   }
 
   /** Return the status of an attestation (Valid, Expired, Revoked, Pending). */
   async getAttestationStatus(attestationId: string): Promise<AttestationStatus> {
+    validateAttestationId(attestationId);
     return this.simulate("get_attestation_status", [str(attestationId)]) as Promise<AttestationStatus>;
   }
 
@@ -483,41 +498,58 @@ export class TrustLinkClient {
    * Throws NotFound if none exists.
    */
   async getAttestationByType(subject: string, claimType: string): Promise<Attestation> {
+    validateAddress(subject);
+    validateClaimType(claimType);
     return this.simulate("get_attestation_by_type", [addr(subject), str(claimType)]) as Promise<Attestation>;
   }
 
   /** Return a paginated list of attestation IDs for a subject. */
   async getSubjectAttestations(subject: string, start: number, limit: number): Promise<string[]> {
+    validateAddress(subject);
+    validateNonNegative(start, "start");
+    validatePositive(limit, "limit");
     return this.simulate("get_subject_attestations", [addr(subject), u32(start), u32(limit)]) as Promise<string[]>;
   }
 
   /** Return a paginated list of attestation IDs created by an issuer. */
   async getIssuerAttestations(issuer: string, start: number, limit: number): Promise<string[]> {
+    validateAddress(issuer);
+    validateNonNegative(start, "start");
+    validatePositive(limit, "limit");
     return this.simulate("get_issuer_attestations", [addr(issuer), u32(start), u32(limit)]) as Promise<string[]>;
   }
 
   /** Return all attestation IDs for a subject that carry a specific tag. */
   async getAttestationsByTag(subject: string, tag: string): Promise<string[]> {
+    validateAddress(subject);
     return this.simulate("get_attestations_by_tag", [addr(subject), str(tag)]) as Promise<string[]>;
   }
 
   /** Return the distinct claim types for which a subject holds a valid attestation. */
   async getValidClaims(subject: string): Promise<string[]> {
+    validateAddress(subject);
     return this.simulate("get_valid_claims", [addr(subject)]) as Promise<string[]>;
   }
 
   /** Return true if the subject holds a valid attestation of the given claim type. */
   async hasValidClaim(subject: string, claimType: string): Promise<boolean> {
+    validateAddress(subject);
+    validateClaimType(claimType);
     return this.simulate("has_valid_claim", [addr(subject), str(claimType)]) as Promise<boolean>;
   }
 
   /** Return true if the subject holds a valid attestation of the given claim type from a specific issuer. */
   async hasValidClaimFromIssuer(subject: string, claimType: string, issuer: string): Promise<boolean> {
+    validateAddress(subject);
+    validateClaimType(claimType);
+    validateAddress(issuer);
     return this.simulate("has_valid_claim_from_issuer", [addr(subject), str(claimType), addr(issuer)]) as Promise<boolean>;
   }
 
   /** Return true if the subject holds a valid attestation of the given claim type from an issuer at or above min_tier. */
   async hasValidClaimFromTier(subject: string, claimType: string, minTier: IssuerTier): Promise<boolean> {
+    validateAddress(subject);
+    validateClaimType(claimType);
     return this.simulate("has_valid_claim_from_tier", [
       addr(subject),
       str(claimType),
@@ -527,11 +559,15 @@ export class TrustLinkClient {
 
   /** Return true if the subject holds a valid attestation for ANY of the given claim types (OR logic). */
   async hasAnyClaim(subject: string, claimTypes: string[]): Promise<boolean> {
+    validateAddress(subject);
+    claimTypes.forEach(ct => validateClaimType(ct));
     return this.simulate("has_any_claim", [addr(subject), vecStr(claimTypes)]) as Promise<boolean>;
   }
 
   /** Return true if the subject holds a valid attestation for ALL of the given claim types (AND logic). */
   async hasAllClaims(subject: string, claimTypes: string[]): Promise<boolean> {
+    validateAddress(subject);
+    claimTypes.forEach(ct => validateClaimType(ct));
     return this.simulate("has_all_claims", [addr(subject), vecStr(claimTypes)]) as Promise<boolean>;
   }
 
@@ -539,6 +575,7 @@ export class TrustLinkClient {
 
   /** Return the full append-only audit log for an attestation. */
   async getAuditLog(attestationId: string): Promise<AuditEntry[]> {
+    validateAttestationId(attestationId);
     return this.simulate("get_audit_log", [str(attestationId)]) as Promise<AuditEntry[]>;
   }
 
@@ -555,6 +592,9 @@ export class TrustLinkClient {
     requiredSigners: string[],
     threshold: number,
   ): Promise<string> {
+    validateAddress(subject);
+    validateClaimType(claimType);
+    requiredSigners.forEach(s => validateAddress(s));
     return this.invoke("propose_attestation", [
       addr(proposer.publicKey()),
       addr(subject),
@@ -571,6 +611,7 @@ export class TrustLinkClient {
 
   /** Return a multi-sig proposal by ID. */
   async getMultisigProposal(proposalId: string): Promise<MultiSigProposal> {
+    validateAttestationId(proposalId);
     return this.simulate("get_multisig_proposal", [str(proposalId)]) as Promise<MultiSigProposal>;
   }
 
@@ -578,16 +619,19 @@ export class TrustLinkClient {
 
   /** Endorse an existing attestation. Issuer only. */
   async endorseAttestation(endorser: Keypair, attestationId: string): Promise<string> {
+    validateAttestationId(attestationId);
     return this.invoke("endorse_attestation", [addr(endorser.publicKey()), str(attestationId)], endorser);
   }
 
   /** Return all endorsements for an attestation. */
   async getEndorsements(attestationId: string): Promise<Endorsement[]> {
+    validateAttestationId(attestationId);
     return this.simulate("get_endorsements", [str(attestationId)]) as Promise<Endorsement[]>;
   }
 
   /** Return the number of endorsements for an attestation. */
   async getEndorsementCount(attestationId: string): Promise<number> {
+    validateAttestationId(attestationId);
     return this.simulate("get_endorsement_count", [str(attestationId)]) as Promise<number>;
   }
 

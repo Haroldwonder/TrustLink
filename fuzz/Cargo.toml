@@ -1,0 +1,10 @@
+[package]
+name = "trustlink-fuzz"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+trustlink = { path = ".." }
+soroban-sdk = { version = "=21.7.7", features = ["testutils"] }
+libfuzzer-sys = "0.4"
+arbitrary = "1.0"

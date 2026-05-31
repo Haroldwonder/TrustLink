@@ -15,6 +15,7 @@ export default function IssuerDashboard({ address }: Props) {
   const [expiring, setExpiring] = useState<Attestation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [renewing, setRenewing] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -162,6 +163,14 @@ export default function IssuerDashboard({ address }: Props) {
                       (Number(a.expiration || 0) - Math.floor(Date.now() / 1000)) / 86400
                     )}
                   </span>
+                  <button
+                    className="btn btn-primary"
+                    style={{ marginTop: "0.5rem", width: "100%" }}
+                    onClick={() => handleRenew(a.id, a.expiration!)}
+                    disabled={renewing.has(a.id)}
+                  >
+                    {renewing.has(a.id) ? "Renewing..." : "Renew"}
+                  </button>
                 </div>
               ))}
             </div>
