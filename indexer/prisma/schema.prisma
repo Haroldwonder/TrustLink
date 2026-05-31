@@ -64,6 +64,33 @@ model Webhook {
   updatedAt DateTime @updatedAt
 }
 
+enum WebhookFailureStatus {
+  FAILED
+  RETRYING
+  RECOVERED
+}
+
+model WebhookFailure {
+  id           String               @id @default(cuid())
+  webhookId    String?              // nullable — webhook may be deleted
+  url          String
+  eventType    String
+  payload      String               // JSON body sent
+  statusCode   Int?                 // HTTP status if a response was received
+  errorMessage String?
+  attemptCount Int                  @default(5)
+  status       WebhookFailureStatus @default(FAILED)
+  failedAt     DateTime             @default(now())
+  resolvedAt   DateTime?
+  updatedAt    DateTime             @updatedAt
+
+  @@index([status])
+  @@index([webhookId])
+  @@index([eventType])
+  @@index([failedAt])
+  @@map("webhook_failures")
+}
+
 model Issuer {
   address      String   @id // issuer address
   name         String
