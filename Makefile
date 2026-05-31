@@ -35,6 +35,9 @@
 NETWORK      ?= testnet
 WASM          = target/wasm32-unknown-unknown/release/trustlink.wasm
 WASM_OPT      = target/wasm32-unknown-unknown/release/trustlink.optimized.wasm
+WASM_LOOKUP_DIR ?= target/wasm32-unknown-unknown/release
+SHA256SUM ?= $(shell command -v sha256sum 2>/dev/null || command -v shasum 2>/dev/null)
+SHA256SUM_ARGS ?= $(if $(filter shasum,$(notdir $(SHA256SUM))),-a 256,)
 
 # ── RPC URLs (overridable via environment) ────────────────────────────────────
 TESTNET_RPC_URL  ?= https://soroban-testnet.stellar.org
@@ -64,7 +67,7 @@ endif
         deploy invoke \
         testnet mainnet local \
         bindings check-bindings \
-        check-size \
+        check-size rollback \
         help
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -80,6 +83,7 @@ help:
 	@echo "make clean          - Clean build artifacts"
 	@echo "make install        - Install required dependencies"
 	@echo "make local-deploy   - Deploy and initialize contract on local Stellar network"
+	@echo "make rollback       - Redeploy a verified WASM hash to a specified network"
 	@echo "make bindings       - Generate TypeScript bindings from compiled WASM"
 	@echo "make check-bindings - Fail if committed bindings are out of date"
 
@@ -129,6 +133,41 @@ check-size: optimize
 		exit 1; \
 	fi; \
 	echo "OK: binary is within the 100 KB limit."
+
+## Roll back to a previously built WASM hash and redeploy it to a selected network.
+rollback:
+	@if [ -z "$(WASM_HASH)" ]; then \
+		echo "ERROR: WASM_HASH is required. Example: make rollback NETWORK=mainnet WASM_HASH=<hash>"; \
+		exit 1; \
+	fi; \
+	@if [ -z "$(SHA256SUM)" ]; then \
+		echo "ERROR: sha256sum or shasum is required to verify WASM hashes."; \
+		exit 1; \
+	fi; \
+	@echo "Searching for a matching WASM artifact in $(WASM_LOOKUP_DIR)..."; \
+	WASM_FILE=""; \
+	for f in $$(find $(WASM_LOOKUP_DIR) -type f -name '*.wasm' 2>/dev/null); do \
+		HASH=$$($(SHA256SUM) $(SHA256SUM_ARGS) "$$f" | awk '{print $$1}'); \
+		if [ "$$HASH" = "$(WASM_HASH)" ]; then \
+			WASM_FILE="$$f"; break; \
+		fi; \
+	done; \
+	if [ -z "$$WASM_FILE" ]; then \
+		echo "ERROR: no compiled WASM artifact found matching hash $(WASM_HASH)."; \
+		echo "Restore or build the matching WASM artifact and retry."; \
+		exit 1; \
+	fi; \
+	@if [ "$(NETWORK)" = "mainnet" ]; then \
+		echo "WARNING: mainnet rollback is sensitive. This will redeploy WASM hash $(WASM_HASH) to mainnet."; \
+		printf "Type 'ROLLBACK' to confirm: "; \
+		read CONFIRM; \
+		if [ "$$CONFIRM" != "ROLLBACK" ]; then \
+			echo "Aborted rollback."; \
+			exit 1; \
+		fi; \
+	fi; \
+	@echo "Rolling back with artifact: $$WASM_FILE"; \
+	soroban contract deploy --wasm "$$WASM_FILE" --network $(NETWORK)
 
 ## Clean build artifacts and compiled outputs
 clean:
