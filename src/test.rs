@@ -7045,6 +7045,24 @@ mod delegation_tests {
     }
 
     #[test]
+    fn get_delegation_returns_none_before_grant_and_some_after() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, issuer, delegate, _, client) = setup(&env);
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        assert_eq!(client.get_delegation(&issuer, &delegate, &claim), None);
+
+        client.delegate_claim_type(&issuer, &delegate, &claim, &None);
+
+        let delegation = client.get_delegation(&issuer, &delegate, &claim);
+        assert_eq!(delegation.as_ref().map(|d| d.delegator.clone()), Some(issuer));
+        assert_eq!(delegation.as_ref().map(|d| d.delegate.clone()), Some(delegate));
+        assert_eq!(delegation.as_ref().map(|d| d.claim_type.clone()), Some(claim));
+        assert_eq!(delegation.as_ref().and_then(|d| d.expiration), None);
+    }
+
+    #[test]
     fn expired_delegation_rejects_delegate() {
         let env = Env::default();
         env.mock_all_auths();

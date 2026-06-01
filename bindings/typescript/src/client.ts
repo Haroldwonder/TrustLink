@@ -26,6 +26,7 @@ import {
   ClaimTypeInfo,
   ContractConfig,
   ContractMetadata,
+  Delegation,
   Endorsement,
   FeeConfig,
   GlobalStats,
@@ -48,7 +49,7 @@ import {
 } from "./validation";
 
 export type { Attestation, AttestationStatus, AuditEntry, ClaimTypeInfo,
-  ContractConfig, ContractMetadata, Endorsement, FeeConfig, GlobalStats,
+  ContractConfig, ContractMetadata, Delegation, Endorsement, FeeConfig, GlobalStats,
   HealthStatus, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal,
   TtlConfig };
 
@@ -354,6 +355,14 @@ export class TrustLinkClient {
   /** Return a paginated list of registered claim type identifiers. */
   async listClaimTypes(start: number, limit: number): Promise<string[]> {
     return this.simulate("list_claim_types", [u32(start), u32(limit)]) as Promise<string[]>;
+  }
+
+  /** Return a delegation record if the delegator has granted the delegate the claim type. */
+  async getDelegation(delegator: string, delegate: string, claimType: string): Promise<Delegation | null> {
+    validateAddress(delegator);
+    validateAddress(delegate);
+    validateClaimType(claimType);
+    return this.simulate("get_delegation", [addr(delegator), addr(delegate), str(claimType)]) as Promise<Delegation | null>;
   }
 
   // ─── Attestations ────────────────────────────────────────────────────────────

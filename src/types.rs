@@ -292,21 +292,12 @@ pub struct Delegation {
 pub struct PendingAdminTransfer {
     pub proposed_by: Address,
     pub new_admin: Address,
-
-/// A named attestation template owned by an issuer.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AttestationTemplate {
-    pub claim_type: String,
-    /// Optional expiration window in days (None = no expiration).
-    pub default_expiration_days: Option<u32>,
-    pub metadata_template: Option<String>,
 }
 
 /// Admin council: ordered list of admin addresses.
 pub type AdminCouncil = Vec<Address>;
 
-/// An attestation template that issuers can create, reuse, and delete.
+/// A named attestation template owned by an issuer.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AttestationTemplate {
@@ -314,12 +305,6 @@ pub struct AttestationTemplate {
     pub template_id: String,
     pub claim_type: String,
     pub metadata: Option<String>,
-/// Storage key for the pending admin transfer (two-step pattern).
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PendingAdminTransfer {
-    pub proposed_by: Address,
-    pub new_admin: Address,
 }
 
 impl Attestation {

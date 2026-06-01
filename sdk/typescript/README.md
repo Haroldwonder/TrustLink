@@ -175,6 +175,17 @@ await client.getClaimTypeDescription("KYC_PASSED");
 await client.listClaimTypes(0, 20);
 ```
 
+### Delegation
+
+```typescript
+const delegation = await client.getDelegation(
+  delegatorAddress,
+  delegateAddress,
+  "KYC_PASSED"
+);
+// delegation is either null or { delegator, delegate, claim_type, expiration }
+```
+
 ### Multi-Sig Proposals
 
 ```typescript

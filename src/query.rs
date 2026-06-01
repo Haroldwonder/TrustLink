@@ -3,7 +3,7 @@ use soroban_sdk::{Address, Env, String, Vec};
 use crate::attestation::maybe_trigger_expiration_hook;
 use crate::events::Events;
 use crate::storage::Storage;
-use crate::types::{Attestation, AttestationStatus, AuditEntry, Error, GlobalStats};
+use crate::types::{Attestation, AttestationStatus, AuditEntry, Delegation, Error, GlobalStats};
 
 /// Returns `true` if the subject holds at least one valid attestation for `claim_type`.
 ///
@@ -129,6 +129,15 @@ pub fn get_attestation(env: &Env, attestation_id: String) -> Result<Attestation,
 
 pub fn get_audit_log(env: &Env, attestation_id: String) -> Vec<AuditEntry> {
     Storage::get_audit_log(env, &attestation_id)
+}
+
+pub fn get_delegation(
+    env: &Env,
+    delegator: Address,
+    delegate: Address,
+    claim_type: String,
+) -> Option<Delegation> {
+    Storage::get_delegation(env, &delegator, &delegate, &claim_type)
 }
 
 pub fn get_attestation_status(env: &Env, attestation_id: String) -> Result<AttestationStatus, Error> {

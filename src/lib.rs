@@ -488,13 +488,11 @@ impl TrustLinkContract {
     // Contract Config
     // -----------------------------------------------------------------------
 
-    pub fn set_require_registered_claim_typ(env: Env, admin: Address, require: bool) -> Result<(), Error> {
     pub fn set_registered_claim_type(env: Env, admin: Address, require: bool) -> Result<(), Error> {
         admin::set_require_registered_claim_type(&env, admin, require)
     }
 
     #[must_use]
-    pub fn get_require_registered_claim_typ(env: Env) -> bool {
     pub fn get_registered_claim_type(env: Env) -> bool {
         admin::get_require_registered_claim_type(&env)
     }
@@ -544,6 +542,16 @@ impl TrustLinkContract {
 
     pub fn list_delegations_by_delegator(env: Env, delegator: Address, start: u32, limit: u32) -> Vec<Delegation> {
         admin::list_delegations_by_delegator(&env, delegator, start, limit)
+    }
+
+    #[must_use]
+    pub fn get_delegation(
+        env: Env,
+        delegator: Address,
+        delegate: Address,
+        claim_type: String,
+    ) -> Option<Delegation> {
+        query::get_delegation(&env, delegator, delegate, claim_type)
     }
 
     // -----------------------------------------------------------------------

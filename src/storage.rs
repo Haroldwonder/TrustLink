@@ -2,19 +2,10 @@
 
 use crate::constants::{DAY_IN_LEDGERS, DEFAULT_INSTANCE_LIFETIME};
 use crate::types::{
-    AttestationRequest, AttestationTemplate, AuditEntry, ClaimTypeInfo, Delegation,
-//!
-//! Single point of contact between contract logic and on-chain storage.
-
-use crate::constants::{DAY_IN_LEDGERS, DEFAULT_INSTANCE_LIFETIME};
-use crate::types::{
     AdminCouncil, Attestation, AttestationRequest, AttestationTemplate, AuditEntry, ClaimTypeInfo,
     CouncilProposal, Delegation, Endorsement, Error, ExpirationHook, FeeConfig, GlobalStats,
     IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, PendingAdminTransfer,
     RateLimitConfig, StorageLimits, TtlConfig,
-    Endorsement, Error, ExpirationHook, FeeConfig, GlobalStats, IssuerMetadata, IssuerStats,
-    IssuerTier, MultiSigProposal, PendingAdminTransfer, RateLimitConfig, StorageLimits, TtlConfig,
-    CouncilProposal, AdminCouncil,
 };
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
@@ -52,51 +43,30 @@ pub enum StorageKey {
     Whitelist(Address, Address),
     Request(String),
     PendingRequests(Address),
-    StorageLimits,
     Paused,
-    MultisigProposal(String),
-    AuditLog(String),
     CouncilProposal(u32),
     LastIssuance(Address),
-    LastIssuanceTime(Address),
     IssuerWhitelistEnabled(Address),
-    /// Whitelist mode flag (alias for IssuerWhitelistEnabled).
     IssuerWhitelistMode(Address),
-    /// Whitelist entry for a (issuer, subject) pair.
     IssuerWhitelist(Address, Address),
-    /// Audit log entries for an attestation.
-    AuditLog(String),
-    /// Multi-sig proposal keyed by proposal ID.
     MultiSigProposal(String),
-    /// An attestation request record.
+    MultisigProposal(String),
+    AuditLog(String),
     AttestationRequest(String),
     IssuerPendingRequests(Address),
-    PendingRequests(Address),
-    /// Contract paused flag.
-    Paused,
-    /// Council proposal by numeric ID.
-    CouncilProposal(u32),
     CouncilProposalStr(String),
     ProposalCounter,
     PendingAdminTransfer,
     AttestationTemplate(Address, String),
     AttestationTemplateList(Address),
-    /// Optional reason stored when the contract is paused.
     PauseReason,
-    /// Flag: when `true`, `create_template` rejects claim types not in the registry.
     RequireRegisteredClaimType,
     Delegation(Address, Address, String),
     ClaimTypeCount(String),
-    /// Index of (delegate, claim_type) pairs for a delegator.
     DelegatorIndex(Address),
-    /// Ordered list of all registered bridge contract addresses.
     BridgeList,
-    /// Index of endorsement IDs made by a specific endorser.
     EndorserIndex(Address),
-    /// Per-claim-type rate limit override (claim_type -> min_issuance_interval).
     ClaimTypeRateLimit(String),
-    /// Ordered list of all registered issuer addresses.
-    IssuerList,
 }
 
 fn get_ttl_lifetime(env: &Env) -> u32 {
@@ -179,38 +149,6 @@ impl Storage {
     pub fn get_admin(env: &Env) -> Result<Address, Error> {
         let council = Self::get_admin_council(env)?;
         council.first().ok_or(Error::NotInitialized)
-    }
-
-    pub fn set_version(env: &Env, version: &String) {
-        env.storage().instance().set(&StorageKey::Version, version);
-    }
-
-    pub fn get_version(env: &Env) -> Option<String> {
-        env.storage().instance().get(&StorageKey::Version)
-    }
-
-    pub fn set_fee_config(env: &Env, fee_config: &FeeConfig) {
-        let ttl = get_ttl_lifetime(env);
-        env.storage().instance().set(&StorageKey::FeeConfig, fee_config);
-        env.storage().instance().extend_ttl(ttl, ttl);
-    }
-
-            if &a != admin { new_council.push_back(a); }
-        }
-        Self::set_admin_council(env, &new_council);
-    }
-
-    pub fn get_admin(env: &Env) -> Result<Address, Error> {
-        let council = Self::get_admin_council(env)?;
-        council.first().ok_or(Error::NotInitialized)
-    }
-
-    pub fn get_council(env: &Env) -> Option<AdminCouncil> {
-        env.storage().instance().get(&StorageKey::AdminCouncil)
-    }
-
-    pub fn set_council(env: &Env, council: &AdminCouncil) {
-        Self::set_admin_council(env, council);
     }
 
     pub fn set_version(env: &Env, version: &String) {
@@ -905,6 +843,9 @@ impl Storage {
         let key = StorageKey::CouncilProposal(proposal.id);
         let ttl = get_ttl_lifetime(env);
         env.storage().persistent().set(&key, proposal);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
     // ── Delegation ────────────────────────────────────────────────────────────
 
     pub fn set_delegation(env: &Env, delegation: &crate::types::Delegation) {

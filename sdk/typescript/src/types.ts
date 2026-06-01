@@ -27,6 +27,13 @@ export type AttestationStatus = "Valid" | "Expired" | "Revoked" | "Pending";
 
 export type IssuerTier = "Basic" | "Verified" | "Premium";
 
+export interface Delegation {
+  delegator: string;
+  delegate: string;
+  claim_type: string;
+  expiration: bigint | null;
+}
+
 export interface IssuerStats {
   total_issued: bigint;
 }

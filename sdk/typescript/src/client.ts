@@ -19,6 +19,7 @@ import type {
   ClaimTypeInfo,
   ContractConfig,
   ContractMetadata,
+  Delegation,
   Endorsement,
   FeeConfig,
   GlobalStats,
@@ -237,6 +238,21 @@ export class TrustLinkClient {
 
   async listClaimTypes(start: number, limit: number): Promise<string[]> {
     return this.simulate("list_claim_types", this.u32(start), this.u32(limit));
+  }
+
+  // ── Delegation Queries ────────────────────────────────────────────────────
+
+  async getDelegation(
+    delegator: string,
+    delegate: string,
+    claimType: string
+  ): Promise<Delegation | null> {
+    return this.simulate(
+      "get_delegation",
+      this.addr(delegator),
+      this.addr(delegate),
+      this.str(claimType)
+    );
   }
 
   // ── Attestation Queries ────────────────────────────────────────────────────
@@ -536,6 +552,8 @@ export class TrustLinkClient {
 
   async getTemplate(issuer: string, templateId: string): Promise<import("./types").AttestationTemplate> {
     return this.simulate("get_template", this.addr(issuer), this.str(templateId));
+  }
+
   async listEndorsementsByEndorser(endorser: string, start: number, limit: number): Promise<Endorsement[]> {
     return this.simulate("list_endorsements_by_endorser", this.addr(endorser), this.u32(start), this.u32(limit));
   }
