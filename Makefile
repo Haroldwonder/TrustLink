@@ -35,6 +35,7 @@
 NETWORK      ?= testnet
 WASM          = target/wasm32-unknown-unknown/release/trustlink.wasm
 WASM_OPT      = target/wasm32-unknown-unknown/release/trustlink.optimized.wasm
+WASM_SIZE_LIMIT ?= 102400
 WASM_LOOKUP_DIR ?= target/wasm32-unknown-unknown/release
 SHA256SUM ?= $(shell command -v sha256sum 2>/dev/null || command -v shasum 2>/dev/null)
 SHA256SUM_ARGS ?= $(if $(filter shasum,$(notdir $(SHA256SUM))),-a 256,)
@@ -67,8 +68,9 @@ endif
         deploy invoke \
         testnet mainnet local \
         bindings check-bindings \
-        check-size rollback \
+        check-size check-wasm-size rollback \
         indexer-dev indexer-build indexer-logs \
+        changelog-preview test-changelog-preview \
         help
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -81,7 +83,9 @@ help:
 	@echo "make test           - Run all unit tests"
 	@echo "make snapshot-update - Regenerate test_snapshots/ after intentional behaviour changes"
 	@echo "make optimize       - Build release WASM and run wasm-opt -Oz"
-	@echo "make check-size     - Verify optimized WASM is under 100 KB"
+	@echo "make check-size     - Verify optimized WASM is under 100 KB (alias for check-wasm-size)"
+	@echo "make check-wasm-size - Verify optimized WASM is under WASM_SIZE_LIMIT (default: 100 KB)"
+	@echo "                       Override: make check-wasm-size WASM_SIZE_LIMIT=<bytes>"
 	@echo "make clean          - Clean build artifacts"
 	@echo "make fmt            - Format source code"
 	@echo "make clippy         - Run clippy linter"
@@ -101,6 +105,9 @@ help:
 	@echo "make indexer-dev    - Start the indexer stack (db + indexer) via docker compose"
 	@echo "make indexer-build  - Build the indexer Docker image"
 	@echo "make indexer-logs   - Tail logs from the running indexer container"
+	@echo "make changelog-preview - Preview the next version and changelog entry Release Please"
+	@echo "                      would generate, without creating a PR or modifying any files."
+	@echo "                      Example:  make changelog-preview"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Build & test
@@ -147,16 +154,20 @@ optimize: build
 		$$(( $$(stat -c%s $(WASM)) - $$(stat -c%s $(WASM_OPT)) ))
 	@echo "Optimized artifact: $(WASM_OPT)"
 
-## Verify the optimized WASM binary is under the 100 KB ledger-storage threshold.
-check-size: optimize
+## Verify the optimized WASM binary is under the configurable size limit.
+## Default limit: 100 KB. Override: make check-wasm-size WASM_SIZE_LIMIT=<bytes>
+check-wasm-size: optimize
 	@SIZE=$$(stat -c%s $(WASM_OPT)); \
-	MAX=$$((100 * 1024)); \
-	echo "Optimized WASM size: $${SIZE} bytes ($$(( SIZE / 1024 )) KB) / limit 100 KB"; \
+	MAX=$(WASM_SIZE_LIMIT); \
+	echo "Optimized WASM size: $${SIZE} bytes ($$(( SIZE / 1024 )) KB) / limit $$(( MAX / 1024 )) KB ($(WASM_SIZE_LIMIT) bytes)"; \
 	if [ "$$SIZE" -gt "$$MAX" ]; then \
-		echo "ERROR: $(WASM_OPT) is $${SIZE} bytes — exceeds 100 KB threshold."; \
+		echo "ERROR: $(WASM_OPT) is $${SIZE} bytes — exceeds limit of $(WASM_SIZE_LIMIT) bytes ($$(( MAX / 1024 )) KB)."; \
 		exit 1; \
 	fi; \
-	echo "OK: binary is within the 100 KB limit."
+	echo "OK: binary is within the $(WASM_SIZE_LIMIT)-byte limit."
+
+## Backwards-compatible alias for check-wasm-size
+check-size: check-wasm-size
 
 ## Roll back to a previously built WASM hash and redeploy it to a selected network.
 rollback:
@@ -315,3 +326,16 @@ indexer-build:
 ## Follows output until interrupted with Ctrl-C.
 indexer-logs:
 	docker compose -f indexer/docker-compose.yml logs -f indexer
+
+## Preview the next version and changelog entry that Release Please would generate.
+## Parses conventional commits since the last release tag and prints the expected
+## version bump and formatted changelog section without modifying any files.
+##
+## Example:
+##   make changelog-preview
+changelog-preview:
+	@bash scripts/changelog-preview.sh
+
+## Run automated tests for the changelog-preview script.
+test-changelog-preview:
+	@bash tests/test_changelog_preview.sh
