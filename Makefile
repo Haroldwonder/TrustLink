@@ -68,6 +68,7 @@ endif
         testnet mainnet local \
         bindings check-bindings \
         check-size rollback \
+        indexer-dev indexer-build indexer-logs \
         help
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -97,6 +98,9 @@ help:
 	@echo "                      Requires: CONTRACT_ID=<id>  SOURCE=<key-alias>"
 	@echo "                      Optional: NETWORK=testnet|mainnet (default: testnet)"
 	@echo "                      Example:  make verify CONTRACT_ID=C... SOURCE=deployer NETWORK=testnet"
+	@echo "make indexer-dev    - Start the indexer stack (db + indexer) via docker compose"
+	@echo "make indexer-build  - Build the indexer Docker image"
+	@echo "make indexer-logs   - Tail logs from the running indexer container"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Build & test
@@ -291,3 +295,23 @@ verify:
 		--contract $(CONTRACT_ID) \
 		--source   $(SOURCE) \
 		--network  $(NETWORK)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Indexer
+# ─────────────────────────────────────────────────────────────────────────────
+
+## Start the indexer stack (db + indexer) in the foreground.
+## Press Ctrl-C to stop. Requires CONTRACT_ID and RPC_URL to be set.
+## Example:
+##   CONTRACT_ID=C... RPC_URL=https://soroban-testnet.stellar.org make indexer-dev
+indexer-dev:
+	docker compose -f indexer/docker-compose.yml up
+
+## Build the indexer Docker image without starting any containers.
+indexer-build:
+	docker compose -f indexer/docker-compose.yml build indexer
+
+## Tail logs from the running indexer container.
+## Follows output until interrupted with Ctrl-C.
+indexer-logs:
+	docker compose -f indexer/docker-compose.yml logs -f indexer
