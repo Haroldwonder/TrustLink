@@ -336,6 +336,109 @@ Vec<String>   // ordered list of claim type identifier strings
 
 ---
 
+## TTL Extension Triggers
+
+Every `extend_ttl` call in TrustLink is made inside a storage write helper in
+`src/storage.rs`. There are no read-path TTL extensions in the current
+implementation — a key's TTL is only refreshed when that key is written.
+
+### TTL window
+
+The extension target is determined at call time by `get_ttl_lifetime()`:
+
+```rust
+fn get_ttl_lifetime(env: &Env) -> u32 {
+    if let Some(config) = env.storage().instance().get::<StorageKey, TtlConfig>(&StorageKey::TtlConfig) {
+        DAY_IN_LEDGERS * config.ttl_days   // operator-configured value
+    } else {
+        DEFAULT_INSTANCE_LIFETIME          // 30 × 17 280 = 518 400 ledgers
+    }
+}
+```
+
+Both the `min_ledgers_to_live` and `extend_to` arguments passed to
+`extend_ttl` are set to this same value, so every write unconditionally resets
+the TTL to the full window regardless of how much time remains.
+
+### `MIN_TTL_THRESHOLD` / `MIN_TTL_THRESHOLD_LEDGERS`
+
+Two constants define a 7-day threshold (120 960 ledgers):
+
+| Constant | Defined in | Value |
+|---|---|---|
+| `MIN_TTL_THRESHOLD` | `src/constants.rs` | `7 × DAY_IN_LEDGERS = 120 960` |
+| `MIN_TTL_THRESHOLD_LEDGERS` | `src/types.rs` | `7 × DAY_IN_LEDGERS = 120 960` |
+
+These constants are **reserved for a future lazy-extend pattern** — a
+read-path guard that would call `extend_ttl` only when the remaining TTL drops
+below the threshold, avoiding unnecessary ledger writes on every read. Neither
+constant is wired into any live code path today; all TTL extensions are
+currently triggered exclusively by writes.
+
+### Instance storage triggers
+
+Instance storage holds a single shared TTL for all instance keys. Any of the
+following writes refreshes the entire instance TTL to the current TTL window:
+
+| Contract function | Storage write helper | Keys covered |
+|---|---|---|
+| `initialize` | `set_admin_council` | `AdminCouncil`, `Admin`, `Version` |
+| `initialize` / `set_fee` | `set_fee_config` | `FeeConfig` |
+| `initialize` / `set_ttl_config` | `set_ttl_config` | `TtlConfig` |
+| `initialize` / admin config calls | `set_contract_config` | `ContractConfig` |
+| `pause` / `unpause` | `set_paused` | `Paused` |
+| Any admin-council mutation | `set_admin_council` | `AdminCouncil` (and all other instance keys) |
+| `set_global_stats` (internal) | `set_global_stats` | `GlobalStats` |
+
+> Because all instance keys share one TTL entry, writing **any** instance key
+> refreshes the TTL for **all** of them simultaneously.
+
+### Persistent storage triggers
+
+Each persistent key has its own independent TTL. The table below lists every
+contract function that causes a persistent `extend_ttl` call and which key(s)
+it refreshes.
+
+| Contract function | Storage write helper | Key(s) refreshed |
+|---|---|---|
+| `register_issuer` | `add_issuer` | `Issuer(issuer)`, `IssuerList` |
+| `remove_issuer` | `remove_issuer` | *(key deleted — no TTL extension)* |
+| `register_bridge` | `add_bridge` | `Bridge(bridge)`, `BridgeList` |
+| `create_attestation` | `set_attestation` | `Attestation(id)` |
+| | `add_subject_attestation` | `SubjectAttestations(subject)` |
+| | `add_issuer_attestation` | `IssuerAttestations(issuer)` |
+| `import_attestation` | same three helpers as above | `Attestation(id)`, `SubjectAttestations(subject)`, `IssuerAttestations(issuer)` |
+| `bridge_attestation` | same three helpers as above | `Attestation(id)`, `SubjectAttestations(subject)`, `IssuerAttestations(issuer)` |
+| `create_attestations_batch` | `set_attestation` × N, `add_issuer_attestations_bulk` | `Attestation(id)` × N, `IssuerAttestations(issuer)` |
+| `revoke_attestation` | `set_attestation` | `Attestation(id)` |
+| `revoke_attestations_batch` | `set_attestation` × N | `Attestation(id)` × N |
+| `renew_attestation` / `update_expiration` | `set_attestation` | `Attestation(id)` |
+| `transfer_attestation` | `set_attestation`, `remove_issuer_attestation`, `add_issuer_attestation` | `Attestation(id)`, `IssuerAttestations(old_issuer)`, `IssuerAttestations(new_issuer)` |
+| `cosign_attestation` (on threshold) | `set_attestation`, `add_subject_attestation`, `add_issuer_attestation` | `Attestation(id)`, `SubjectAttestations(subject)`, `IssuerAttestations(issuer)` |
+| `set_issuer_metadata` | `set_issuer_metadata` | `IssuerMetadata(issuer)` |
+| `register_claim_type` | `set_claim_type` | `ClaimType(claim_type)`, `ClaimTypeList` *(list only on first registration)* |
+| `set_whitelist_mode` / `enable_whitelist` | `set_whitelist_mode` | `IssuerWhitelistMode(issuer)` |
+| `add_to_whitelist` | `add_to_whitelist` | `IssuerWhitelist(issuer, subject)` |
+| `set_proposal` (council) | `set_proposal` | `CouncilProposal(id)` |
+
+### Implications for archival node operators
+
+- **A key that is never written will be evicted** once its TTL reaches zero.
+  Infrequently-updated keys (e.g. `IssuerMetadata`, `ClaimType`) are at higher
+  risk of eviction on low-activity contracts.
+- **Reads never extend TTLs.** Calling `get_attestation`, `has_valid_claim`, or
+  any other read-only function does not reset any TTL counter.
+- **Batch operations extend each key individually.** `create_attestations_batch`
+  calls `set_attestation` once per attestation, so each `Attestation(id)` key
+  gets its own fresh TTL.
+- **The shared instance TTL is a single point of failure.** If no admin
+  operation is performed for the full TTL window (default 30 days), all
+  instance keys (`Admin`, `FeeConfig`, `TtlConfig`, etc.) expire together.
+  Operators should schedule a periodic no-op admin write (e.g. re-applying the
+  current `TtlConfig`) to keep instance storage alive.
+
+---
+
 ## Reading storage via RPC
 
 The following example shows how to read an `Attestation` record directly from
