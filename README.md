@@ -41,7 +41,7 @@ TrustLink is designed with security as a first-class concern. Before mainnet dep
 
 Three security findings were identified in the pre-audit review and must be resolved before mainnet deployment:
 
-1. **FINDING-001 [MEDIUM]:** `initialize()` state read before auth
+1. **FINDING-001 [MEDIUM]:** `initialize()` state read before auth — ✅ resolved (`require_auth()` is now the first operation in `initialize()`)
 2. **FINDING-002 [HIGH]:** `revoke_attestation()` missing `require_issuer` check
 3. **FINDING-003 [HIGH]:** `update_expiration()` missing `require_issuer` check
 
