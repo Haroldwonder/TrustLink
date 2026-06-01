@@ -68,6 +68,7 @@ endif
         testnet mainnet local \
         bindings check-bindings \
         check-size rollback \
+        changelog-preview test-changelog-preview \
         help
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -97,6 +98,9 @@ help:
 	@echo "                      Requires: CONTRACT_ID=<id>  SOURCE=<key-alias>"
 	@echo "                      Optional: NETWORK=testnet|mainnet (default: testnet)"
 	@echo "                      Example:  make verify CONTRACT_ID=C... SOURCE=deployer NETWORK=testnet"
+	@echo "make changelog-preview - Preview the next version and changelog entry Release Please"
+	@echo "                      would generate, without creating a PR or modifying any files."
+	@echo "                      Example:  make changelog-preview"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Build & test
@@ -291,3 +295,16 @@ verify:
 		--contract $(CONTRACT_ID) \
 		--source   $(SOURCE) \
 		--network  $(NETWORK)
+
+## Preview the next version and changelog entry that Release Please would generate.
+## Parses conventional commits since the last release tag and prints the expected
+## version bump and formatted changelog section without modifying any files.
+##
+## Example:
+##   make changelog-preview
+changelog-preview:
+	@bash scripts/changelog-preview.sh
+
+## Run automated tests for the changelog-preview script.
+test-changelog-preview:
+	@bash tests/test_changelog_preview.sh

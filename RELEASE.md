@@ -144,6 +144,81 @@ Closes #42
 2. Ensures commit messages are properly formatted
 3. Blocks merge if validation fails
 
+## Changelog Preview (Local Dry-Run)
+
+Before merging to `main`, you can preview the next version and the changelog entry that Release Please would generate — without creating a PR or modifying any files.
+
+```bash
+make changelog-preview
+```
+
+The command parses conventional commits since the last release tag, determines the version bump, and prints the formatted changelog section to stdout.
+
+### Sample Output
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Changelog Preview  since v0.1.0
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Current version : 0.1.0
+  Next version    : 0.2.0  (minor bump)
+  Version bump    : minor
+
+────────────────────────────────────────────────────────────
+  CHANGELOG.md entry that Release Please would generate:
+────────────────────────────────────────────────────────────
+
+## [0.2.0](../../compare/v0.1.0...v0.2.0) (2026-06-01)
+
+### Features
+
+* **storage:** add dual indexing for subject and issuer ([a1b2c3d](../../commit/a1b2c3d...))
+* **api:** add has_any_claim and has_all_claims ([e4f5a6b](../../commit/e4f5a6b...))
+
+### Bug Fixes
+
+* **validation:** reject attestations with valid_from in past ([7c8d9e0](../../commit/7c8d9e0...))
+
+────────────────────────────────────────────────────────────
+  NOTE: This is a local preview only. No files were changed.
+  Release Please may produce slightly different output when
+  it runs against the GitHub repository.
+────────────────────────────────────────────────────────────
+```
+
+### How It Works
+
+- Reads the current version from `Cargo.toml`.
+- Finds the last release tag (`git describe --tags`). If no tag exists, scans all commits.
+- Parses non-merge commits matching the [Conventional Commits](https://www.conventionalcommits.org/) format.
+- Applies the same bump rules and section visibility as `release-please-config.json`:
+  - `feat` → minor bump, shown in **Features**
+  - `fix` → patch bump, shown in **Bug Fixes**
+  - `perf` → patch bump, shown in **Performance**
+  - `docs` → shown in **Documentation** (no bump)
+  - `refactor` → shown in **Refactoring** (no bump)
+  - `test`, `chore` → hidden (no bump)
+  - `BREAKING CHANGE` footer or `!` suffix → major bump
+- Prints the preview and exits with code `0`. No files are written.
+
+### When No Release Would Be Created
+
+If there are no releasable commits (only `chore`, `test`, `docs`, etc.), the command prints:
+
+```
+  No releasable commits found since v0.1.0.
+  Release Please would not create a release PR.
+```
+
+### Running the Tests
+
+```bash
+make test-changelog-preview
+```
+
+This runs `tests/test_changelog_preview.sh`, which exercises the script in isolated temporary git repositories covering version bumping, section visibility, tag-based scoping, and idempotency.
+
 ## Manual Release (if needed)
 
 If you need to manually trigger a release:
