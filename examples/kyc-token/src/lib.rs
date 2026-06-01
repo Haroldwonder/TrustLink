@@ -22,10 +22,11 @@ pub struct KycTokenContract;
 #[contractimpl]
 impl KycTokenContract {
     pub fn initialize(env: Env, admin: Address, trustlink_contract: Address) {
+        // FINDING-001: auth must be the first operation, before any storage read.
+        admin.require_auth();
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("already initialized");
         }
-        admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::TrustLink, &trustlink_contract);
     }
