@@ -23,7 +23,7 @@
     "fastify": "^4.28.1",
     "graphql": "^16.13.2",
     "graphql-subscriptions": "^3.0.0",
-    "graphql-ws": "^6.0.7",
+    "graphql-ws": "^6.0.8",
     "prom-client": "^15.1.0",
     "ws": "^8.20.0"
   },
