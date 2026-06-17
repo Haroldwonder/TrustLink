@@ -9,6 +9,6 @@
     "test": "node --test flow.test.mjs"
   },
   "dependencies": {
-    "@stellar/stellar-sdk": "^13.3.0"
+    "@stellar/stellar-sdk": "^16.0.0"
   }
 }
