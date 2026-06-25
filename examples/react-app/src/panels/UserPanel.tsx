@@ -1,15 +1,27 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { getSubjectAttestations, Attestation } from "../contract";
 import { SkeletonAttestationList } from "../SkeletonList";
 
 interface Props { address: string; }
 
+type StatusFilter = "all" | "valid" | "revoked" | "expired";
+
+function deriveStatus(a: Attestation): "valid" | "revoked" | "expired" {
+  if (a.revoked) return "revoked";
+  if (a.expiration && a.expiration < BigInt(Math.floor(Date.now() / 1000))) return "expired";
+  return "valid";
+}
+
 export default function UserPanel({ address }: Props) {
   const [attestations, setAttestations] = useState<Attestation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedQR, setExpandedQR] = useState<string | null>(null);
+
+  const [filterText, setFilterText] = useState("");
+  const [filterClaimType, setFilterClaimType] = useState("");
+  const [filterStatus, setFilterStatus] = useState<StatusFilter>("all");
 
   useEffect(() => {
     setLoading(true);
@@ -19,10 +31,25 @@ export default function UserPanel({ address }: Props) {
       .finally(() => setLoading(false));
   }, [address]);
 
+  const claimTypes = useMemo(
+    () => Array.from(new Set(attestations.map((a) => a.claim_type))).sort(),
+    [attestations]
+  );
+
+  const filtered = useMemo(() => {
+    const text = filterText.toLowerCase();
+    return attestations.filter((a) => {
+      if (filterClaimType && a.claim_type !== filterClaimType) return false;
+      if (filterStatus !== "all" && deriveStatus(a) !== filterStatus) return false;
+      if (text && !a.issuer.toLowerCase().includes(text) && !a.id.toLowerCase().includes(text)) return false;
+      return true;
+    });
+  }, [attestations, filterText, filterClaimType, filterStatus]);
+
   function statusBadge(a: Attestation) {
-    if (a.revoked) return <span className="badge badge-revoked">Revoked</span>;
-    if (a.expiration && a.expiration < BigInt(Math.floor(Date.now() / 1000)))
-      return <span className="badge badge-expired">Expired</span>;
+    const s = deriveStatus(a);
+    if (s === "revoked") return <span className="badge badge-revoked">Revoked</span>;
+    if (s === "expired") return <span className="badge badge-expired">Expired</span>;
     return <span className="badge badge-valid">Valid</span>;
   }
 
@@ -36,12 +63,57 @@ export default function UserPanel({ address }: Props) {
       {error && <div className="alert alert-error">{error}</div>}
       {loading && <SkeletonAttestationList />}
 
+      {!loading && (
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "1rem", alignItems: "center" }}>
+          <input
+            style={{ flex: "1 1 160px", background: "#0f1117", border: "1px solid #2d3148", borderRadius: "0.5rem", padding: "0.4rem 0.75rem", color: "#e2e8f0", fontSize: "0.85rem" }}
+            placeholder="Search issuer or ID…"
+            value={filterText}
+            onChange={(e) => setFilterText(e.target.value)}
+          />
+          <select
+            style={{ background: "#0f1117", border: "1px solid #2d3148", borderRadius: "0.5rem", padding: "0.4rem 0.5rem", color: "#e2e8f0", fontSize: "0.85rem" }}
+            value={filterClaimType}
+            onChange={(e) => setFilterClaimType(e.target.value)}
+          >
+            <option value="">All claim types</option>
+            {claimTypes.map((ct) => <option key={ct} value={ct}>{ct}</option>)}
+          </select>
+          <select
+            style={{ background: "#0f1117", border: "1px solid #2d3148", borderRadius: "0.5rem", padding: "0.4rem 0.5rem", color: "#e2e8f0", fontSize: "0.85rem" }}
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value as StatusFilter)}
+          >
+            <option value="all">All statuses</option>
+            <option value="valid">Valid</option>
+            <option value="revoked">Revoked</option>
+            <option value="expired">Expired</option>
+          </select>
+          {(filterText || filterClaimType || filterStatus !== "all") && (
+            <button
+              className="btn btn-outline"
+              style={{ fontSize: "0.8rem", padding: "0.3rem 0.6rem" }}
+              onClick={() => { setFilterText(""); setFilterClaimType(""); setFilterStatus("all"); }}
+            >
+              Clear
+            </button>
+          )}
+          <span style={{ fontSize: "0.8rem", color: "#64748b", whiteSpace: "nowrap" }}>
+            {filtered.length} / {attestations.length}
+          </span>
+        </div>
+      )}
+
       {!loading && attestations.length === 0 && (
         <p className="empty">No attestations found for your address.</p>
       )}
 
+      {!loading && attestations.length > 0 && filtered.length === 0 && (
+        <p className="empty">No attestations match the current filters.</p>
+      )}
+
       <div className="att-list">
-        {attestations.map((a) => (
+        {filtered.map((a) => (
           <div key={a.id} className="att-item">
             <div className="row">
               <span className="claim">{a.claim_type}</span>
