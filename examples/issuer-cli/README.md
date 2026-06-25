@@ -145,6 +145,80 @@ Output:
 ✓ Subject has valid KYC_PASSED claim from this issuer
 ```
 
+### Propose a Multisig Attestation
+
+```bash
+node issuer-cli.mjs propose-multisig <subject> <claim_type> --signers <addr1,addr2,...> --threshold <n>
+```
+
+Examples:
+
+```bash
+# Propose attestation requiring 2 of 3 co-signers
+node issuer-cli.mjs propose-multisig GBRPYHIL... KYC_PASSED \
+  --signers GABC...,GDEF...,GHIJ... --threshold 2
+```
+
+Output:
+```
+Multisig proposal submitted. TX: abc123...
+```
+
+### Co-sign a Multisig Proposal
+
+```bash
+node issuer-cli.mjs cosign-proposal <proposal_id>
+```
+
+Examples:
+
+```bash
+node issuer-cli.mjs cosign-proposal proposal_abc123
+```
+
+Output:
+```
+Co-signed proposal proposal_abc123. TX: def456...
+```
+
+### List Multisig Proposals
+
+```bash
+node issuer-cli.mjs list-proposals
+```
+
+Output:
+```
+Multisig Proposals:
+  Proposal: proposal_abc123  Proposer: GABC...  Threshold: 2  Ledger: 1234567
+```
+
+### Import an Off-chain Attestation (Admin Only)
+
+Imports an attestation that was created off-chain. The caller must be the contract admin.
+
+```bash
+node issuer-cli.mjs import <subject> <claim_type> --source-ref <ref> [--expiry <days>] [--metadata <json>]
+```
+
+Examples:
+
+```bash
+# Import a KYC attestation from an external provider
+node issuer-cli.mjs import GBRPYHIL... KYC_PASSED \
+  --source-ref "ext-kyc-id-abc123" --expiry 365
+
+# Import with metadata
+node issuer-cli.mjs import GBRPYHIL... ACCREDITED_INVESTOR \
+  --source-ref "provider-ref-456" --expiry 730 \
+  --metadata '{"provider":"acme-kyc","level":"accredited"}'
+```
+
+Output:
+```
+Attestation imported. TX: ghi789...
+```
+
 ## Help
 
 ```bash

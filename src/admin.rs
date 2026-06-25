@@ -349,8 +349,10 @@ pub fn set_require_registered_claim_type(env: &Env, admin: Address, require: boo
     
     let mut config = Storage::get_contract_config(env).unwrap_or_else(|| {
         ContractConfig {
+            contract_name: soroban_sdk::String::from_str(env, "TrustLink"),
+            contract_version: soroban_sdk::String::from_str(env, "0.1.0"),
+            contract_description: soroban_sdk::String::from_str(env, ""),
             ttl_config: Storage::get_ttl_config(env).unwrap_or(TtlConfig { ttl_days: 30 }),
-            limits: Storage::get_limits(env),
             fee_config: Storage::get_fee_config(env).unwrap_or(FeeConfig {
                 attestation_fee: 0,
                 fee_collector: admin.clone(),

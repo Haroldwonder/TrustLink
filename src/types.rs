@@ -305,6 +305,8 @@ pub struct AttestationTemplate {
     pub template_id: String,
     pub claim_type: String,
     pub metadata: Option<String>,
+    pub metadata_template: Option<String>,
+    pub default_expiration_days: Option<u32>,
 }
 
 impl Attestation {

@@ -4,18 +4,6 @@ use crate::types::{Attestation, IssuerTier};
 
 // Event topic constants (max 9 chars for symbol_short!)
 const TOPIC_ADM_INIT: Symbol = symbol_short!("adm_init");
-const TOPIC_CREATED: Symbol = symbol_short!("att_crtd");
-const TOPIC_IMPORTED: Symbol = symbol_short!("att_imp");
-const TOPIC_BRIDGED: Symbol = symbol_short!("att_brdg");
-const TOPIC_REVOKED: Symbol = symbol_short!("att_rvkd");
-const TOPIC_RENEWED: Symbol = symbol_short!("att_rnwd");
-const TOPIC_UPDATED: Symbol = symbol_short!("att_upd");
-const TOPIC_EXPIRED: Symbol = symbol_short!("att_exp");
-const TOPIC_DEL_REQ: Symbol = symbol_short!("del_req");
-const TOPIC_ISS_REG: Symbol = symbol_short!("iss_reg");
-const TOPIC_ISS_TIER: Symbol = symbol_short!("iss_tier");
-const TOPIC_ISS_REM: Symbol = symbol_short!("iss_rem");
-const TOPIC_ADMIN_INIT: Symbol = symbol_short!("adm_init");
 const TOPIC_CREATED: Symbol = symbol_short!("created");
 const TOPIC_IMPORTED: Symbol = symbol_short!("imported");
 const TOPIC_BRIDGED: Symbol = symbol_short!("bridged");
@@ -25,8 +13,8 @@ const TOPIC_UPDATED: Symbol = symbol_short!("updated");
 const TOPIC_EXPIRED: Symbol = symbol_short!("expired");
 const TOPIC_DEL_REQ: Symbol = symbol_short!("del_req");
 const TOPIC_ISS_REG: Symbol = symbol_short!("iss_reg");
-const TOPIC_ISS_REM: Symbol = symbol_short!("iss_rem");
 const TOPIC_ISS_TIER: Symbol = symbol_short!("iss_tier");
+const TOPIC_ISS_REM: Symbol = symbol_short!("iss_rem");
 const TOPIC_CLM_TYPE: Symbol = symbol_short!("clm_type");
 const TOPIC_MS_PROP: Symbol = symbol_short!("ms_prop");
 const TOPIC_MS_SIGN: Symbol = symbol_short!("ms_sign");
@@ -37,22 +25,14 @@ const TOPIC_ADM_REM: Symbol = symbol_short!("adm_rem");
 const TOPIC_ENDORSED: Symbol = symbol_short!("endorsed");
 const TOPIC_EXP_HOOK: Symbol = symbol_short!("exp_hook");
 const TOPIC_PAUSED: Symbol = symbol_short!("paused");
-const TOPIC_REQ: Symbol = symbol_short!("req");
-const TOPIC_REQ_OK: Symbol = symbol_short!("req_ok");
-const TOPIC_REQ_NO: Symbol = symbol_short!("req_no");
-const TOPIC_WL_ON: Symbol = symbol_short!("wl_on");
-const TOPIC_WL_ADD: Symbol = symbol_short!("wl_add");
-const TOPIC_WL_REM: Symbol = symbol_short!("wl_rem");
-const TOPIC_TPL_DEL: Symbol = symbol_short!("tpl_del");
-
 const TOPIC_REQ: Symbol = symbol_short!("att_req");
 const TOPIC_REQ_OK: Symbol = symbol_short!("req_ok");
 const TOPIC_REQ_NO: Symbol = symbol_short!("req_no");
 const TOPIC_REQ_CANCEL: Symbol = symbol_short!("req_cncl");
-
+const TOPIC_WL_ON: Symbol = symbol_short!("wl_on");
 const TOPIC_WL_ADD: Symbol = symbol_short!("wl_add");
 const TOPIC_WL_REM: Symbol = symbol_short!("wl_rem");
-const TOPIC_WL_ON: Symbol = symbol_short!("wl_on");
+const TOPIC_TPL_DEL: Symbol = symbol_short!("tpl_del");
 
 pub struct Events;
 
@@ -178,7 +158,7 @@ impl Events {
 
     pub fn issuer_tier_updated(env: &Env, issuer: &Address, tier: &IssuerTier) {
         env.events()
-            .publish((TOPIC_ISS_TIER, issuer.clone()), (old_tier, new_tier));
+            .publish((TOPIC_ISS_TIER, issuer.clone()), tier.clone());
     }
 
     pub fn issuer_removed(env: &Env, issuer: &Address, admin: &Address, timestamp: u64) {
