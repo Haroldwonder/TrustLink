@@ -322,6 +322,19 @@ export async function getExpiringAttestations(
   );
 }
 
+export type AuditAction = "Created" | "Revoked" | "Renewed" | "Updated" | "Transferred";
+
+export interface AuditEntry {
+  action: AuditAction;
+  actor: string;
+  timestamp: bigint;
+  details: string | null;
+}
+
+export async function getAuditLog(attestationId: string): Promise<AuditEntry[]> {
+  return simulate("get_audit_log", str(attestationId));
+}
+
 export async function renewAttestation(
   issuer: string,
   attestationId: string,
@@ -333,5 +346,66 @@ export async function renewAttestation(
     addr(issuer),
     str(attestationId),
     optU64(newExpiration)
+  );
+}
+
+// ── attestation templates ─────────────────────────────────────────────────────
+
+export interface AttestationTemplate {
+  issuer: string;
+  template_id: string;
+  claim_type: string;
+  metadata: string | null;
+}
+
+export async function createTemplate(
+  issuer: string,
+  templateId: string,
+  claimType: string,
+  metadata: string | null
+): Promise<void> {
+  return invoke(
+    issuer,
+    "create_template",
+    addr(issuer),
+    str(templateId),
+    str(claimType),
+    optStr(metadata)
+  );
+}
+
+export async function deleteTemplate(
+  issuer: string,
+  templateId: string
+): Promise<void> {
+  return invoke(issuer, "delete_template", addr(issuer), str(templateId));
+}
+
+export async function getTemplate(
+  issuer: string,
+  templateId: string
+): Promise<AttestationTemplate> {
+  return simulate("get_template", addr(issuer), str(templateId));
+}
+
+export async function listTemplates(
+  issuer: string
+): Promise<AttestationTemplate[]> {
+  return simulate("list_templates", addr(issuer));
+}
+
+export async function createAttestationFromTemplate(
+  issuer: string,
+  templateId: string,
+  subject: string,
+  expiration: bigint | null
+): Promise<void> {
+  return invoke(
+    issuer,
+    "create_attestation_from_template",
+    addr(issuer),
+    str(templateId),
+    addr(subject),
+    optU64(expiration)
   );
 }
