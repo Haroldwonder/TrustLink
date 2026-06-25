@@ -75,4 +75,7 @@ pub enum Error {
     RequestAlreadyProcessed = 37,
     /// The attestation request has expired.
     RequestExpired = 38,
+    /// Metadata does not match the required 64-char hex hash pattern when
+    /// `metadata_hash_only` mode is enabled in ContractConfig.
+    InvalidMetadata = 44,
 }

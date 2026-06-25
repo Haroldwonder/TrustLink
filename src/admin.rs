@@ -371,6 +371,25 @@ pub fn get_require_registered_claim_type(env: &Env) -> bool {
         .unwrap_or(false)
 }
 
+pub fn set_metadata_hash_only(env: &Env, admin: Address, enabled: bool) -> Result<(), Error> {
+    admin.require_auth();
+    Validation::require_admin(env, &admin)?;
+
+    if let Some(mut config) = Storage::get_contract_config(env) {
+        config.metadata_hash_only = enabled;
+        Storage::set_contract_config(env, &config);
+    }
+    // If no config is stored yet, the flag defaults to false (no-op when disabling).
+    // Enabling before any config exists is a no-op; callers should store config first.
+    Ok(())
+}
+
+pub fn get_metadata_hash_only(env: &Env) -> bool {
+    Storage::get_contract_config(env)
+        .map(|config| config.metadata_hash_only)
+        .unwrap_or(false)
+}
+
 // -----------------------------------------------------------------------
 // Limits
 // -----------------------------------------------------------------------

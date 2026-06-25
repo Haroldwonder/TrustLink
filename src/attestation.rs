@@ -235,6 +235,7 @@ pub fn create_attestation_internal(
     Validation::validate_claim_type(&claim_type)?;
     Validation::require_registered_claim_type(env, &claim_type)?;
     Validation::validate_metadata(env, &metadata)?;
+    Validation::validate_metadata_hash_only(env, &metadata)?;
     validate_jurisdiction(env, &jurisdiction)?;
     validate_tags(&tags)?;
     validate_native_expiration(env, expiration)?;
@@ -842,6 +843,7 @@ pub fn create_attestation_as_delegate(
     Validation::require_issuer(env, &delegator)?;
     Validation::validate_claim_type(&claim_type)?;
     Validation::validate_metadata(env, &metadata)?;
+    Validation::validate_metadata_hash_only(env, &metadata)?;
     validate_native_expiration(env, expiration)?;
 
     // Verify delegation exists and is not expired.

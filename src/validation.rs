@@ -135,6 +135,34 @@ impl Validation {
         Ok(())
     }
 
+    /// When `metadata_hash_only` mode is enabled in `ContractConfig`, enforce
+    /// that the metadata value is a 64-character lowercase hexadecimal string
+    /// (a SHA-256 hash). `None` is always accepted.
+    ///
+    /// # Errors
+    /// - [`Error::InvalidMetadata`] — metadata is present but is not a valid
+    ///   64-char hex hash while hash-only mode is active.
+    pub fn validate_metadata_hash_only(env: &Env, metadata: &Option<String>) -> Result<(), Error> {
+        let Some(value) = metadata else {
+            return Ok(());
+        };
+        if let Some(config) = Storage::get_contract_config(env) {
+            if config.metadata_hash_only {
+                if value.len() != 64 {
+                    return Err(Error::InvalidMetadata);
+                }
+                let mut buf = [0u8; 64];
+                value.copy_into_slice(&mut buf);
+                for &b in buf.iter() {
+                    if !matches!(b, b'0'..=b'9' | b'a'..=b'f') {
+                        return Err(Error::InvalidMetadata);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Check if a claim type is registered when required by contract config.
     ///
     /// # Errors

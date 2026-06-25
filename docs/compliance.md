@@ -147,6 +147,65 @@ Integrators should avoid placing personal data (names, email addresses, document
 numbers) in the `metadata` field. Use off-chain storage for sensitive personal
 data and store only a reference or hash in `metadata`.
 
+### Metadata Best Practices (GDPR Article 5(1)(c))
+
+GDPR's data minimisation principle requires that only data that is necessary for
+the stated purpose is stored. Because the `metadata` field is written to a
+public, immutable blockchain, the following practices are mandatory for GDPR
+compliance:
+
+**Store references or hashes — not PII.**
+
+| Compliant | Non-compliant |
+|-----------|---------------|
+| `"ref:kyc-db:a3f9..."` — opaque reference to an off-chain record | `"John Smith, passport GB123456"` |
+| `"sha256:e3b0c44298fc..."` — SHA-256 hash of the underlying document | `"dob:1985-03-12, addr:London"` |
+| `"tier:3,region:eu"` — non-personal classification labels | `"email:user@example.com"` |
+
+**Recommended metadata pattern for KYC attestations:**
+
+```
+sha256:<64-char hex hash of off-chain KYC record>
+```
+
+This lets auditors verify that a specific off-chain record was the basis for
+the attestation without exposing any personal data on-chain.
+
+### metadata_hash_only Mode
+
+`ContractConfig` exposes a `metadata_hash_only` flag. When enabled, the contract
+rejects any `create_attestation` call whose `metadata` field does not match a
+64-character lowercase hexadecimal string (a SHA-256 hash).
+
+**Enabling hash-only enforcement (admin only):**
+
+```rust
+// Enable: all future attestations must use a 64-char hex hash as metadata
+contract.set_metadata_hash_only(&admin, &true);
+
+// Disable: free-form metadata is accepted again
+contract.set_metadata_hash_only(&admin, &false);
+```
+
+**Effect on `create_attestation`:**
+
+- `metadata: None` — always accepted (metadata is optional).
+- `metadata: Some("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")` — accepted (64-char hex).
+- `metadata: Some("John Smith")` — rejected with `Error::InvalidMetadata` when `metadata_hash_only` is `true`.
+
+**Checking the current setting:**
+
+```rust
+let config = contract.get_config();
+if config.metadata_hash_only {
+    // Only SHA-256 hashes accepted in metadata
+}
+```
+
+This mode is the recommended configuration for production deployments handling
+EU/EEA subjects, as it provides a technical control that enforces the
+data-minimisation principle at the contract level.
+
 ## Lawful Basis for Processing
 
 TrustLink itself does not determine the lawful basis for processing — that

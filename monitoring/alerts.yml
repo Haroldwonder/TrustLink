@@ -1,6 +1,37 @@
 groups:
   - name: trustlink
     rules:
+      # Fires immediately when any admin council member is added (adm_add event).
+      # An unexpected admin addition could indicate a compromised admin key.
+      - alert: TrustLinkAdminAdded
+        expr: increase(trustlink_admin_added_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "TrustLink admin council member added"
+          description: >
+            A new admin has been added to the TrustLink admin council
+            (actor: {{ $labels.actor }}, timestamp: {{ $labels.timestamp }}).
+            Verify this change was intentional and authorized. If unexpected,
+            treat as a security incident and rotate admin keys immediately.
+
+      # Fires immediately when any admin council member is removed (adm_rem event).
+      # An unexpected removal could indicate an attacker locking out legitimate admins.
+      - alert: TrustLinkAdminRemoved
+        expr: increase(trustlink_admin_removed_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "TrustLink admin council member removed"
+          description: >
+            An admin has been removed from the TrustLink admin council
+            (actor: {{ $labels.actor }}, timestamp: {{ $labels.timestamp }}).
+            Verify this removal was intentional. If the last admin is removed
+            the contract becomes unmanageable. Confirm remaining admins are
+            operational before acknowledging this alert.
+
       # Fires when the contract is paused via the admin pause() function.
       # All attestation write operations are halted while this is active.
       - alert: TrustLinkContractPaused
