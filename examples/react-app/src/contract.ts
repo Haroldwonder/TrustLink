@@ -335,3 +335,19 @@ export async function renewAttestation(
     optU64(newExpiration)
   );
 }
+
+// ── rate limits ───────────────────────────────────────────────────────────────
+
+export interface RateLimit {
+  limit: number;
+  window_seconds: number;
+  current_count: number;
+}
+
+export async function getRateLimit(issuer: string): Promise<RateLimit> {
+  return simulate("get_rate_limit", addr(issuer));
+}
+
+export async function getRateLimitForClaimType(issuer: string, claimType: string): Promise<RateLimit> {
+  return simulate("get_rate_limit_for_claim_type", addr(issuer), str(claimType));
+}
