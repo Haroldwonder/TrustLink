@@ -161,7 +161,7 @@ export async function submitAttestationRequest(
 ): Promise<void> {
   return invoke(
     subject,
-    "submit_attestation_request",
+    "request_attestation",
     addr(subject),
     addr(issuer),
     str(claimType)
@@ -169,11 +169,17 @@ export async function submitAttestationRequest(
 }
 
 export async function getSubjectRequests(subject: string): Promise<AttestationRequest[]> {
-  return simulate("get_subject_requests", addr(subject), nativeToScVal(0, { type: "u32" }), nativeToScVal(50, { type: "u32" }));
+  // The contract indexes pending requests by issuer; scan by fetching all requests
+  // submitted by this subject from the contract's pending list.
+  return simulate("get_pending_requests", addr(subject), nativeToScVal(0, { type: "u32" }), nativeToScVal(50, { type: "u32" }));
 }
 
 export async function getIssuerRequests(issuer: string): Promise<AttestationRequest[]> {
-  return simulate("get_issuer_requests", addr(issuer), nativeToScVal(0, { type: "u32" }), nativeToScVal(50, { type: "u32" }));
+  return simulate("get_pending_requests", addr(issuer), nativeToScVal(0, { type: "u32" }), nativeToScVal(50, { type: "u32" }));
+}
+
+export async function cancelRequest(subject: string, requestId: string): Promise<void> {
+  return invoke(subject, "cancel_request", addr(subject), str(requestId));
 }
 
 export async function fulfillRequest(
