@@ -335,3 +335,25 @@ export async function renewAttestation(
     optU64(newExpiration)
   );
 }
+
+// ── whitelist ─────────────────────────────────────────────────────────────────
+
+export async function setWhitelistEnabled(issuer: string, enabled: boolean): Promise<void> {
+  return invoke(issuer, "set_whitelist_enabled", addr(issuer), nativeToScVal(enabled, { type: "bool" }));
+}
+
+export async function isWhitelistEnabled(issuer: string): Promise<boolean> {
+  return simulate("is_whitelist_enabled", addr(issuer));
+}
+
+export async function addToWhitelist(issuer: string, subject: string): Promise<void> {
+  return invoke(issuer, "add_to_whitelist", addr(issuer), addr(subject));
+}
+
+export async function removeFromWhitelist(issuer: string, subject: string): Promise<void> {
+  return invoke(issuer, "remove_from_whitelist", addr(issuer), addr(subject));
+}
+
+export async function isWhitelisted(issuer: string, subject: string): Promise<boolean> {
+  return simulate("is_whitelisted", addr(issuer), addr(subject));
+}
