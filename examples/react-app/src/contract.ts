@@ -85,6 +85,10 @@ export interface Attestation {
   metadata: string | null;
 }
 
+export async function getAttestation(id: string): Promise<Attestation> {
+  return simulate("get_attestation", str(id));
+}
+
 export async function getSubjectAttestations(subject: string): Promise<Attestation[]> {
   return simulate("get_subject_attestations", addr(subject), nativeToScVal(0, { type: "u32" }), nativeToScVal(50, { type: "u32" }));
 }

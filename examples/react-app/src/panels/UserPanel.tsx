@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import { getSubjectAttestations, Attestation } from "../contract";
 import { SkeletonAttestationList } from "../SkeletonList";
 
@@ -8,6 +9,7 @@ export default function UserPanel({ address }: Props) {
   const [attestations, setAttestations] = useState<Attestation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expandedQR, setExpandedQR] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -53,6 +55,21 @@ export default function UserPanel({ address }: Props) {
               </span>
             )}
             <span className="meta">ID: {a.id}</span>
+            <button
+              className="btn btn-outline"
+              style={{ marginTop: "0.4rem", fontSize: "0.78rem", padding: "0.25rem 0.6rem" }}
+              onClick={() => setExpandedQR(expandedQR === a.id ? null : a.id)}
+            >
+              {expandedQR === a.id ? "Hide QR" : "Show QR"}
+            </button>
+            {expandedQR === a.id && (
+              <div style={{ marginTop: "0.75rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem" }}>
+                <QRCodeSVG value={a.id} size={160} bgColor="#ffffff" fgColor="#0f1117" level="M" />
+                <span style={{ fontSize: "0.72rem", color: "#64748b", wordBreak: "break-all", textAlign: "center" }}>
+                  {a.id}
+                </span>
+              </div>
+            )}
           </div>
         ))}
       </div>
