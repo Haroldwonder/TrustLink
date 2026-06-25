@@ -1021,6 +1021,10 @@ For a step-by-step walkthrough covering Rust cross-contract patterns, JavaScript
 
 For a full reference of every on-chain storage key, the data each holds, TTL policy, serialization format, and a practical RPC read example for indexer developers, see [docs/storage-layout.md](docs/storage-layout.md).
 
+## Glossary
+
+Terms like *attestation*, *issuer*, *subject*, *bridge*, *claim type*, *endorsement*, and *delegation* have specific meanings in TrustLink. See [docs/glossary.md](docs/glossary.md) for definitions of all domain-specific terms.
+
 ## Architecture Decision Records
 
 Key design choices are documented as ADRs in [docs/adr/](docs/adr/):
