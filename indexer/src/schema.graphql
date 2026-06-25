@@ -82,7 +82,19 @@ type AttestationConnection {
   totalCount: Int!
 }
 
+type HealthStatus {
+  """ok or degraded"""
+  status: String!
+  """Last ledger sequence number processed by the indexer"""
+  lastLedger: Int
+  """ISO-8601 timestamp of this response"""
+  timestamp: String!
+}
+
 type Query {
+  """Synthetic liveness probe — returns status ok when the indexer is healthy"""
+  healthCheck: HealthStatus!
+
   """Query attestations with optional filters and pagination"""
   attestations(
     subject: String, 

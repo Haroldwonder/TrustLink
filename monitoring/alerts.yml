@@ -45,17 +45,41 @@ groups:
             (current: {{ $value }}). Investigate whether this is a planned
             compliance sweep, an automation bug, or a compromised issuer key.
 
-      # Fires when the event indexer falls more than 100 ledgers behind the
-      # latest ledger. This means monitoring data is stale and alerts based on
-      # event counts may be unreliable.
+      # SLO: Indexer lag SLO — the indexer must stay within 100 ledgers of the chain
+      # tip for ≥ 99 % of the time over a 30-day window (≈ 7.2 h/month error budget).
+      # Threshold source: SLO-2 in docs/monitoring.md §11.
+      # Fires when the indexer has violated the SLO lag budget for 2 consecutive minutes.
       - alert: TrustLinkIndexerLag
         expr: (trustlink_latest_ledger - trustlink_indexer_last_processed_ledger) > 100
         for: 2m
         labels:
           severity: high
+          slo: indexer_lag
         annotations:
-          summary: "TrustLink indexer is lagging"
+          summary: "TrustLink indexer is lagging (SLO-2 breach)"
           description: >
             The TrustLink event indexer is {{ $value }} ledgers behind the
-            chain tip (threshold: 100). Event-based alerts may be delayed or
-            missing. Check the indexer process and RPC connectivity.
+            chain tip (SLO-2 threshold: 100 ledgers, target ≥ 99 % compliance).
+            Event-based alerts may be delayed or missing. Check the indexer
+            process and RPC connectivity. Each minute above threshold burns
+            ~0.23 % of the monthly error budget.
+
+      # Per-issuer revocation spike alert (#824).
+      # Fires when a single issuer exceeds REVOCATION_SPIKE_THRESHOLD (default 10)
+      # revocations in a 5-minute rolling window.  A spike may indicate a compromised
+      # issuer key, a bulk compliance action, or a bug in issuer automation.
+      # Adjust the threshold via the REVOCATION_SPIKE_THRESHOLD label override or by
+      # editing the `> 10` literal below after one week of baseline observation.
+      - alert: TrustLinkIssuerRevocationSpike
+        expr: increase(trustlink_issuer_revocations_total[5m]) > 10
+        for: 0m
+        labels:
+          severity: high
+        annotations:
+          summary: "Revocation spike for issuer {{ $labels.issuer }}"
+          description: >
+            Issuer {{ $labels.issuer }} has revoked {{ $value | printf "%.0f" }}
+            attestations in the last 5 minutes, exceeding the configurable
+            threshold of 10. This may indicate a compromised issuer key, a
+            bulk compliance sweep, or an automation bug. Follow the runbook in
+            docs/monitoring.md §8 to determine the root cause.

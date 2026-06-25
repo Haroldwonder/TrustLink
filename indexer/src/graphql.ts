@@ -55,9 +55,24 @@ function mapRequest(r: AttestationRequest): MappedRequest {
   };
 }
 
-export function buildResolvers(db: PrismaClient) {
+export function buildResolvers(db: PrismaClient, getLastLedger?: () => number) {
   return {
     Query: {
+      healthCheck: async () => {
+        let dbOk = false;
+        try {
+          await db.$queryRaw`SELECT 1`;
+          dbOk = true;
+        } catch {
+          dbOk = false;
+        }
+        return {
+          status: dbOk ? "ok" : "degraded",
+          lastLedger: getLastLedger ? getLastLedger() : null,
+          timestamp: new Date().toISOString(),
+        };
+      },
+
       attestations: async (
         _: unknown,
         args: { 
