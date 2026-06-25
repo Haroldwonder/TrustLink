@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { connectWallet, getWalletAddress } from "./wallet";
+import { ErrorBoundary } from "./ErrorBoundary";
 import AdminPanel from "./panels/AdminPanel";
 import IssuerPanel from "./panels/IssuerPanel";
 import UserPanel from "./panels/UserPanel";
@@ -14,6 +15,15 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("user");
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [darkMode, setDarkMode] = useState<boolean>(() => {
+    const stored = localStorage.getItem("trustlink-theme");
+    return stored ? stored === "dark" : true;
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light");
+    localStorage.setItem("trustlink-theme", darkMode ? "dark" : "light");
+  }, [darkMode]);
 
   // Auto-reconnect if Freighter is already authorised
   useEffect(() => {
@@ -31,6 +41,13 @@ export default function App() {
     } finally {
       setConnecting(false);
     }
+  }
+
+  async function handleDisconnect() {
+    await disconnectWallet();
+    setAddress(null);
+    setTab("user");
+    setError(null);
   }
 
   const short = address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "";
@@ -68,8 +85,11 @@ export default function App() {
       <header className="header">
         <h1>TrustLink</h1>
         <div className="wallet-info">
+          <button className="btn btn-outline theme-toggle" onClick={() => setDarkMode((d) => !d)} aria-label="Toggle dark mode">
+            {darkMode ? "☀️" : "🌙"}
+          </button>
           <span className="addr">{short}</span>
-          <button className="btn btn-outline" style={{ fontSize: "0.8rem", padding: "0.3rem 0.75rem" }} onClick={() => setAddress(null)}>
+          <button className="btn btn-outline" style={{ fontSize: "0.8rem", padding: "0.3rem 0.75rem" }} onClick={handleDisconnect}>
             Disconnect
           </button>
         </div>
@@ -83,12 +103,12 @@ export default function App() {
         ))}
       </nav>
 
-      {tab === "user" && <UserPanel address={address} />}
-      {tab === "requests" && <AttestationRequestPanel address={address} />}
-      {tab === "multisig" && <MultiSigPanel address={address} />}
-      {tab === "issuer" && <IssuerPanel address={address} />}
-      {tab === "verifier" && <VerifierPanel />}
-      {tab === "admin" && <AdminPanel address={address} />}
+      {tab === "user" && <ErrorBoundary><UserPanel address={address} /></ErrorBoundary>}
+      {tab === "requests" && <ErrorBoundary><AttestationRequestPanel address={address} /></ErrorBoundary>}
+      {tab === "multisig" && <ErrorBoundary><MultiSigPanel address={address} /></ErrorBoundary>}
+      {tab === "issuer" && <ErrorBoundary><IssuerPanel address={address} /></ErrorBoundary>}
+      {tab === "verifier" && <ErrorBoundary><VerifierPanel /></ErrorBoundary>}
+      {tab === "admin" && <ErrorBoundary><AdminPanel address={address} /></ErrorBoundary>}
     </>
   );
 }

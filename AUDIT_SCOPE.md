@@ -207,11 +207,12 @@ TrustLink solves decentralized identity verification and trust establishment on-
 A preliminary authorization audit identified three findings that must be resolved before mainnet deployment:
 
 #### FINDING-001 [MEDIUM] — `initialize()` State Read Before Auth
-**Location:** `src/lib.rs` — `initialize()`  
-**Status:** Open  
+**Location:** `src/admin.rs` — `initialize()` (delegated from `src/lib.rs`)  
+**Status:** Fixed  
 **Severity:** Medium  
-**Description:** `Storage::has_admin()` is called before `admin.require_auth()`, violating the principle that authorization must precede all state interaction.  
-**Recommendation:** Move `require_auth()` to the first line.
+**Description:** `Storage::has_admin()` was called before `admin.require_auth()`, violating the principle that authorization must precede all state interaction.  
+**Recommendation:** Move `require_auth()` to the first line.  
+**Resolution:** `require_auth()` is now the first statement in `initialize()`, before any storage read. Covered by `test_second_initialize_from_any_address_rejected` in `src/test.rs`.
 
 #### FINDING-002 [HIGH] — `revoke_attestation()` Missing `require_issuer` Check
 **Location:** `src/lib.rs` — `revoke_attestation()`  

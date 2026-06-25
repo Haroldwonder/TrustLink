@@ -161,7 +161,7 @@ export async function submitAttestationRequest(
 ): Promise<void> {
   return invoke(
     subject,
-    "submit_attestation_request",
+    "request_attestation",
     addr(subject),
     addr(issuer),
     str(claimType)
@@ -169,11 +169,17 @@ export async function submitAttestationRequest(
 }
 
 export async function getSubjectRequests(subject: string): Promise<AttestationRequest[]> {
-  return simulate("get_subject_requests", addr(subject), nativeToScVal(0, { type: "u32" }), nativeToScVal(50, { type: "u32" }));
+  // The contract indexes pending requests by issuer; scan by fetching all requests
+  // submitted by this subject from the contract's pending list.
+  return simulate("get_pending_requests", addr(subject), nativeToScVal(0, { type: "u32" }), nativeToScVal(50, { type: "u32" }));
 }
 
 export async function getIssuerRequests(issuer: string): Promise<AttestationRequest[]> {
-  return simulate("get_issuer_requests", addr(issuer), nativeToScVal(0, { type: "u32" }), nativeToScVal(50, { type: "u32" }));
+  return simulate("get_pending_requests", addr(issuer), nativeToScVal(0, { type: "u32" }), nativeToScVal(50, { type: "u32" }));
+}
+
+export async function cancelRequest(subject: string, requestId: string): Promise<void> {
+  return invoke(subject, "cancel_request", addr(subject), str(requestId));
 }
 
 export async function fulfillRequest(
@@ -258,6 +264,28 @@ export async function getMultisigTtl(): Promise<bigint> {
 
 export async function getRequireRegisteredClaimType(): Promise<boolean> {
   return simulate("get_require_registered_claim_type");
+// ── global stats ─────────────────────────────────────────────────────────────
+
+export interface GlobalStats {
+  total_attestations: bigint;
+  total_revocations: bigint;
+  total_issuers: bigint;
+}
+
+export async function getGlobalStats(): Promise<GlobalStats> {
+  return simulate("get_global_stats");
+}
+
+// ── contract config ───────────────────────────────────────────────────────────
+
+export interface ContractConfig {
+  ttl_config: { ttl_days: number };
+  limits: { max_attestations_per_issuer: number; max_attestations_per_subject: number };
+  fee_config: { attestation_fee: bigint; fee_collector: string; fee_token: string | null };
+}
+
+export async function getConfig(): Promise<ContractConfig> {
+  return simulate("get_config");
 }
 
 // ── issuer stats ─────────────────────────────────────────────────────────────
@@ -273,6 +301,20 @@ export async function getIssuerStats(issuer: string): Promise<IssuerStats> {
   return simulate("get_issuer_stats", addr(issuer));
 }
 
+export async function getIssuerAttestations(
+  issuer: string,
+  start: number,
+  limit: number
+): Promise<Attestation[]> {
+  const ids: string[] = await simulate(
+    "get_issuer_attestations",
+    addr(issuer),
+    nativeToScVal(start, { type: "u32" }),
+    nativeToScVal(limit, { type: "u32" })
+  );
+  return Promise.all(ids.map((id) => simulate<Attestation>("get_attestation", str(id))));
+}
+
 export async function getExpiringAttestations(
   issuer: string,
   daysWindow: number
@@ -283,5 +325,19 @@ export async function getExpiringAttestations(
     nativeToScVal(daysWindow, { type: "u32" }),
     nativeToScVal(0, { type: "u32" }),
     nativeToScVal(50, { type: "u32" })
+  );
+}
+
+export async function renewAttestation(
+  issuer: string,
+  attestationId: string,
+  newExpiration: bigint | null
+): Promise<void> {
+  return invoke(
+    issuer,
+    "renew_attestation",
+    addr(issuer),
+    str(attestationId),
+    optU64(newExpiration)
   );
 }

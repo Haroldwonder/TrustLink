@@ -179,6 +179,14 @@ This will:
 2. Generate new TypeScript bindings
 3. Update `bindings/typescript/src/`
 
+Or regenerate TypeScript bindings directly:
+
+```bash
+stellar contract bindings typescript \
+  --output-dir bindings/typescript/src \
+  --wasm target/wasm32-unknown-unknown/release/trustlink.wasm
+```
+
 **Important**: Always commit updated bindings with contract changes.
 
 ## Development

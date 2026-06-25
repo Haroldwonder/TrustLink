@@ -5,6 +5,7 @@ import {
   getIssuerRequests,
   fulfillRequest,
   rejectRequest,
+  cancelRequest,
   AttestationRequest,
   isIssuer,
 } from "../contract";
@@ -26,6 +27,7 @@ export default function AttestationRequestPanel({ address }: Props) {
   const [fulfillExpiration, setFulfillExpiration] = useState("");
   const [rejectId, setRejectId] = useState("");
   const [rejectReason, setRejectReason] = useState("");
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   useEffect(() => {
     isIssuer(address).then(setIsUserIssuer);
@@ -73,6 +75,20 @@ export default function AttestationRequestPanel({ address }: Props) {
       setStatus({ type: "error", msg: (e as Error).message });
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleCancel(requestId: string) {
+    setCancellingId(requestId);
+    setStatus(null);
+    try {
+      await cancelRequest(address, requestId);
+      setStatus({ type: "success", msg: "Request cancelled." });
+      await loadSubjectRequests();
+    } catch (e: unknown) {
+      setStatus({ type: "error", msg: (e as Error).message });
+    } finally {
+      setCancellingId(null);
     }
   }
 
@@ -204,6 +220,16 @@ export default function AttestationRequestPanel({ address }: Props) {
                   </span>
                 )}
                 <span className="meta">ID: {r.id}</span>
+                {r.status === "pending" && (
+                  <button
+                    className="btn btn-danger"
+                    style={{ marginTop: "0.5rem", width: "100%" }}
+                    disabled={cancellingId === r.id}
+                    onClick={() => handleCancel(r.id)}
+                  >
+                    {cancellingId === r.id ? "Cancelling..." : "Cancel Request"}
+                  </button>
+                )}
               </div>
             ))}
           </div>
