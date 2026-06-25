@@ -140,3 +140,50 @@ model Endorsement {
   @@index([endorser])
   @@unique([attestationId, endorser])
 }
+
+model Template {
+  id         String   @id @default(cuid())
+  templateId String   @unique
+  issuer     String
+  claimType  String
+  createdAt  DateTime @default(now())
+
+  @@index([issuer])
+}
+
+model Delegation {
+  id        String   @id @default(cuid())
+  delegator String
+  delegate  String
+  claimType String
+  expiresAt BigInt
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([delegator, delegate, claimType])
+  @@index([delegator])
+  @@index([delegate])
+}
+
+model WhitelistEntry {
+  id        String   @id @default(cuid())
+  issuer    String
+  subject   String
+  createdAt DateTime @default(now())
+
+  @@unique([issuer, subject])
+  @@index([issuer])
+  @@index([subject])
+}
+
+model CouncilAction {
+  id        String   @id @default(cuid())
+  actionId  String   @unique
+  proposer  String
+  approvals String[]
+  executed  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([executed])
+  @@index([proposer])
+}

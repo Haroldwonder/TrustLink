@@ -1,5 +1,5 @@
 import { PubSub } from "graphql-subscriptions";
-import { PrismaClient, Attestation, MultisigProposal, AttestationRequest } from "@prisma/client";
+import { PrismaClient, Attestation, MultisigProposal, AttestationRequest, Template, Delegation, WhitelistEntry, CouncilAction } from "@prisma/client";
 
 export const pubsub = new PubSub();
 export const ATTESTATION_CREATED = "ATTESTATION_CREATED";
@@ -53,6 +53,22 @@ function mapRequest(r: AttestationRequest): MappedRequest {
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
   };
+}
+
+function mapTemplate(t: Template) {
+  return { ...t, createdAt: t.createdAt.toISOString() };
+}
+
+function mapDelegation(d: Delegation) {
+  return { ...d, expiresAt: String(d.expiresAt), createdAt: d.createdAt.toISOString() };
+}
+
+function mapWhitelistEntry(w: WhitelistEntry) {
+  return { ...w, createdAt: w.createdAt.toISOString() };
+}
+
+function mapCouncilAction(c: CouncilAction) {
+  return { ...c, createdAt: c.createdAt.toISOString() };
 }
 
 export function buildResolvers(db: PrismaClient) {
@@ -211,6 +227,39 @@ export function buildResolvers(db: PrismaClient) {
           timestamp: String(e.timestamp),
           createdAt: e.createdAt.toISOString(),
         }));
+      },
+
+      templates: async (_: unknown, args: { issuer: string }) => {
+        const rows = await db.template.findMany({
+          where: { issuer: args.issuer },
+          orderBy: { createdAt: "asc" },
+        });
+        return rows.map(mapTemplate);
+      },
+
+      delegationsByDelegator: async (_: unknown, args: { delegator: string }) => {
+        const rows = await db.delegation.findMany({
+          where: { delegator: args.delegator },
+          orderBy: { createdAt: "asc" },
+        });
+        return rows.map(mapDelegation);
+      },
+
+      isWhitelisted: async (_: unknown, args: { issuer: string; subject: string }) => {
+        const entry = await db.whitelistEntry.findUnique({
+          where: { issuer_subject: { issuer: args.issuer, subject: args.subject } },
+        });
+        return entry !== null;
+      },
+
+      councilActions: async (_: unknown, args: { executed?: boolean }) => {
+        const where: Record<string, unknown> = {};
+        if (args.executed !== undefined) where.executed = args.executed;
+        const rows = await db.councilAction.findMany({
+          where,
+          orderBy: { createdAt: "desc" },
+        });
+        return rows.map(mapCouncilAction);
       },
     },
 

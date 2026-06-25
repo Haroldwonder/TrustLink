@@ -18,7 +18,7 @@ const START_LEDGER = process.env.START_LEDGER ? parseInt(process.env.START_LEDGE
 const PAGE_LIMIT = 200;
 const POLL_MS = 5_000;
 
-const WATCHED = new Set(["created", "revoked", "imported", "bridged", "ms_prop", "ms_sign", "ms_actv", "iss_reg", "issuer_tier_updated", "att_req", "req_ful", "req_rej", "att_endorsed"]);
+const WATCHED = new Set(["created", "revoked", "imported", "bridged", "ms_prop", "ms_sign", "ms_actv", "iss_reg", "issuer_tier_updated", "att_req", "req_ful", "req_rej", "att_endorsed", "template_created", "template_deleted", "delegation_created", "delegation_revoked", "whitelist_add", "whitelist_remove", "whitelist_bulk_add", "council_propose", "council_approve", "council_execute"]);
 
 let lastLedger = 0;
 
@@ -282,6 +282,127 @@ async function handleEvent(
         endorser,
         timestamp: BigInt(rawTs),
       },
+    });
+    return;
+  }
+
+  if (topicStr === "template_created") {
+    // topics: ["template_created", issuer_address]  data: (template_id, claim_type)
+    const issuer = ev.topic[1] ? String(scValToNative(ev.topic[1])) : "";
+    const templateId = String(data[0]);
+    const claimType = String(data[1]);
+    await db.template.upsert({
+      where: { templateId },
+      update: {},
+      create: { templateId, issuer, claimType },
+    });
+    return;
+  }
+
+  if (topicStr === "template_deleted") {
+    // topics: ["template_deleted"]  data: (template_id)
+    const templateId = String(data[0]);
+    await db.template.deleteMany({ where: { templateId } });
+    return;
+  }
+
+  if (topicStr === "delegation_created") {
+    // topics: ["delegation_created", delegator_address]  data: (delegate, claim_type, expires_at)
+    const delegator = ev.topic[1] ? String(scValToNative(ev.topic[1])) : "";
+    const delegate = String(data[0]);
+    const claimType = String(data[1]);
+    const expiresAt = BigInt(data[2] as bigint | number);
+    await db.delegation.upsert({
+      where: { delegator_delegate_claimType: { delegator, delegate, claimType } },
+      update: { expiresAt, revoked: false },
+      create: { delegator, delegate, claimType, expiresAt, revoked: false },
+    });
+    return;
+  }
+
+  if (topicStr === "delegation_revoked") {
+    // topics: ["delegation_revoked", delegator_address]  data: (delegate, claim_type)
+    const delegator = ev.topic[1] ? String(scValToNative(ev.topic[1])) : "";
+    const delegate = String(data[0]);
+    const claimType = String(data[1]);
+    await db.delegation.updateMany({
+      where: { delegator, delegate, claimType },
+      data: { revoked: true },
+    });
+    return;
+  }
+
+  if (topicStr === "whitelist_add") {
+    // topics: ["whitelist_add", issuer_address]  data: (subject)
+    const issuer = ev.topic[1] ? String(scValToNative(ev.topic[1])) : "";
+    const subject = String(data[0]);
+    await db.whitelistEntry.upsert({
+      where: { issuer_subject: { issuer, subject } },
+      update: {},
+      create: { issuer, subject },
+    });
+    return;
+  }
+
+  if (topicStr === "whitelist_remove") {
+    // topics: ["whitelist_remove", issuer_address]  data: (subject)
+    const issuer = ev.topic[1] ? String(scValToNative(ev.topic[1])) : "";
+    const subject = String(data[0]);
+    await db.whitelistEntry.deleteMany({ where: { issuer, subject } });
+    return;
+  }
+
+  if (topicStr === "whitelist_bulk_add") {
+    // topics: ["whitelist_bulk_add", issuer_address]  data: (subjects[])
+    const issuer = ev.topic[1] ? String(scValToNative(ev.topic[1])) : "";
+    const subjects = (data[0] as unknown[]).map(String);
+    for (const subject of subjects) {
+      await db.whitelistEntry.upsert({
+        where: { issuer_subject: { issuer, subject } },
+        update: {},
+        create: { issuer, subject },
+      });
+    }
+    return;
+  }
+
+  if (topicStr === "council_propose") {
+    // topics: ["council_propose", proposer_address]  data: (action_id)
+    const proposer = ev.topic[1] ? String(scValToNative(ev.topic[1])) : "";
+    const actionId = String(data[0]);
+    await db.councilAction.upsert({
+      where: { actionId },
+      update: {},
+      create: { actionId, proposer, approvals: [proposer], executed: false },
+    });
+    return;
+  }
+
+  if (topicStr === "council_approve") {
+    // topics: ["council_approve", approver_address]  data: (action_id)
+    const approver = ev.topic[1] ? String(scValToNative(ev.topic[1])) : "";
+    const actionId = String(data[0]);
+    const existing = await db.councilAction.findUnique({
+      where: { actionId },
+      select: { approvals: true },
+    });
+    if (!existing) return;
+    const approvals = existing.approvals.includes(approver)
+      ? existing.approvals
+      : [...existing.approvals, approver];
+    await db.councilAction.update({
+      where: { actionId },
+      data: { approvals },
+    });
+    return;
+  }
+
+  if (topicStr === "council_execute") {
+    // topics: ["council_execute"]  data: (action_id)
+    const actionId = String(data[0]);
+    await db.councilAction.updateMany({
+      where: { actionId, executed: false },
+      data: { executed: true },
     });
     return;
   }
