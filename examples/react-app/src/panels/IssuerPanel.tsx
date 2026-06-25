@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { createAttestation, revokeAttestation, getSubjectAttestations, Attestation } from "../contract";
+import { useState, useEffect } from "react";
+import { createAttestation, revokeAttestation, getSubjectAttestations, getRequireRegisteredClaimType, Attestation } from "../contract";
 import IssuerDashboard from "./IssuerDashboard";
 
 interface Props { address: string; }
@@ -11,6 +11,12 @@ export default function IssuerPanel({ address }: Props) {
   const [metadata, setMetadata] = useState("");
   const [status, setStatus] = useState<{ type: "success" | "error"; msg: string } | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const [requireRegisteredClaimType, setRequireRegisteredClaimType] = useState(false);
+
+  useEffect(() => {
+    getRequireRegisteredClaimType().then(setRequireRegisteredClaimType).catch(() => null);
+  }, []);
 
   const [revokeId, setRevokeId] = useState("");
   const [revokeReason, setRevokeReason] = useState("");
@@ -138,6 +144,11 @@ export default function IssuerPanel({ address }: Props) {
       {tab === "create" && (
         <div className="card">
           <h3>Create Attestation</h3>
+          {requireRegisteredClaimType && (
+            <div className="alert alert-error" style={{ marginBottom: "1rem", fontSize: "0.8rem" }}>
+              This contract requires claim types to be pre-registered. Free-text claim types will be rejected.
+            </div>
+          )}
           <div className="field"><label>Subject Address</label>
             <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="G..." />
           </div>

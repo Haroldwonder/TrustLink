@@ -200,6 +200,29 @@ export class TrustLinkClient {
     return this.simulate("list_claim_types", this.u32(start), this.u32(limit));
   }
 
+  /** Returns whether the given claim type is registered in the contract registry. */
+  async getRegisteredClaimType(claimType: string): Promise<boolean> {
+    return this.simulate("get_registered_claim_type", this.str(claimType));
+  }
+
+  /**
+   * Returns whether the contract requires claim types to be pre-registered.
+   * When true, free-text claim types are rejected on attestation creation.
+   */
+  async getRequireRegisteredClaimType(): Promise<boolean> {
+    return this.simulate("get_require_registered_claim_type");
+  }
+
+  // ── Rate Limiting ──────────────────────────────────────────────────────────
+
+  /**
+   * Returns the per-claim-type rate limit configuration.
+   * Distinct from getRateLimit(), which operates at the per-issuer level.
+   */
+  async getRateLimitForClaimType(claimType: string): Promise<bigint> {
+    return this.simulate("get_rate_limit_for_claim_type", this.str(claimType));
+  }
+
   // ── Attestation Queries ────────────────────────────────────────────────────
 
   async getAttestation(attestationId: string): Promise<Attestation> {
@@ -336,6 +359,11 @@ export class TrustLinkClient {
     return this.simulate("get_multisig_proposal", this.str(proposalId));
   }
 
+  /** Returns the configurable proposal TTL in ledgers. Use this to inform proposers of the available co-signature window. */
+  async getMultisigTtl(): Promise<bigint> {
+    return this.simulate("get_multisig_ttl");
+  }
+
   async proposeAttestation(
     proposer: string,
     subject: string,
@@ -453,6 +481,15 @@ export class TrustLinkClient {
 
   async getAttestationRequest(requestId: string): Promise<AttestationRequest> {
     return this.simulate("get_attestation_request", this.str(requestId));
+  }
+
+  /**
+   * Returns the raw low-level request state for a given request ID.
+   * Distinct from getAttestationRequest(), which returns the high-level processed object.
+   * Use this to inspect raw on-chain request state before processing.
+   */
+  async getRequest(requestId: string): Promise<AttestationRequest> {
+    return this.simulate("get_request", this.str(requestId));
   }
 
   // ── Endorsements ──────────────────────────────────────────────────────────
