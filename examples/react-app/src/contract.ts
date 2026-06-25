@@ -258,6 +258,52 @@ export async function getMultiSigProposal(proposalId: string): Promise<MultiSigP
   return simulate("get_multisig_proposal", str(proposalId));
 }
 
+// ── delegation ────────────────────────────────────────────────────────────────
+
+export interface Delegation {
+  delegator: string;
+  delegate: string;
+  claim_type: string;
+  expiration: bigint | null;
+}
+
+export async function delegateClaimType(
+  issuer: string,
+  delegate: string,
+  claimType: string,
+  expiration: bigint | null
+): Promise<void> {
+  return invoke(issuer, "delegate_claim_type", addr(issuer), addr(delegate), str(claimType), optU64(expiration));
+}
+
+export async function revokeDelegation(
+  issuer: string,
+  delegate: string,
+  claimType: string
+): Promise<void> {
+  return invoke(issuer, "revoke_delegation", addr(issuer), addr(delegate), str(claimType));
+}
+
+export async function createAttestationAsDelegate(
+  delegate: string,
+  delegator: string,
+  subject: string,
+  claimType: string,
+  expiration: bigint | null,
+  metadata: string | null
+): Promise<void> {
+  return invoke(
+    delegate,
+    "create_attestation_as_delegate",
+    addr(delegate),
+    addr(delegator),
+    addr(subject),
+    str(claimType),
+    optU64(expiration),
+    optStr(metadata)
+  );
+}
+
 // ── global stats ─────────────────────────────────────────────────────────────
 
 export interface GlobalStats {
