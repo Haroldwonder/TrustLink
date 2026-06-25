@@ -7222,6 +7222,32 @@ mod delegation_tests {
         assert_eq!(page1.len(), 2);
         assert_eq!(page2.len(), 1);
     }
+
+    #[test]
+    fn revoke_delegation_all_clears_all_delegations() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, issuer, delegate, subject, client) = setup(&env);
+        let claim1 = String::from_str(&env, "KYC_PASSED");
+        let claim2 = String::from_str(&env, "AML_CLEARED");
+
+        // Grant two delegations
+        client.delegate_claim_type(&issuer, &delegate, &claim1, &None);
+        client.delegate_claim_type(&issuer, &delegate, &claim2, &None);
+
+        // Revoke all at once
+        client.revoke_delegation_all(&issuer);
+
+        // Both delegations are gone
+        assert_eq!(client.get_delegation(&issuer, &delegate, &claim1), None);
+        assert_eq!(client.get_delegation(&issuer, &delegate, &claim2), None);
+
+        // Subsequent delegate calls are rejected
+        let result = client.try_create_attestation_as_delegate(
+            &delegate, &issuer, &subject, &claim1, &None, &None,
+        );
+        assert_eq!(result, Err(Ok(Error::Unauthorized)));
+    }
 }
 
 // ---------------------------------------------------------------------------
