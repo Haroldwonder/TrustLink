@@ -268,6 +268,152 @@ async function checkClaim() {
   }
 }
 
+async function proposeMultisig() {
+  required(config.contractId, "TRUSTLINK_CONTRACT_ID");
+  required(config.issuerSecret, "ISSUER_SECRET");
+
+  const subject = args[1];
+  const claimType = args[2];
+  if (!subject || !claimType) throw new Error("Usage: propose-multisig <subject> <claim_type> --signers <addr1,addr2,...> --threshold <n>");
+
+  const signersIdx = args.indexOf("--signers");
+  const thresholdIdx = args.indexOf("--threshold");
+  const signerAddrs = signersIdx !== -1 ? args[signersIdx + 1].split(",") : [];
+  const threshold = thresholdIdx !== -1 ? parseInt(args[thresholdIdx + 1]) : 1;
+
+  const issuer = Keypair.fromSecret(config.issuerSecret);
+  const server = new SorobanRpc.Server(config.rpcUrl);
+  const contract = new Contract(config.contractId);
+
+  const signersScVal = nativeToScVal(signerAddrs.map(a => new Address(a)), { type: "vec" });
+
+  const op = contract.call(
+    "propose_attestation",
+    new Address(issuer.publicKey()).toScVal(),
+    new Address(subject).toScVal(),
+    nativeToScVal(claimType, { type: "string" }),
+    signersScVal,
+    nativeToScVal(threshold, { type: "u32" }),
+  );
+
+  const account = await server.getAccount(issuer.publicKey());
+  let tx = new TransactionBuilder(account, { fee: "100", networkPassphrase: config.networkPassphrase })
+    .addOperation(op).setTimeout(30).build();
+
+  const sim = await server.simulateTransaction(tx);
+  if (SorobanRpc.Api.isSimulationError(sim)) throw new Error(`Simulation failed: ${sim.error}`);
+
+  tx = SorobanRpc.assembleTransaction(tx, sim).build();
+  tx.sign(issuer);
+  const result = await server.sendTransaction(tx);
+  console.log(`Multisig proposal submitted. TX: ${result.hash}`);
+}
+
+async function cosignProposal() {
+  required(config.contractId, "TRUSTLINK_CONTRACT_ID");
+  required(config.issuerSecret, "ISSUER_SECRET");
+
+  const proposalId = args[1];
+  if (!proposalId) throw new Error("Usage: cosign-proposal <proposal_id>");
+
+  const issuer = Keypair.fromSecret(config.issuerSecret);
+  const server = new SorobanRpc.Server(config.rpcUrl);
+  const contract = new Contract(config.contractId);
+
+  const op = contract.call(
+    "cosign_attestation",
+    new Address(issuer.publicKey()).toScVal(),
+    nativeToScVal(proposalId, { type: "string" }),
+  );
+
+  const account = await server.getAccount(issuer.publicKey());
+  let tx = new TransactionBuilder(account, { fee: "100", networkPassphrase: config.networkPassphrase })
+    .addOperation(op).setTimeout(30).build();
+
+  const sim = await server.simulateTransaction(tx);
+  if (SorobanRpc.Api.isSimulationError(sim)) throw new Error(`Simulation failed: ${sim.error}`);
+
+  tx = SorobanRpc.assembleTransaction(tx, sim).build();
+  tx.sign(issuer);
+  const result = await server.sendTransaction(tx);
+  console.log(`Co-signed proposal ${proposalId}. TX: ${result.hash}`);
+}
+
+async function listProposals() {
+  required(config.contractId, "TRUSTLINK_CONTRACT_ID");
+
+  const server = new SorobanRpc.Server(config.rpcUrl);
+  const events = await server.getEvents({
+    startLedger: 0,
+    filters: [{ type: "contract", contractIds: [config.contractId], topics: [["ms_prop"]] }],
+    limit: 100,
+  });
+
+  if (!events.events || events.events.length === 0) {
+    console.log("No multisig proposals found.");
+    return;
+  }
+
+  console.log("Multisig Proposals:");
+  for (const ev of events.events) {
+    const [proposalId, proposer, threshold] = ev.value ? scValToNative(ev.value) : [];
+    console.log(`  Proposal: ${proposalId}  Proposer: ${proposer}  Threshold: ${threshold}  Ledger: ${ev.ledger}`);
+  }
+}
+
+async function importAttestation() {
+  required(config.contractId, "TRUSTLINK_CONTRACT_ID");
+  required(config.issuerSecret, "ISSUER_SECRET");
+
+  const subject = args[1];
+  const claimType = args[2];
+  if (!subject || !claimType) throw new Error("Usage: import <subject> <claim_type> --source-ref <ref> [--expiry <days>] [--metadata <json>]");
+
+  const issuer = Keypair.fromSecret(config.issuerSecret);
+  const server = new SorobanRpc.Server(config.rpcUrl);
+  const contract = new Contract(config.contractId);
+
+  // Validate caller is admin
+  const adminOp = contract.call("get_admin");
+  const adminVal = await simulateRead(server, issuer.publicKey(), adminOp, config.networkPassphrase);
+  const admin = adminVal ? scValToNative(adminVal) : null;
+  if (admin !== issuer.publicKey()) {
+    throw new Error(`Unauthorized: only the admin (${admin}) can import attestations.`);
+  }
+
+  const sourceRefIdx = args.indexOf("--source-ref");
+  const expiryIdx = args.indexOf("--expiry");
+  const metaIdx = args.indexOf("--metadata");
+  const sourceRef = sourceRefIdx !== -1 ? args[sourceRefIdx + 1] : null;
+  if (!sourceRef) throw new Error("--source-ref is required for import");
+  const expiryDays = expiryIdx !== -1 ? parseInt(args[expiryIdx + 1]) : null;
+  const metadata = metaIdx !== -1 ? args[metaIdx + 1] : null;
+  const now = Math.floor(Date.now() / 1000);
+  const expiration = expiryDays ? now + expiryDays * 86400 : null;
+
+  const op = contract.call(
+    "import_attestation",
+    new Address(issuer.publicKey()).toScVal(),
+    new Address(subject).toScVal(),
+    nativeToScVal(claimType, { type: "string" }),
+    nativeToScVal(sourceRef, { type: "string" }),
+    expiration ? nativeToScVal(expiration, { type: "u64" }) : nativeToScVal(null),
+    metadata ? nativeToScVal(metadata, { type: "string" }) : nativeToScVal(null),
+  );
+
+  const account = await server.getAccount(issuer.publicKey());
+  let tx = new TransactionBuilder(account, { fee: "100", networkPassphrase: config.networkPassphrase })
+    .addOperation(op).setTimeout(30).build();
+
+  const sim = await server.simulateTransaction(tx);
+  if (SorobanRpc.Api.isSimulationError(sim)) throw new Error(`Simulation failed: ${sim.error}`);
+
+  tx = SorobanRpc.assembleTransaction(tx, sim).build();
+  tx.sign(issuer);
+  const result = await server.sendTransaction(tx);
+  console.log(`Attestation imported. TX: ${result.hash}`);
+}
+
 function showHelp() {
   console.log(`
 TrustLink Issuer CLI
@@ -275,15 +421,27 @@ TrustLink Issuer CLI
 Commands:
   issue <subject> <claim_type> [--expiry <days>] [--metadata <json>]
     Issue a new attestation
-    
+
   revoke <attestation_id> [--reason <text>]
     Revoke an existing attestation
-    
+
   list-issued [--page <n>] [--limit <n>]
     List attestations issued by this issuer
-    
+
   check <subject> <claim_type>
     Check if subject has a valid claim
+
+  propose-multisig <subject> <claim_type> --signers <addr1,addr2,...> --threshold <n>
+    Propose a multisig attestation requiring co-signatures
+
+  cosign-proposal <proposal_id>
+    Co-sign an existing multisig proposal
+
+  list-proposals
+    List all multisig proposals for this contract
+
+  import <subject> <claim_type> --source-ref <ref> [--expiry <days>] [--metadata <json>]
+    Import an off-chain attestation (admin only)
 
 Environment Variables:
   RPC_URL                 Stellar RPC endpoint (default: testnet)
@@ -296,6 +454,10 @@ Examples:
   issuer-cli revoke att_abc123 --reason "User requested"
   issuer-cli list-issued --page 0 --limit 10
   issuer-cli check GBRPYHIL... KYC_PASSED
+  issuer-cli propose-multisig GBRPYHIL... KYC_PASSED --signers GABC...,GDEF... --threshold 2
+  issuer-cli cosign-proposal proposal_abc123
+  issuer-cli list-proposals
+  issuer-cli import GBRPYHIL... KYC_PASSED --source-ref "external-id-123" --expiry 365
 `);
 }
 
@@ -318,6 +480,18 @@ async function main() {
         break;
       case "check":
         await checkClaim();
+        break;
+      case "propose-multisig":
+        await proposeMultisig();
+        break;
+      case "cosign-proposal":
+        await cosignProposal();
+        break;
+      case "list-proposals":
+        await listProposals();
+        break;
+      case "import":
+        await importAttestation();
         break;
       default:
         console.error(`Unknown command: ${command}`);

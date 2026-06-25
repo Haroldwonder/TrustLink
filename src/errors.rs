@@ -19,7 +19,7 @@ pub enum Error {
     InvalidExpiration = 9,
     MetadataTooLong = 10,
     /// Source reference string is missing or empty.
-    InvalidSourceReference = 43,
+    InvalidSourceReference = 44,
     InvalidTimestamp = 11,
     InvalidFee = 12,
     FeeTokenRequired = 13,
@@ -61,18 +61,15 @@ pub enum Error {
     BatchTooLarge = 34,
     /// Template claim_type is not registered in the registry (when require_registered_claim_type is enabled).
     ClaimTypeNotRegistered = 35,
-    InvalidFeeToken = 35,
-    DuplicateRequest = 36,
-    RequestAlreadyProcessed = 37,
-    RequestExpired = 38,
-    AlreadyApproved = 39,
-    CouncilProposalExists = 40,
-    CouncilProposalExecuted = 41,
-    CouncilProposalExpired = 42,
+    InvalidFeeToken = 36,
     /// An attestation request with the same ID already exists.
-    DuplicateRequest = 36,
+    DuplicateRequest = 37,
     /// The request has already been fulfilled or rejected.
-    RequestAlreadyProcessed = 37,
+    RequestAlreadyProcessed = 38,
     /// The attestation request has expired.
-    RequestExpired = 38,
+    RequestExpired = 39,
+    AlreadyApproved = 40,
+    CouncilProposalExists = 41,
+    CouncilProposalExecuted = 42,
+    CouncilProposalExpired = 43,
 }
