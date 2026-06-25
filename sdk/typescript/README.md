@@ -209,8 +209,22 @@ await client.isPaused();
 await client.healthCheck();
 await client.getGlobalStats();
 await client.getContractMetadata();
-await client.getConfig();
+await client.getConfig();      // Returns ContractConfig: TTL, limits, and fee config in one call
 await client.getFeeConfig();
+```
+
+`getConfig()` returns a `ContractConfig` object combining TTL settings, storage limits, and fee
+configuration in a single RPC call — useful for admin dashboards that would otherwise need three
+separate calls:
+
+```typescript
+const config = await client.getConfig();
+// config.ttl_config.ttl_days                        — attestation TTL in days
+// config.limits.max_attestations_per_issuer         — issuer storage cap
+// config.limits.max_attestations_per_subject        — subject storage cap
+// config.fee_config.attestation_fee                 — fee amount (0 = disabled)
+// config.fee_config.fee_collector                   — collector address
+// config.fee_config.fee_token                       — fee token contract address or null
 ```
 
 ## TypeScript Types

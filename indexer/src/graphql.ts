@@ -199,6 +199,19 @@ export function buildResolvers(db: PrismaClient) {
         });
         return rows.map(mapRequest);
       },
+
+      endorsements: async (_: unknown, args: { attestationId: string }) => {
+        if (!args.attestationId) return [];
+        const rows = await db.endorsement.findMany({
+          where: { attestationId: args.attestationId },
+          orderBy: { timestamp: "asc" },
+        });
+        return rows.map((e) => ({
+          ...e,
+          timestamp: String(e.timestamp),
+          createdAt: e.createdAt.toISOString(),
+        }));
+      },
     },
 
     Subscription: {

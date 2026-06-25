@@ -18,7 +18,7 @@ const START_LEDGER = process.env.START_LEDGER ? parseInt(process.env.START_LEDGE
 const PAGE_LIMIT = 200;
 const POLL_MS = 5_000;
 
-const WATCHED = new Set(["created", "revoked", "imported", "bridged", "ms_prop", "ms_sign", "ms_actv", "iss_reg", "issuer_tier_updated", "att_req", "req_ful", "req_rej"]);
+const WATCHED = new Set(["created", "revoked", "imported", "bridged", "ms_prop", "ms_sign", "ms_actv", "iss_reg", "issuer_tier_updated", "att_req", "req_ful", "req_rej", "att_endorsed"]);
 
 let lastLedger = 0;
 
@@ -266,6 +266,22 @@ async function handleEvent(
     await db.attestationRequest.updateMany({
       where: { id: String(requestId), status: "PENDING" },
       data: { status: "REJECTED", rejectionReason },
+    });
+    return;
+  }
+
+  if (topicStr === "att_endorsed") {
+    // topics: ["att_endorsed", endorser_address]  data: (attestation_id, timestamp)
+    const endorser = ev.topic[1] ? String(scValToNative(ev.topic[1])) : "";
+    const [attestationId, rawTs] = data as [string, bigint | number];
+    await db.endorsement.upsert({
+      where: { attestationId_endorser: { attestationId: String(attestationId), endorser } },
+      update: {},
+      create: {
+        attestationId: String(attestationId),
+        endorser,
+        timestamp: BigInt(rawTs),
+      },
     });
     return;
   }

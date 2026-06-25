@@ -264,6 +264,18 @@ export async function getGlobalStats(): Promise<GlobalStats> {
   return simulate("get_global_stats");
 }
 
+// ── contract config ───────────────────────────────────────────────────────────
+
+export interface ContractConfig {
+  ttl_config: { ttl_days: number };
+  limits: { max_attestations_per_issuer: number; max_attestations_per_subject: number };
+  fee_config: { attestation_fee: bigint; fee_collector: string; fee_token: string | null };
+}
+
+export async function getConfig(): Promise<ContractConfig> {
+  return simulate("get_config");
+}
+
 // ── issuer stats ─────────────────────────────────────────────────────────────
 
 export interface IssuerStats {

@@ -125,6 +125,9 @@ type Query {
 
   """List pending attestation requests for an issuer"""
   pendingRequests(issuer: String!): [AttestationRequest!]!
+
+  """List endorsements for an attestation"""
+  endorsements(attestationId: String!): [Endorsement!]!
 }
 
 type Subscription {
@@ -167,4 +170,12 @@ type AttestationRequest {
   rejectionReason: String
   createdAt: String!
   updatedAt: String!
+}
+
+type Endorsement {
+  id: String!
+  attestationId: String!
+  endorser: String!
+  timestamp: String!
+  createdAt: String!
 }

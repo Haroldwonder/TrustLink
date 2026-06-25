@@ -128,3 +128,15 @@ model AttestationRequest {
   @@index([issuer, status])
   @@map("attestation_requests")
 }
+
+model Endorsement {
+  id            String   @id @default(cuid())
+  attestationId String
+  endorser      String
+  timestamp     BigInt
+  createdAt     DateTime @default(now())
+
+  @@index([attestationId])
+  @@index([endorser])
+  @@unique([attestationId, endorser])
+}
