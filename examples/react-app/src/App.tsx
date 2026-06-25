@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { connectWallet, getWalletAddress } from "./wallet";
+import { connectWallet, getWalletAddress, disconnectWallet } from "./wallet";
 import { ErrorBoundary } from "./ErrorBoundary";
 import AdminPanel from "./panels/AdminPanel";
 import IssuerPanel from "./panels/IssuerPanel";
@@ -7,6 +7,8 @@ import UserPanel from "./panels/UserPanel";
 import VerifierPanel from "./panels/VerifierPanel";
 import AttestationRequestPanel from "./panels/AttestationRequestPanel";
 import MultiSigPanel from "./panels/MultiSigPanel";
+import { useAttestationSubscription } from "./hooks/useAttestationSubscription";
+import { useToasts, ToastContainer } from "./Toast";
 
 type Tab = "admin" | "issuer" | "user" | "verifier" | "requests" | "multisig";
 
@@ -49,6 +51,9 @@ export default function App() {
     setTab("user");
     setError(null);
   }
+
+  const { toasts, push: pushToast, dismiss: dismissToast } = useToasts();
+  useAttestationSubscription(address, pushToast);
 
   const short = address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "";
 
@@ -109,6 +114,7 @@ export default function App() {
       {tab === "issuer" && <ErrorBoundary><IssuerPanel address={address} /></ErrorBoundary>}
       {tab === "verifier" && <ErrorBoundary><VerifierPanel /></ErrorBoundary>}
       {tab === "admin" && <ErrorBoundary><AdminPanel address={address} /></ErrorBoundary>}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </>
   );
 }
