@@ -72,4 +72,6 @@ pub enum Error {
     CouncilProposalExists = 41,
     CouncilProposalExecuted = 42,
     CouncilProposalExpired = 43,
+    /// Attestation does not satisfy claim type constraints (e.g., metadata too short).
+    ConstraintViolation = 45,
 }

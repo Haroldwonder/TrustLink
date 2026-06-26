@@ -278,6 +278,15 @@ impl TrustLinkContract {
         admin::list_claim_types(&env, start, limit)
     }
 
+    pub fn set_claim_type_constraints(env: Env, admin: Address, claim_type: String, constraints: types::ClaimTypeConstraints) -> Result<(), Error> {
+        admin::set_claim_type_constraints(&env, admin, claim_type, constraints)
+    }
+
+    #[must_use]
+    pub fn get_claim_type_constraints(env: Env, claim_type: String) -> Option<types::ClaimTypeConstraints> {
+        admin::get_claim_type_constraints(&env, claim_type)
+    }
+
     // -----------------------------------------------------------------------
     // Delegation
     // -----------------------------------------------------------------------

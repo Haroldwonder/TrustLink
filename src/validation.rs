@@ -149,4 +149,34 @@ impl Validation {
         }
         Ok(())
     }
+
+    /// Validate that an attestation satisfies claim type constraints.
+    ///
+    /// # Errors
+    /// - [`Error::ConstraintViolation`] — metadata does not satisfy constraints.
+    pub fn validate_claim_constraints(
+        env: &Env,
+        claim_type: &String,
+        metadata: &Option<String>,
+    ) -> Result<(), Error> {
+        if let Some(constraints) = Storage::get_claim_type_constraints(env, claim_type) {
+            if constraints.require_metadata && metadata.is_none() {
+                return Err(Error::ConstraintViolation);
+            }
+            if let Some(meta) = metadata {
+                let len = meta.len();
+                if let Some(min) = constraints.min_metadata_len {
+                    if len < min as usize {
+                        return Err(Error::ConstraintViolation);
+                    }
+                }
+                if let Some(max) = constraints.max_metadata_len {
+                    if len > max as usize {
+                        return Err(Error::ConstraintViolation);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }

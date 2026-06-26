@@ -146,6 +146,15 @@ pub struct ClaimTypeInfo {
     pub description: String,
 }
 
+/// Constraints for a specific claim type enforced during attestation creation.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClaimTypeConstraints {
+    pub min_metadata_len: Option<u32>,
+    pub max_metadata_len: Option<u32>,
+    pub require_metadata: bool,
+}
+
 /// Operations that require council quorum approval.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]

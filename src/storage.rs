@@ -29,6 +29,8 @@ pub enum StorageKey {
     IssuerAttestationChunk(Address, u32),
     ClaimType(String),
     ClaimTypeList,
+    /// Constraints for a specific claim type.
+    ClaimTypeConstraints(String),
     IssuerList,
     MultisigTtlDays,
     IssuerTier(Address),
@@ -403,6 +405,17 @@ impl Storage {
 
     pub fn get_claim_type_list(env: &Env) -> Vec<String> {
         env.storage().persistent().get(&StorageKey::ClaimTypeList).unwrap_or(Vec::new(env))
+    }
+
+    pub fn get_claim_type_constraints(env: &Env, claim_type: &String) -> Option<crate::types::ClaimTypeConstraints> {
+        env.storage().persistent().get(&StorageKey::ClaimTypeConstraints(claim_type.clone()))
+    }
+
+    pub fn set_claim_type_constraints(env: &Env, claim_type: &String, constraints: &crate::types::ClaimTypeConstraints) {
+        let key = StorageKey::ClaimTypeConstraints(claim_type.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, constraints);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 
     pub fn set_whitelist_mode(env: &Env, issuer: &Address, enabled: bool) {
