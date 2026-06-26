@@ -336,6 +336,109 @@ Vec<String>   // ordered list of claim type identifier strings
 
 ---
 
+## TTL Extension Triggers
+
+Every `extend_ttl` call in TrustLink is made inside a storage write helper in
+`src/storage.rs`. There are no read-path TTL extensions in the current
+implementation — a key's TTL is only refreshed when that key is written.
+
+### TTL window
+
+The extension target is determined at call time by `get_ttl_lifetime()`:
+
+```rust
+fn get_ttl_lifetime(env: &Env) -> u32 {
+    if let Some(config) = env.storage().instance().get::<StorageKey, TtlConfig>(&StorageKey::TtlConfig) {
+        DAY_IN_LEDGERS * config.ttl_days   // operator-configured value
+    } else {
+        DEFAULT_INSTANCE_LIFETIME          // 30 × 17 280 = 518 400 ledgers
+    }
+}
+```
+
+Both the `min_ledgers_to_live` and `extend_to` arguments passed to
+`extend_ttl` are set to this same value, so every write unconditionally resets
+the TTL to the full window regardless of how much time remains.
+
+### `MIN_TTL_THRESHOLD` / `MIN_TTL_THRESHOLD_LEDGERS`
+
+Two constants define a 7-day threshold (120 960 ledgers):
+
+| Constant | Defined in | Value |
+|---|---|---|
+| `MIN_TTL_THRESHOLD` | `src/constants.rs` | `7 × DAY_IN_LEDGERS = 120 960` |
+| `MIN_TTL_THRESHOLD_LEDGERS` | `src/types.rs` | `7 × DAY_IN_LEDGERS = 120 960` |
+
+These constants are **reserved for a future lazy-extend pattern** — a
+read-path guard that would call `extend_ttl` only when the remaining TTL drops
+below the threshold, avoiding unnecessary ledger writes on every read. Neither
+constant is wired into any live code path today; all TTL extensions are
+currently triggered exclusively by writes.
+
+### Instance storage triggers
+
+Instance storage holds a single shared TTL for all instance keys. Any of the
+following writes refreshes the entire instance TTL to the current TTL window:
+
+| Contract function | Storage write helper | Keys covered |
+|---|---|---|
+| `initialize` | `set_admin_council` | `AdminCouncil`, `Admin`, `Version` |
+| `initialize` / `set_fee` | `set_fee_config` | `FeeConfig` |
+| `initialize` / `set_ttl_config` | `set_ttl_config` | `TtlConfig` |
+| `initialize` / admin config calls | `set_contract_config` | `ContractConfig` |
+| `pause` / `unpause` | `set_paused` | `Paused` |
+| Any admin-council mutation | `set_admin_council` | `AdminCouncil` (and all other instance keys) |
+| `set_global_stats` (internal) | `set_global_stats` | `GlobalStats` |
+
+> Because all instance keys share one TTL entry, writing **any** instance key
+> refreshes the TTL for **all** of them simultaneously.
+
+### Persistent storage triggers
+
+Each persistent key has its own independent TTL. The table below lists every
+contract function that causes a persistent `extend_ttl` call and which key(s)
+it refreshes.
+
+| Contract function | Storage write helper | Key(s) refreshed |
+|---|---|---|
+| `register_issuer` | `add_issuer` | `Issuer(issuer)`, `IssuerList` |
+| `remove_issuer` | `remove_issuer` | *(key deleted — no TTL extension)* |
+| `register_bridge` | `add_bridge` | `Bridge(bridge)`, `BridgeList` |
+| `create_attestation` | `set_attestation` | `Attestation(id)` |
+| | `add_subject_attestation` | `SubjectAttestations(subject)` |
+| | `add_issuer_attestation` | `IssuerAttestations(issuer)` |
+| `import_attestation` | same three helpers as above | `Attestation(id)`, `SubjectAttestations(subject)`, `IssuerAttestations(issuer)` |
+| `bridge_attestation` | same three helpers as above | `Attestation(id)`, `SubjectAttestations(subject)`, `IssuerAttestations(issuer)` |
+| `create_attestations_batch` | `set_attestation` × N, `add_issuer_attestations_bulk` | `Attestation(id)` × N, `IssuerAttestations(issuer)` |
+| `revoke_attestation` | `set_attestation` | `Attestation(id)` |
+| `revoke_attestations_batch` | `set_attestation` × N | `Attestation(id)` × N |
+| `renew_attestation` / `update_expiration` | `set_attestation` | `Attestation(id)` |
+| `transfer_attestation` | `set_attestation`, `remove_issuer_attestation`, `add_issuer_attestation` | `Attestation(id)`, `IssuerAttestations(old_issuer)`, `IssuerAttestations(new_issuer)` |
+| `cosign_attestation` (on threshold) | `set_attestation`, `add_subject_attestation`, `add_issuer_attestation` | `Attestation(id)`, `SubjectAttestations(subject)`, `IssuerAttestations(issuer)` |
+| `set_issuer_metadata` | `set_issuer_metadata` | `IssuerMetadata(issuer)` |
+| `register_claim_type` | `set_claim_type` | `ClaimType(claim_type)`, `ClaimTypeList` *(list only on first registration)* |
+| `set_whitelist_mode` / `enable_whitelist` | `set_whitelist_mode` | `IssuerWhitelistMode(issuer)` |
+| `add_to_whitelist` | `add_to_whitelist` | `IssuerWhitelist(issuer, subject)` |
+| `set_proposal` (council) | `set_proposal` | `CouncilProposal(id)` |
+
+### Implications for archival node operators
+
+- **A key that is never written will be evicted** once its TTL reaches zero.
+  Infrequently-updated keys (e.g. `IssuerMetadata`, `ClaimType`) are at higher
+  risk of eviction on low-activity contracts.
+- **Reads never extend TTLs.** Calling `get_attestation`, `has_valid_claim`, or
+  any other read-only function does not reset any TTL counter.
+- **Batch operations extend each key individually.** `create_attestations_batch`
+  calls `set_attestation` once per attestation, so each `Attestation(id)` key
+  gets its own fresh TTL.
+- **The shared instance TTL is a single point of failure.** If no admin
+  operation is performed for the full TTL window (default 30 days), all
+  instance keys (`Admin`, `FeeConfig`, `TtlConfig`, etc.) expire together.
+  Operators should schedule a periodic no-op admin write (e.g. re-applying the
+  current `TtlConfig`) to keep instance storage alive.
+
+---
+
 ## Reading storage via RPC
 
 The following example shows how to read an `Attestation` record directly from
@@ -431,11 +534,192 @@ const adminKey = xdr.LedgerKey.contractData(
 - **TTL eviction.** A key that is not touched for 30 days will be evicted.
   Indexers should snapshot state proactively rather than relying on keys always
   being present.
-- **Subject and issuer indexes are append-only.** `SubjectAttestations` and
-  `IssuerAttestations` grow monotonically; they are never pruned even when
-  attestations are revoked.
+- **Subject and issuer indexes are maintained for pagination.** `SubjectAttestations`
+  and `IssuerAttestations` store ordered attestation IDs used by listing queries.
+  When an attestation is revoked, its ID is removed from both indexes so
+  pagination counts shrink; the attestation record itself remains in storage
+  (with `revoked = true`) until TTL eviction.
 - **`ClaimTypeList` is insertion-ordered.** The order reflects the sequence in
   which `register_claim_type` was first called for each type.
 - **Status is computed, not stored.** `AttestationStatus` (`Valid`, `Expired`,
   `Revoked`, `Pending`) is derived at query time from the stored fields and the
   current ledger timestamp. Indexers must replicate this logic locally.
+
+---
+
+## Storage migration guide
+
+This section explains how Soroban handles storage across contract upgrades and
+how to safely evolve the TrustLink storage schema.
+
+### How Soroban handles storage across upgrades
+
+When the admin calls `upgrade(new_wasm_hash)`, Soroban replaces the contract's
+executable code atomically. **All storage is preserved exactly as-is** — no
+keys are touched, no values are rewritten. The new WASM starts reading the same
+raw XDR bytes that the old WASM wrote.
+
+This means:
+
+- Adding a new storage key is always safe — the key simply doesn't exist yet.
+- Removing a storage key from the code is safe — the old bytes remain on-chain
+  until TTL eviction, but the new code ignores them.
+- **Changing the shape of an existing value type is a breaking change.** If the
+  new WASM tries to deserialize a stored `ScVal` into a struct with a different
+  field layout, deserialization will fail at runtime.
+
+A `migrate` function (called once by the admin immediately after `upgrade`) is
+the standard pattern for rewriting stored values into the new format.
+
+---
+
+### Stable vs. potentially changing keys
+
+**Stable** — these keys hold simple scalar values or flat lists. Their shape is
+unlikely to change across versions:
+
+| Key | Reason stable |
+|---|---|
+| `Admin` | Single `Address` — no fields to add |
+| `Version` | Single `String` — updated in place |
+| `Issuer(Address)` | `bool` flag — no fields to add |
+| `Bridge(Address)` | `bool` flag — no fields to add |
+| `SubjectAttestations(Address)` | `Vec<String>` — append-only, no struct fields |
+| `IssuerAttestations(Address)` | `Vec<String>` — append-only, no struct fields |
+| `ClaimTypeList` | `Vec<String>` — append-only, no struct fields |
+
+**May change** — these keys hold structs with multiple fields. New fields may
+be added in future versions:
+
+| Key | Why it may change |
+|---|---|
+| `Attestation(String)` | Core data struct; new fields (e.g. `valid_from`) have already been added once |
+| `FeeConfig` | Fee policy may gain new fields (e.g. per-claim-type fees) |
+| `IssuerMetadata(Address)` | Issuer profile may gain new fields |
+| `ClaimType(String)` | Claim type info may gain metadata fields |
+
+---
+
+### Migration pattern for adding new fields to existing structs
+
+The safest approach is an **opt-in default**: define the new field as
+`Option<T>`, read existing records without a `migrate` call, and treat `None`
+as the default value. This requires zero migration work and is backward
+compatible.
+
+Use a `migrate` function only when you need a non-optional field or must
+rewrite every record eagerly.
+
+#### Option 1 — Optional field (no migration needed)
+
+Add the new field as `Option<T>` with a sensible default. Existing stored
+records deserialize successfully because Soroban's XDR codec maps missing map
+entries to `None` for `Option` fields.
+
+```rust
+// Before (v1)
+pub struct Attestation {
+    pub id:         String,
+    pub issuer:     Address,
+    pub claim_type: String,
+    // ...
+}
+
+// After (v2) — backward compatible, no migrate() needed
+pub struct Attestation {
+    pub id:         String,
+    pub issuer:     Address,
+    pub claim_type: String,
+    // ...
+    pub audit_log:  Option<Vec<AuditEntry>>,  // None for all pre-v2 records
+}
+```
+
+Call sites treat `None` as an empty audit log:
+
+```rust
+let log = attestation.audit_log.unwrap_or_default();
+```
+
+#### Option 2 — Eager migration with a `migrate` function
+
+Use this when the new field must be non-optional or when you want to backfill
+all existing records in one transaction.
+
+```rust
+pub fn migrate(env: Env, admin: Address) {
+    admin.require_auth();
+    Validation::require_admin(&env, &admin);
+
+    // Iterate every known attestation ID and rewrite with the new default
+    let ids: Vec<String> = /* load from an index or a migration manifest */;
+    for id in ids.iter() {
+        let mut att: AttestationV1 = storage::get_attestation(&env, &id);
+        let att_v2 = AttestationV2 {
+            id:        att.id,
+            issuer:    att.issuer,
+            claim_type: att.claim_type,
+            // ... copy all existing fields ...
+            new_field: DefaultValue,   // backfill
+        };
+        storage::set_attestation(&env, &att_v2);
+    }
+}
+```
+
+Call `migrate` immediately after `upgrade` in the same deployment window:
+
+```bash
+# 1. Upgrade the executable
+stellar contract invoke --id "$CONTRACT_ID" --source "$ADMIN_SECRET" \
+  --network mainnet -- upgrade \
+  --admin "$ADMIN_PUBLIC" --new_wasm_hash <NEW_HASH>
+
+# 2. Run migration (admin only, call once)
+stellar contract invoke --id "$CONTRACT_ID" --source "$ADMIN_SECRET" \
+  --network mainnet -- migrate \
+  --admin "$ADMIN_PUBLIC"
+```
+
+**Important:** `migrate` must be idempotent — safe to call more than once in
+case of a partial failure. Guard against re-migration by checking a version
+flag in instance storage:
+
+```rust
+pub fn migrate(env: Env, admin: Address) {
+    admin.require_auth();
+    Validation::require_admin(&env, &admin);
+
+    let current: String = storage::get_version(&env);
+    if current == "2.0.0" {
+        return; // already migrated
+    }
+
+    // ... rewrite records ...
+
+    storage::set_version(&env, &String::from_str(&env, "2.0.0"));
+}
+```
+
+#### Choosing between the two options
+
+| Situation | Recommended approach |
+|---|---|
+| New field has a sensible `None` / empty default | Option 1 — optional field |
+| New field must be non-optional | Option 2 — migrate function |
+| Renaming or removing a field | Option 2 — migrate function |
+| Changing a field's type | Option 2 — migrate function; use a new key name to avoid XDR conflicts |
+
+---
+
+### Testing migrations
+
+Always test the migration on testnet against a contract that has real stored
+data before running on mainnet:
+
+1. Deploy the current (pre-upgrade) version and create representative records.
+2. Upgrade to the new WASM.
+3. Call `migrate` (if applicable).
+4. Run `./scripts/verify_deployment.sh` to confirm all read paths work.
+5. Manually read a pre-existing record and confirm the new field has the
+   expected default value.

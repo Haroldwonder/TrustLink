@@ -1,0 +1,10 @@
+version: "3.9"
+
+services:
+  stellar:
+    image: stellar/quickstart:testing
+    container_name: trustlink-stellar
+    command: --standalone --enable rpc,horizon
+    ports:
+      - "8000:8000"
+    restart: unless-stopped

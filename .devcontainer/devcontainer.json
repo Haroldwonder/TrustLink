@@ -1,0 +1,18 @@
+{
+  "name": "TrustLink — Rust + Soroban",
+  "image": "mcr.microsoft.com/devcontainers/rust:1-bullseye",
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "postStartCommand": "bash -lc 'docker compose up -d stellar || docker-compose up -d stellar'",
+  "forwardPorts": [8000],
+  "portsAttributes": {
+    "8000": {
+      "label": "Stellar Quickstart (RPC/Horizon)",
+      "onAutoForward": "notify"
+    }
+  },
+  "remoteEnv": {
+    "SOROBAN_NETWORK": "testnet",
+    "STELLAR_RPC_URL": "http://localhost:8000/soroban/rpc",
+    "STELLAR_NETWORK": "local"
+  }
+}

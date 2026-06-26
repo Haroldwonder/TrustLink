@@ -1,0 +1,161 @@
+name: Publish TypeScript SDK
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 1.2.3)'
+        required: true
+        type: string
+      tag:
+        description: 'npm tag (latest, beta, alpha)'
+        required: false
+        default: 'latest'
+        type: choice
+        options:
+          - latest
+          - beta
+          - alpha
+
+permissions:
+  contents: read
+  id-token: write # Required for npm provenance
+
+jobs:
+  publish-sdk:
+    name: Build and Publish TypeScript SDK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'npm'
+          cache-dependency-path: 'sdk/typescript/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: sdk/typescript
+        run: npm ci
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            # Extract version from git tag (e.g., v1.2.3 -> 1.2.3)
+            VERSION=${GITHUB_REF#refs/tags/v}
+            TAG="latest"
+          else
+            # Use manual input
+            VERSION="${{ github.event.inputs.version }}"
+            TAG="${{ github.event.inputs.tag }}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Publishing version: $VERSION with tag: $TAG"
+
+      - name: Update package.json version
+        working-directory: sdk/typescript
+        run: |
+          npm version ${{ steps.version.outputs.version }} --no-git-tag-version
+          echo "Updated package.json to version ${{ steps.version.outputs.version }}"
+
+      - name: Build TypeScript SDK
+        working-directory: sdk/typescript
+        run: npm run build
+
+      - name: Run type check
+        working-directory: sdk/typescript
+        run: npx tsc --noEmit
+
+      - name: Verify build output
+        working-directory: sdk/typescript
+        run: |
+          echo "Build output:"
+          ls -la dist/
+          echo ""
+          echo "Package contents (dry run):"
+          npm pack --dry-run
+          echo ""
+          echo "Package size:"
+          npm pack --silent | xargs ls -lh
+
+      - name: Check if version already exists on npm
+        id: check-version
+        working-directory: sdk/typescript
+        run: |
+          if npm view @trustlink/sdk@${{ steps.version.outputs.version }} version 2>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Version ${{ steps.version.outputs.version }} already exists on npm"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Version ${{ steps.version.outputs.version }} does not exist on npm"
+          fi
+
+      - name: Publish to npm
+        if: steps.check-version.outputs.exists == 'false'
+        working-directory: sdk/typescript
+        run: |
+          npm publish --tag ${{ steps.version.outputs.tag }} --provenance --access public
+          echo "Successfully published @trustlink/sdk@${{ steps.version.outputs.version }}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Skip publishing (version exists)
+        if: steps.check-version.outputs.exists == 'true'
+        run: |
+          echo "Skipping publish: @trustlink/sdk@${{ steps.version.outputs.version }} already exists on npm"
+          echo "If you need to republish, increment the version number."
+
+      - name: Create job summary
+        run: |
+          echo "## TypeScript SDK Publication" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.check-version.outputs.exists }}" = "false" ]; then
+            echo "Published @trustlink/sdk@${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Installation" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+            echo "npm install @trustlink/sdk@${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Links" >> $GITHUB_STEP_SUMMARY
+            echo "- [View on npm](https://www.npmjs.com/package/@trustlink/sdk/v/${{ steps.version.outputs.version }})" >> $GITHUB_STEP_SUMMARY
+            echo "- [Documentation](https://github.com/${{ github.repository }}/tree/main/sdk/typescript)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Version ${{ steps.version.outputs.version }} already exists on npm — publication skipped." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "To publish a new version:" >> $GITHUB_STEP_SUMMARY
+            echo "1. Increment the version number" >> $GITHUB_STEP_SUMMARY
+            echo "2. Create a new release or run this workflow again" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Post to Slack (on success)
+        if: success() && steps.check-version.outputs.exists == 'false' && env.SLACK_WEBHOOK_URL != ''
+        uses: 8398a7/action-slack@77eaa4f1c608a7d68b38af4e3f739dcd8cba273e # v3.19.0
+        with:
+          status: success
+          text: |
+            TypeScript SDK published!
+            @trustlink/sdk@${{ steps.version.outputs.version }}
+            https://www.npmjs.com/package/@trustlink/sdk
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Post to Slack (on failure)
+        if: failure() && env.SLACK_WEBHOOK_URL != ''
+        uses: 8398a7/action-slack@77eaa4f1c608a7d68b38af4e3f739dcd8cba273e # v3.19.0
+        with:
+          status: failure
+          text: |
+            TypeScript SDK publication failed!
+            Version: ${{ steps.version.outputs.version }}
+            Check the workflow logs for details.
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

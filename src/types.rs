@@ -1,9 +1,65 @@
-//! Shared data types and error definitions for TrustLink.
+//! Shared data types for TrustLink.
 
-use soroban_sdk::{contracterror, contracttype, xdr::ToXdr, Address, Bytes, Env, String, Vec};
+use soroban_sdk::{contracttype, xdr::ToXdr, Address, Bytes, Env, String, Vec};
+
+pub use crate::errors::Error;
 
 /// Default lifetime for a multi-sig proposal: 7 days in seconds.
 pub const MULTISIG_PROPOSAL_TTL_SECS: u64 = 7 * 24 * 60 * 60;
+
+/// Default lifetime for an attestation request: 7 days in seconds.
+pub const ATTESTATION_REQUEST_TTL_SECS: u64 = 7 * 24 * 60 * 60;
+
+/// Seconds in one day.
+pub const SECS_PER_DAY: u64 = 86_400;
+
+/// Default TTL for persistent storage entries, in days.
+pub const DEFAULT_TTL_DAYS: u32 = 30;
+
+/// Number of ledgers per day on Stellar (one ledger every ~5 seconds).
+pub const DAY_IN_LEDGERS: u32 = 17_280;
+
+/// Minimum TTL threshold in ledgers before a TTL extension is triggered (7 days).
+pub const MIN_TTL_THRESHOLD_LEDGERS: u32 = 7 * DAY_IN_LEDGERS;
+
+/// Status of an attestation request.
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum RequestStatus {
+    Pending = 0,
+    Fulfilled = 1,
+    Rejected = 2,
+    Cancelled = 3,
+}
+
+/// A pull-based attestation request submitted by a subject to a registered issuer.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AttestationRequest {
+    pub id: String,
+    pub subject: Address,
+    pub issuer: Address,
+    pub claim_type: String,
+    pub timestamp: u64,
+    pub expires_at: u64,
+    pub status: RequestStatus,
+    pub rejection_reason: Option<String>,
+}
+
+/// Trust tier assigned to a registered issuer.
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum IssuerTier {
+    Basic = 0,
+    Verified = 1,
+    Premium = 2,
+}
+
+impl IssuerTier {
+    pub fn rank(self) -> u32 {
+        self as u32
+    }
+}
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -13,13 +69,7 @@ pub struct ContractMetadata {
     pub description: String,
 }
 
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ClaimTypeInfo {
-    pub claim_type: String,
-    pub description: String,
-}
-
+/// Metadata about a registered issuer.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IssuerMetadata {
@@ -28,6 +78,7 @@ pub struct IssuerMetadata {
     pub description: String,
 }
 
+/// Fee configuration for attestation creation.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FeeConfig {
@@ -36,12 +87,93 @@ pub struct FeeConfig {
     pub fee_token: Option<Address>,
 }
 
+/// Global contract statistics.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GlobalStats {
+    pub total_attestations: u64,
+    pub total_revocations: u64,
+    pub total_issuers: u64,
+}
+
+/// Health status for monitoring.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HealthStatus {
+    pub initialized: bool,
+    pub admin_set: bool,
+    pub issuer_count: u64,
+    pub total_attestations: u64,
+}
+
+/// Issuer statistics.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IssuerStats {
+    pub total_issued: u64,
+}
+
+/// TTL configuration.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TtlConfig {
     pub ttl_days: u32,
 }
 
+/// Rate limiting configuration.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RateLimitConfig {
+    pub min_issuance_interval: u64,
+}
+
+/// Contract configuration.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractConfig {
+    pub contract_name: String,
+    pub contract_version: String,
+    pub contract_description: String,
+    pub fee_config: FeeConfig,
+    pub ttl_config: TtlConfig,
+    pub require_registered_claim_type: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClaimTypeInfo {
+    pub claim_type: String,
+    pub description: String,
+}
+
+/// Operations that require council quorum approval.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CouncilOperation {
+    RemoveIssuer(Address),
+    PauseContract,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CouncilProposal {
+    pub id: u32,
+    pub operation: CouncilOperation,
+    pub proposer: Address,
+    pub approvals: Vec<Address>,
+    pub executed: bool,
+}
+
+/// Describes how an attestation entered the system.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AttestationOrigin {
+    Native,
+    Imported,
+    Bridged,
+}
+
+/// A single attestation record stored on-chain.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Attestation {
@@ -53,12 +185,14 @@ pub struct Attestation {
     pub expiration: Option<u64>,
     pub revoked: bool,
     pub metadata: Option<String>,
+    pub jurisdiction: Option<String>,
     pub valid_from: Option<u64>,
-    pub imported: bool,
-    pub bridged: bool,
+    pub origin: AttestationOrigin,
     pub source_chain: Option<String>,
     pub source_tx: Option<String>,
     pub tags: Option<Vec<String>>,
+    pub revocation_reason: Option<String>,
+    pub deleted: bool,
 }
 
 #[contracttype]
@@ -70,73 +204,120 @@ pub enum AttestationStatus {
     Pending,
 }
 
-/// A multi-sig attestation proposal that becomes active once `threshold` issuers have co-signed.
+/// The action recorded in an audit log entry.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AuditAction {
+    Created,
+    Revoked,
+    Renewed,
+    Updated,
+    Transferred,
+    Deleted,
+}
+
+/// A single immutable entry in an attestation's audit log.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuditEntry {
+    pub action: AuditAction,
+    pub actor: Address,
+    pub timestamp: u64,
+    pub details: Option<String>,
+}
+
+/// A social-proof endorsement of an existing attestation by a registered issuer.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Endorsement {
+    pub attestation_id: String,
+    pub endorser: Address,
+    pub timestamp: u64,
+}
+
+/// A multi-signature attestation proposal requiring threshold signatures.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MultiSigProposal {
-    /// Unique proposal identifier (hash of proposer+subject+claim_type+timestamp).
     pub id: String,
-    /// The issuer who created the proposal.
     pub proposer: Address,
-    /// The subject the attestation is about.
     pub subject: Address,
-    /// The claim type being attested.
     pub claim_type: String,
-    /// All addresses that must co-sign (includes proposer).
     pub required_signers: Vec<Address>,
-    /// Number of signers needed to activate the attestation.
     pub threshold: u32,
-    /// Addresses that have already signed (proposer signs on creation).
     pub signers: Vec<Address>,
-    /// Ledger timestamp when the proposal was created.
     pub created_at: u64,
-    /// Ledger timestamp after which the proposal expires if not completed.
     pub expires_at: u64,
-    /// Whether the proposal has been finalized into an active attestation.
     pub finalized: bool,
 }
 
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum Error {
-    AlreadyInitialized = 1,
-    NotInitialized = 2,
-    Unauthorized = 3,
-    NotFound = 4,
-    DuplicateAttestation = 5,
-    AlreadyRevoked = 6,
-    Expired = 7,
-    InvalidValidFrom = 8,
-    InvalidExpiration = 9,
-    MetadataTooLong = 10,
-    InvalidTimestamp = 11,
-    InvalidFee = 12,
-    FeeTokenRequired = 13,
-    TooManyTags = 14,
-    TagTooLong = 15,
-    /// Threshold must be >= 1 and <= number of required signers.
-    InvalidThreshold = 16,
-    /// The signer is not in the proposal's required_signers list.
-    NotRequiredSigner = 17,
-    /// The signer has already co-signed this proposal.
-    AlreadySigned = 18,
-    /// The proposal has already been finalized.
-    ProposalFinalized = 19,
-    /// The proposal has expired without reaching threshold.
-    ProposalExpired = 20,
+/// Configurable storage limits to prevent exhaustion attacks.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StorageLimits {
+    pub max_attestations_per_issuer: u32,
+    pub max_attestations_per_subject: u32,
+}
+
+impl Default for StorageLimits {
+    fn default() -> Self {
+        Self {
+            max_attestations_per_issuer: 10_000,
+            max_attestations_per_subject: 100,
+        }
+    }
+}
+
+/// Expiration notification hook configuration.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExpirationHook {
+    pub callback_contract: Address,
+    pub notify_days_before: u32,
+}
+
+/// Delegation from an issuer to a sub-issuer for specific claim types.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Delegation {
+    pub delegator: Address,
+    pub delegate: Address,
+    pub claim_type: String,
+    pub expiration: Option<u64>,
+}
+
+/// Storage key for the pending admin transfer (two-step pattern).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingAdminTransfer {
+    pub proposed_by: Address,
+    pub new_admin: Address,
+}
+
+/// Admin council: ordered list of admin addresses.
+pub type AdminCouncil = Vec<Address>;
+
+/// A named attestation template owned by an issuer.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AttestationTemplate {
+    pub issuer: Address,
+    pub template_id: String,
+    pub claim_type: String,
+    pub metadata: Option<String>,
+    pub metadata_template: Option<String>,
+    pub default_expiration_days: Option<u32>,
 }
 
 impl Attestation {
     pub fn hash_payload(env: &Env, payload: &Bytes) -> String {
         let hash = env.crypto().sha256(payload).to_array();
         const HEX: &[u8; 16] = b"0123456789abcdef";
-
-        let mut hex = [0u8; 32];
-        for i in 0..16 {
+        let mut hex = [0u8; 64];
+        for i in 0..32 {
             hex[i * 2] = HEX[(hash[i] >> 4) as usize];
             hex[i * 2 + 1] = HEX[(hash[i] & 0x0f) as usize];
         }
-
         String::from_bytes(env, &hex)
     }
 
@@ -180,23 +361,39 @@ impl Attestation {
                 return AttestationStatus::Pending;
             }
         }
-
         if self.revoked {
             return AttestationStatus::Revoked;
         }
-
         if let Some(expiration) = self.expiration {
             if current_time >= expiration {
                 return AttestationStatus::Expired;
             }
         }
-
         AttestationStatus::Valid
     }
 }
 
+
+impl AttestationRequest {
+    pub fn generate_id(
+        env: &Env,
+        subject: &Address,
+        issuer: &Address,
+        claim_type: &String,
+        timestamp: u64,
+    ) -> String {
+        let mut payload = Bytes::new(env);
+        payload.append(&Bytes::from_slice(env, b"req:"));
+        payload.append(&subject.clone().to_xdr(env));
+        payload.append(&issuer.clone().to_xdr(env));
+        payload.append(&claim_type.clone().to_xdr(env));
+        payload.append(&timestamp.to_xdr(env));
+        Attestation::hash_payload(env, &payload)
+    }
+}
+
+
 impl MultiSigProposal {
-    /// Generate a deterministic proposal ID from proposer + subject + claim_type + timestamp.
     pub fn generate_id(
         env: &Env,
         proposer: &Address,
@@ -205,7 +402,6 @@ impl MultiSigProposal {
         timestamp: u64,
     ) -> String {
         let mut payload = Bytes::new(env);
-        // Prefix to distinguish from regular attestation IDs.
         payload.append(&Bytes::from_slice(env, b"multisig:"));
         payload.append(&proposer.clone().to_xdr(env));
         payload.append(&subject.clone().to_xdr(env));

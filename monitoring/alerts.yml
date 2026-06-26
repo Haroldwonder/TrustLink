@@ -1,0 +1,61 @@
+groups:
+  - name: trustlink
+    rules:
+      # Fires when the contract is paused via the admin pause() function.
+      # All attestation write operations are halted while this is active.
+      - alert: TrustLinkContractPaused
+        expr: trustlink_contract_paused == 1
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "TrustLink contract is paused"
+          description: >
+            The TrustLink contract has been paused. All attestation creation
+            and revocation is halted. Verify this was an intentional admin
+            action and unpause once the incident is resolved.
+
+      # Fires when an issuer is removed from the registry.
+      # Existing attestations from the removed issuer remain valid but no new
+      # ones can be created, and the issuer can no longer revoke their own attestations.
+      - alert: TrustLinkIssuerRemoved
+        expr: increase(trustlink_issuer_removed_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "TrustLink issuer removed"
+          description: >
+            An issuer has been removed from the TrustLink registry in the last
+            5 minutes. Confirm the removal was intentional. Check whether
+            affected attestations need to be transferred to a successor issuer.
+
+      # Fires when the revocation rate spikes above 10 revocations in 5 minutes.
+      # This may indicate a compromised issuer key, a bulk compliance action,
+      # or a bug in issuer automation.
+      - alert: TrustLinkHighRevocationRate
+        expr: increase(trustlink_attestation_revoked_total[5m]) > 10
+        for: 0m
+        labels:
+          severity: high
+        annotations:
+          summary: "High attestation revocation rate"
+          description: >
+            More than 10 attestations have been revoked in the last 5 minutes
+            (current: {{ $value }}). Investigate whether this is a planned
+            compliance sweep, an automation bug, or a compromised issuer key.
+
+      # Fires when the event indexer falls more than 100 ledgers behind the
+      # latest ledger. This means monitoring data is stale and alerts based on
+      # event counts may be unreliable.
+      - alert: TrustLinkIndexerLag
+        expr: (trustlink_latest_ledger - trustlink_indexer_last_processed_ledger) > 100
+        for: 2m
+        labels:
+          severity: high
+        annotations:
+          summary: "TrustLink indexer is lagging"
+          description: >
+            The TrustLink event indexer is {{ $value }} ledgers behind the
+            chain tip (threshold: 100). Event-based alerts may be delayed or
+            missing. Check the indexer process and RPC connectivity.

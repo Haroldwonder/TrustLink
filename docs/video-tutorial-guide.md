@@ -22,6 +22,7 @@ It covers the same material in written form so you can follow along at your own 
 | Rust + Cargo | https://rustup.rs |
 | `wasm32-unknown-unknown` target | `rustup target add wasm32-unknown-unknown` |
 | Soroban CLI | `cargo install --locked soroban-cli` |
+| Stellar CLI (alternative) | `cargo install --locked stellar-cli --features opt` |
 | Node.js ≥ 18 (for JS section) | https://nodejs.org |
 
 Fund a testnet account via Friendbot:
@@ -60,10 +61,7 @@ make test
 make optimize
 ```
 
-The compiled contract lands at:
-```
-target/wasm32-unknown-unknown/release/trustlink.wasm
-```
+The optimized wasm lands at `target/wasm32-unknown-unknown/release/trustlink.wasm` — that's what you deploy.
 
 ---
 
@@ -205,6 +203,12 @@ pub enum Error {
 
 The `contractimport!` macro generates a fully typed client at compile time — no manual ABI wrangling.
 
+To test your contract in isolation, mock TrustLink using a test contract that implements the same interface:
+
+```bash
+cargo test
+```
+
 ### Checking Multiple Claims
 
 ```rust
@@ -227,6 +231,8 @@ npm install @stellar/stellar-sdk
 ```
 
 ### Read-only claim check (no signing)
+
+Simulating the transaction is enough for read-only calls — no wallet signing required. The result comes back as a native JS boolean.
 
 ```typescript
 import {
@@ -284,7 +290,120 @@ function parseTrustLinkError(err: unknown): string {
 
 ---
 
-## 7. Further Reading
+## 7. Multi-Sig Attestations
+
+High-value claims such as `ACCREDITED_INVESTOR` can require multiple registered issuers to co-sign before the attestation becomes active. This prevents a single compromised issuer from unilaterally issuing sensitive credentials.
+
+### How it works
+
+1. A registered issuer calls `propose_attestation` — they automatically count as the first signer.
+2. Other required issuers call `cosign_attestation` with the returned `proposal_id`.
+3. Once the number of signatures reaches the threshold, the attestation is finalized and stored as a normal active attestation.
+4. Proposals expire after 7 days if the threshold is not reached.
+
+### Step 1 — Propose a 2-of-3 attestation
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --network testnet \
+  --source ISSUER_A_SECRET \
+  -- propose_attestation \
+  --proposer ISSUER_A_PUBLIC_KEY \
+  --subject SUBJECT_PUBLIC_KEY \
+  --claim_type ACCREDITED_INVESTOR \
+  --required_signers '[{"address":"ISSUER_A_PUBLIC_KEY"},{"address":"ISSUER_B_PUBLIC_KEY"},{"address":"ISSUER_C_PUBLIC_KEY"}]' \
+  --threshold 2
+```
+
+Save the `proposal_id` returned in the output.
+
+### Step 2 — Co-sign the proposal
+
+```bash
+# issuer_b co-signs — threshold reached, attestation is now active
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --network testnet \
+  --source ISSUER_B_SECRET \
+  -- cosign_attestation \
+  --issuer ISSUER_B_PUBLIC_KEY \
+  --proposal_id <PROPOSAL_ID>
+```
+
+### Step 3 — Verify the attestation is active
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --network testnet \
+  -- has_valid_claim \
+  --subject SUBJECT_PUBLIC_KEY \
+  --claim_type ACCREDITED_INVESTOR
+```
+
+Expected output: `true`
+
+### Inspecting a proposal
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --network testnet \
+  -- get_multisig_proposal \
+  --proposal_id <PROPOSAL_ID>
+```
+
+The returned struct includes:
+
+| Field | Description |
+|---|---|
+| `signers` | Addresses that have signed so far |
+| `threshold` | Required number of signatures |
+| `finalized` | `true` once the attestation is active |
+| `expires_at` | Unix timestamp after which co-signing is rejected |
+
+### Rust snippet
+
+```rust
+// Build the required-signers list (all must be registered issuers)
+let mut required_signers = soroban_sdk::Vec::new(&env);
+required_signers.push_back(issuer_a.clone());
+required_signers.push_back(issuer_b.clone());
+required_signers.push_back(issuer_c.clone());
+
+// Propose a 2-of-3 multi-sig attestation — issuer_a auto-signs
+let proposal_id = contract.propose_attestation(
+    &issuer_a,
+    &user_address,
+    &String::from_str(&env, "ACCREDITED_INVESTOR"),
+    &required_signers,
+    &2,
+);
+
+// issuer_b co-signs — threshold reached, attestation activated
+contract.cosign_attestation(&issuer_b, &proposal_id);
+
+assert!(contract.has_valid_claim(
+    &user_address,
+    &String::from_str(&env, "ACCREDITED_INVESTOR")
+));
+```
+
+### Error cases to handle
+
+| Error | Meaning |
+|---|---|
+| `InvalidThreshold` | Threshold is 0 or exceeds the number of required signers |
+| `Unauthorized` | Proposer or a required signer is not a registered issuer |
+| `NotRequiredSigner` | Cosigner is not in the proposal's required-signers list |
+| `AlreadySigned` | The issuer has already co-signed this proposal |
+| `ProposalFinalized` | The proposal has already been activated |
+| `ProposalExpired` | The 7-day window has passed without reaching threshold |
+
+---
+
+## 8. Further Reading
 
 - [README](../README.md) — full API reference
 - [Integration Guide](./integration-guide.md) — deeper patterns, pagination, testnet CLI examples

@@ -2,17 +2,56 @@
 
 Thanks for your interest in contributing! This guide covers everything you need to go from zero to a merged PR.
 
+## Local Development Setup
+
+TrustLink uses [pre-commit](https://pre-commit.com) to enforce formatting and linting before every commit.
+
+**Install the hooks once after cloning:**
+
+```bash
+# Install pre-commit (choose one method):
+pip install --user pre-commit   # or: brew install pre-commit
+
+# Ensure Rust tooling is available for the hooks:
+rustup component add rustfmt clippy
+
+# Install the git hooks (and fetch any hook dependencies):
+pre-commit install --install-hooks
+
+# Verify hooks run cleanly now:
+pre-commit run --all-files
+```
+
+After that, every `git commit` automatically runs:
+
+| Hook | What it checks |
+|---|---|
+| `cargo fmt --all -- --check` | Rust formatting (Rustfmt) |
+| `cargo clippy --all-targets --all-features -- -D warnings` | Rust lints (Clippy) |
+| `check-yaml` | Valid YAML syntax |
+| `end-of-file-fixer` | Files end with a newline |
+| `trailing-whitespace` | No trailing spaces |
+
+If a hook fails the commit is blocked. Fix the reported issues and `git commit` again.
+
+**Run hooks manually at any time:**
+
+```bash
+pre-commit run --all-files   # check everything
+pre-commit run cargo-fmt     # check one hook by id
+```
+
 ## New to Stellar or Soroban?
 
 Before diving in, read [docs/stellar-concepts.md](docs/stellar-concepts.md) for a beginner-friendly explanation of ledger timestamps, storage TTL, `require_auth`, and the WASM deployment model — concepts that come up throughout the codebase.
 
 ## Prerequisites
 
-| Tool | Version | Install |
-|------|---------|---------|
-| Rust | stable (see `rust-toolchain.toml`) | https://rustup.rs |
-| wasm32 target | — | `rustup target add wasm32-unknown-unknown` |
-| Soroban CLI | latest | `cargo install --locked soroban-cli` |
+| Tool          | Version                            | Install                                    |
+| ------------- | ---------------------------------- | ------------------------------------------ |
+| Rust          | stable (see `rust-toolchain.toml`) | https://rustup.rs                          |
+| wasm32 target | —                                  | `rustup target add wasm32-unknown-unknown` |
+| Soroban CLI   | latest                             | `cargo install --locked soroban-cli`       |
 
 Verify your setup:
 
@@ -37,6 +76,18 @@ rustup target add wasm32-unknown-unknown
 cargo check
 ```
 
+## Fuzzing
+
+TrustLink includes a cargo-fuzz target for claim type validation edge cases.
+
+```bash
+cargo install --locked cargo-fuzz
+cd fuzz
+cargo fuzz run fuzz_validate_claim_type
+```
+
+The fuzz target exercises `Validation::validate_claim_type` with arbitrary byte sequences, including null bytes, multi-byte UTF-8, and boundary-length inputs.
+
 ## Running Tests
 
 ```bash
@@ -48,6 +99,279 @@ make test
 ```
 
 All tests must pass before submitting a PR.
+
+## Soroban Contract Development
+
+This section covers everything specific to working on the TrustLink Soroban contract — environment setup, running tests, adding new functions, and keeping snapshot files in sync.
+
+### Environment Setup
+
+You need three things beyond a standard Rust install:
+
+**1. WASM compilation target**
+
+```bash
+rustup target add wasm32-unknown-unknown
+```
+
+**2. Stellar CLI** (includes the Soroban contract toolchain)
+
+```bash
+cargo install --locked stellar-cli --features opt
+```
+
+Verify:
+
+```bash
+stellar --version
+```
+
+**3. `wasm-opt`** (required for `make optimize` and `make check-size`)
+
+```bash
+cargo install --locked wasm-opt
+# or on Debian/Ubuntu: apt install binaryen
+```
+
+Confirm everything is in place:
+
+```bash
+rustc --version
+cargo --version
+stellar --version
+rustup target list --installed | grep wasm32
+```
+
+---
+
+### Running the Full Test Suite
+
+TrustLink has three layers of tests. Run them all before opening a PR.
+
+**Unit and integration tests**
+
+```bash
+cargo test
+# or
+make test
+```
+
+**Snapshot tests**
+
+Snapshot tests record the full Soroban auth and event trace for each test case as JSON files in `test_snapshots/`. They fail if the recorded trace no longer matches the contract output.
+
+```bash
+# Run snapshot tests alongside everything else — they are part of cargo test
+cargo test
+
+# Run only a specific snapshot test by name
+cargo test test_initialize_and_get_admin
+```
+
+If a snapshot test fails with a diff, it means the contract's auth or event output changed. See [Updating Snapshot Files](#updating-snapshot-files) below.
+
+**Lints and formatting** (also checked by CI)
+
+```bash
+make fmt     # auto-format
+make clippy  # zero-warning lint check
+```
+
+---
+
+### Adding a New Contract Function
+
+Follow this checklist when adding a public function to the contract:
+
+- [ ] **Define the logic** in the appropriate module under `src/` (`admin.rs`, `query.rs`, `attestation.rs`, etc.)
+- [ ] **Expose it in `src/lib.rs`** inside the `#[contractimpl]` block. Add `#[must_use]` for read-only functions that return a value.
+- [ ] **Add any new storage keys** to the `StorageKey` enum in `src/storage.rs`. Add storage getter/setter methods to the `Storage` struct in the same file.
+- [ ] **Emit an event** via `src/events.rs` if the function mutates state. Follow the existing `topics + data` pattern.
+- [ ] **Add validation** in `src/validation.rs` if the function requires auth or input checks.
+- [ ] **Write tests** in `tests/` or `src/test.rs`. Cover the happy path, error cases, and auth boundaries.
+- [ ] **Add the SDK method** in `sdk/typescript/src/client.ts`. Read-only functions use `this.simulate(...)`, write functions use `this.invoke(...)`.
+- [ ] **Regenerate TypeScript bindings** after any interface change:
+
+  ```bash
+  make bindings
+  ```
+
+  Commit the updated `bindings/typescript/` alongside your contract changes. CI will fail if they are out of date.
+
+- [ ] **Update snapshot files** if the new function changes any existing auth or event traces (see below).
+
+---
+
+### Updating Snapshot Files
+
+Snapshot files in `test_snapshots/` are committed to the repository and checked by CI. When you make an intentional change to a contract function's auth requirements or event output, the corresponding snapshots must be regenerated.
+
+**When do snapshots need updating?**
+
+- You changed which addresses `require_auth()` is called on inside a function.
+- You added, removed, or changed an event emitted by a function.
+- You changed the arguments or return type of an existing function in a way that affects the recorded trace.
+
+**How to regenerate**
+
+Set the `SOROBAN_TEST_REGENERATE_SNAPSHOTS` environment variable and re-run the tests:
+
+```bash
+# Regenerate all snapshots
+SOROBAN_TEST_REGENERATE_SNAPSHOTS=1 cargo test
+
+# Regenerate snapshots for a single test
+SOROBAN_TEST_REGENERATE_SNAPSHOTS=1 cargo test test_register_and_remove_issuer
+```
+
+The test runner will overwrite the relevant JSON files in `test_snapshots/` with the new output.
+
+**Review before committing**
+
+Always diff the regenerated snapshots before committing to confirm only the expected traces changed:
+
+```bash
+git diff test_snapshots/
+```
+
+Commit the updated snapshot files in the same commit as the contract change:
+
+```bash
+git add test_snapshots/
+git commit -m "test: update snapshots for <function name> change"
+```
+
+> Never regenerate all snapshots blindly after an unintended change. If a snapshot you did not expect to change is showing a diff, investigate the root cause before committing.
+
+---
+
+## Local Stellar Development Workflow
+
+Use a local Stellar Quickstart node when iterating on deployment and invoke flows to avoid testnet rate limits.
+
+### 1. Start local network
+
+```bash
+docker compose up -d
+# or: docker-compose up -d
+```
+
+This starts the `stellar/quickstart` standalone network from [docker-compose.yml](docker-compose.yml).
+
+### 2. Deploy and initialize locally
+
+```bash
+make local-deploy
+```
+
+What this does:
+
+- Builds the contract WASM.
+- Ensures local Soroban network + identity are configured.
+- Funds the local identity via Friendbot.
+- Deploys the contract.
+- Invokes `initialize`.
+- Writes the deployed contract ID to `.local.contract-id`.
+
+### 3. Local RPC endpoint
+
+Use this RPC URL for local calls and scripts:
+
+```text
+http://localhost:8000/soroban/rpc
+```
+
+Default local network values used by `scripts/setup_local.sh`:
+
+- Network name: `local`
+- Network passphrase: `Standalone Network ; February 2017`
+
+### 4. Stop local network
+
+```bash
+docker compose down
+```
+
+## SDK End-to-End Tests
+
+The TypeScript SDK ships with an end-to-end test suite (`sdk/typescript/e2e/`) that deploys the contract to a local Stellar node and exercises the SDK against it. These tests catch XDR encoding bugs and RPC parameter issues that unit tests with mocked RPC calls cannot detect.
+
+### Prerequisites
+
+- Docker (for the local Stellar Quickstart node)
+- Node.js ≥ 16
+- Stellar CLI (`cargo install --locked stellar-cli --features opt`)
+- A compiled contract WASM (`make build`)
+
+### 1. Start the local Stellar node
+
+```bash
+docker compose up -d
+```
+
+Wait ~10 seconds for the node to be ready.
+
+### 2. Deploy and initialize the contract
+
+```bash
+bash scripts/setup_local.sh
+```
+
+This script:
+- Configures the `local` Soroban network pointing at `http://localhost:8000/soroban/rpc`
+- Generates (or reuses) a `local-admin` identity
+- Funds the identity via Friendbot
+- Deploys the contract WASM
+- Calls `initialize` with the admin address
+- Writes the deployed contract ID to `.local.contract-id`
+
+### 3. Run the e2e tests
+
+```bash
+cd sdk/typescript
+npm install
+npm run test:e2e
+```
+
+The test runner reads the contract ID from `.local.contract-id` automatically. You can also pass it explicitly:
+
+```bash
+CONTRACT_ID=C... npm run test:e2e
+```
+
+To use a specific admin keypair (e.g. the one used during `setup_local.sh`):
+
+```bash
+ADMIN_SECRET=S... npm run test:e2e
+```
+
+### What the tests cover
+
+| Test | Description |
+|------|-------------|
+| `contract is already initialized` | Calls `get_admin` and asserts a valid address is returned |
+| `admin can register a new issuer` | Calls `register_issuer`, then `is_issuer` to confirm |
+| `registered issuer can create an attestation` | Calls `create_attestation` and retrieves the ID via `get_subject_attestations` |
+| `has_valid_claim returns true` | Verifies the freshly created attestation is valid |
+| `has_valid_claim returns false for unknown claim` | Confirms OR-logic does not leak across claim types |
+| `issuer can revoke the attestation` | Calls `revoke_attestation` and checks `revoked: true` on the record |
+| `has_valid_claim returns false after revocation` | Confirms the claim is no longer valid post-revocation |
+
+### Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CONTRACT_ID` | read from `.local.contract-id` | Deployed contract address |
+| `RPC_URL` | `http://localhost:8000/soroban/rpc` | Soroban RPC endpoint |
+| `NETWORK_PASSPHRASE` | `Standalone Network ; February 2017` | Network passphrase |
+| `ADMIN_SECRET` | random (funded via Friendbot) | Admin keypair secret |
+| `ISSUER_SECRET` | random (funded via Friendbot) | Issuer keypair secret |
+
+### 4. Stop local network
+
+```bash
+docker compose down
+```
 
 ## Building the Contract
 
@@ -73,38 +397,321 @@ make clippy     # or: cargo clippy --all-targets -- -D warnings
 
 Run both before every commit.
 
+## Commit Message Conventions
+
+This project uses **Conventional Commits** to enable automated versioning and changelog generation. Every commit message must follow this format:
+
+```
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+```
+
+### Type
+
+**Required.** Must be one of:
+
+| Type | Purpose | Semver Impact |
+|------|---------|---------------|
+| `feat` | A new feature | Minor (0.x.0) |
+| `fix` | A bug fix | Patch (0.0.x) |
+| `docs` | Documentation only | None |
+| `test` | Tests only | None |
+| `refactor` | Code refactoring (no feature/fix) | None |
+| `perf` | Performance improvement | Patch (0.0.x) |
+| `chore` | Build, CI, dependencies | None |
+
+### Scope
+
+**Optional.** Narrow the change to a specific area:
+
+- `storage` — storage layer changes
+- `validation` — authorization/validation logic
+- `events` — event emission
+- `indexer` — off-chain indexer
+- `sdk` — TypeScript SDK
+- `ci` — CI/CD workflows
+- `docs` — documentation
+
+Examples: `feat(storage)`, `fix(validation)`, `docs(indexer)`
+
+### Subject
+
+**Required.** Short description (50 chars max):
+
+- Start with lowercase
+- Use imperative mood ("add" not "adds" or "added")
+- No period at the end
+- Be specific: ✅ "add fee collection to attestation creation" vs ❌ "update code"
+
+### Body
+
+**Optional.** Explain *why* the change was made (not *what* — that's in the subject):
+
+```
+feat(storage): add dual indexing for subject and issuer lookups
+
+The previous single index on subject made issuer-based queries O(n).
+This adds a parallel index on issuer to enable fast lookups in both
+directions. Queries now complete in O(log n) time.
+```
+
+### Footer
+
+**Optional.** Reference issues or breaking changes:
+
+```
+Closes #42
+Closes #99
+
+BREAKING CHANGE: removed the `get_all_attestations` function
+```
+
+### Examples
+
+**Good commits:**
+
+```
+feat(storage): add dual indexing for subject and issuer lookups
+```
+
+```
+fix(validation): reject attestations with valid_from in the past
+
+Previously, valid_from was only checked against the current time.
+Now we also reject any valid_from that is before the current ledger
+timestamp, preventing backdated attestations.
+
+Closes #123
+```
+
+```
+docs: update deployment guide with testnet contract IDs
+```
+
+```
+test(events): add test for audit log append-only property
+```
+
+```
+refactor: extract fee calculation into separate function
+```
+
+**Bad commits:**
+
+```
+❌ Updated stuff
+❌ Fix bug
+❌ feat: Add new feature.
+❌ FEAT: ADD FEATURE
+❌ feat(storage): added dual indexing
+```
+
+### Automated Release Process
+
+When you merge commits to `main`:
+
+1. **Release Please** reads your commit messages
+2. Determines the next version (major.minor.patch) based on commit types
+3. Creates a Release PR that:
+   - Updates `Cargo.toml` version
+   - Generates `CHANGELOG.md` from commits
+   - Groups commits by type (Features, Bug Fixes, etc.)
+4. When the Release PR is merged:
+   - A GitHub Release is created with the tag
+   - WASM artifacts are built and attached automatically
+
+**Example:** If you merge `feat: ...` and `fix: ...` commits, the next release will be a **minor version bump** (0.1.0 → 0.2.0).
+
+## Review Routing (CODEOWNERS)
+
+TrustLink uses a [`.github/CODEOWNERS`](.github/CODEOWNERS) file to automatically request reviews from the right team when a pull request touches sensitive paths:
+
+| Path | Responsible team |
+|------|-----------------|
+| `src/` | `@Haroldwonder/contract-team` — core contract logic |
+| `sdk/` | `@Haroldwonder/sdk-team` — TypeScript/React SDKs |
+| `docs/security*.md` | `@Haroldwonder/security-team` — security documentation |
+| `docs/compliance.md` | `@Haroldwonder/compliance-team` — compliance documentation |
+
+GitHub will add the matching team as a required reviewer automatically when you open a PR. You do not need to request them manually.
+
 ## PR Process
 
 1. **Branch** off `main` with a descriptive name:
+
    ```bash
    git checkout -b feat/your-feature
    # or
    git checkout -b fix/your-bugfix
    ```
 
-2. **Commit** with clear messages following the format:
-   ```
-   <type>: short description
-
-   Optional longer explanation.
-   ```
-   Common types: `feat`, `fix`, `docs`, `test`, `refactor`.
+2. **Commit** with clear messages following [Conventional Commits](#commit-message-conventions).
 
 3. **Before pushing**, make sure:
+
    - [ ] `cargo test` passes
    - [ ] `cargo fmt -- --check` is clean
    - [ ] `cargo clippy --all-targets -- -D warnings` is clean
+   - [ ] Commit messages follow Conventional Commits format
 
-4. **Open a PR** against `main`. Include:
+4. **Open a PR** against `main` using the [pull request template](.github/PULL_REQUEST_TEMPLATE.md). GitHub loads it automatically when you open a PR. Fill in:
+
    - What the change does and why
+   - The type of change (bug fix / feature / docs / refactor)
+   - Testing done
    - Any relevant issue numbers (`Closes #123`)
    - Notes for reviewers if the change is non-obvious
 
-5. **Review**: at least one approval is required before merging. Address all review comments; force-push to the same branch to update the PR.
+5. **Commit validation**: The PR title must follow Conventional Commits format. This is checked automatically by CI.
+
+6. **Review**: at least one approval is required before merging. Address all review comments; force-push to the same branch to update the PR.
+
+7. **Merge**: Use "Squash and merge" or "Create a merge commit" (not "Rebase and merge") to preserve commit history for changelog generation.
+
+## Security & Dependency Management
+
+### Handling Audit Findings
+
+TrustLink runs automated security audits on every push and weekly via scheduled scans. When vulnerabilities are detected:
+
+#### 1. **Automatic Detection**
+
+- **On every push**: `cargo audit --deny warnings` runs in CI and blocks merges if vulnerabilities are found
+- **Weekly**: Scheduled audit runs Monday at 00:00 UTC; failures create a GitHub issue with label `security`
+
+#### 2. **Severity Assessment**
+
+When a vulnerability is reported:
+
+| Severity | Action | Timeline |
+|----------|--------|----------|
+| **Critical** | Blocks all merges; must fix immediately | Same day |
+| **High** | Blocks merges; fix within 48 hours | 2 days |
+| **Medium** | Blocks merges; fix within 1 week | 7 days |
+| **Low** | Can be accepted if justified; document in `Cargo.audit` | Case-by-case |
+
+#### 3. **Resolution Options**
+
+**Option A: Update the dependency**
+
+```bash
+# Update to a patched version
+cargo update <crate-name>
+
+# Verify the fix
+cargo audit
+
+# Test thoroughly
+cargo test
+```
+
+**Option B: Accept the vulnerability (Low severity only)**
+
+If the vulnerability does not affect TrustLink's usage pattern:
+
+1. Open `Cargo.audit` and add an entry:
+
+```toml
+[[advisories]]
+id = "RUSTSEC-YYYY-NNNNN"
+reason = "Vulnerability does not affect our usage - we do not use feature X"
+date = "2024-01-15"
+reviewer = "your-github-username"
+```
+
+2. Run audit to verify it's accepted:
+
+```bash
+cargo audit
+```
+
+3. Commit with clear message:
+
+```bash
+git add Cargo.audit
+git commit -m "security: accept RUSTSEC-YYYY-NNNNN - documented in Cargo.audit"
+```
+
+#### 4. **Review Process**
+
+- All vulnerability fixes require at least one approval
+- Reviewer must verify:
+  - The fix doesn't introduce breaking changes
+  - Tests still pass
+  - No new vulnerabilities are introduced
+- Document the decision in the PR description
+
+#### 5. **Escalation**
+
+For critical vulnerabilities affecting production:
+
+1. Create a private security advisory (GitHub Settings → Security → Advisories)
+2. Notify maintainers immediately
+3. Prepare a patch release
+4. Do not disclose publicly until patch is available
+
+### Running Audits Locally
+
+```bash
+# Check for vulnerabilities
+cargo audit
+
+# Deny any warnings (same as CI)
+cargo audit --deny warnings
+
+# Generate a JSON report
+cargo audit --json > audit-report.json
+
+# Check specific advisory
+cargo audit --advisory RUSTSEC-YYYY-NNNNN
+```
+
+### Dependency Update Policy
+
+- Keep dependencies up-to-date with security patches
+- Review changelogs before major version updates
+- Test thoroughly after updates
+- Document breaking changes in PR description
 
 ## Reporting Issues
 
 Open a GitHub issue with:
+
 - A clear description of the problem or feature request
 - Steps to reproduce (for bugs)
 - Expected vs actual behaviour
+
+## TypeScript Bindings
+
+TypeScript bindings for the contract ABI live in `bindings/typescript/` and are
+generated from the compiled WASM using the Stellar CLI.
+
+**Prerequisites:**
+
+```bash
+cargo install --locked stellar-cli --features opt
+rustup target add wasm32-unknown-unknown
+```
+
+**Regenerate after any contract interface change:**
+
+```bash
+make bindings
+```
+
+This builds the WASM and runs:
+
+```bash
+stellar contract bindings typescript \
+  --wasm target/wasm32-unknown-unknown/release/trustlink.wasm \
+  --contract-id 0000000000000000000000000000000000000000000000000000000000000001 \
+  --network testnet \
+  --output-dir bindings/typescript
+```
+
+Commit the updated `bindings/typescript/` directory alongside your contract
+changes. CI runs `make check-bindings` and will fail if the committed bindings
+do not match the current WASM.
