@@ -119,6 +119,18 @@ pub fn has_all_claims(env: &Env, subject: Address, claim_types: Vec<String>) -> 
     true
 }
 
+/// Check if multiple subjects all have a valid attestation for the given claim type.
+/// Returns a Vec<bool> where each element corresponds to whether that subject has the claim.
+/// This is more efficient than making individual has_valid_claim calls.
+pub fn has_valid_claim_batch(env: &Env, subjects: Vec<Address>, claim_type: String) -> Vec<bool> {
+    let mut results = Vec::new(env);
+    for subject in subjects.iter() {
+        let has_claim = has_valid_claim(env, subject.clone(), claim_type.clone());
+        results.push_back(has_claim);
+    }
+    results
+}
+
 pub fn get_attestation(env: &Env, attestation_id: String) -> Result<Attestation, Error> {
     let attestation = Storage::get_attestation(env, &attestation_id)?;
     if attestation.deleted {

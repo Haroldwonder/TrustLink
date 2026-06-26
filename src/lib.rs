@@ -451,6 +451,11 @@ impl TrustLinkContract {
     }
 
     #[must_use]
+    pub fn has_valid_claim_batch(env: Env, subjects: Vec<Address>, claim_type: String) -> Vec<bool> {
+        query::has_valid_claim_batch(&env, subjects, claim_type)
+    }
+
+    #[must_use]
     pub fn get_attestation(env: Env, attestation_id: String) -> Result<Attestation, Error> {
         query::get_attestation(&env, attestation_id)
     }
