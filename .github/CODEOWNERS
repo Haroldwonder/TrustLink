@@ -1,0 +1,17 @@
+# CODEOWNERS — review routing for TrustLink
+#
+# Each line maps a path pattern to one or more GitHub teams.
+# The last matching rule wins. See:
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Core contract source — owned by the contract team
+/src/ @Haroldwonder/contract-team
+
+# TypeScript and React SDKs — owned by the SDK team
+/sdk/ @Haroldwonder/sdk-team
+
+# Security-related documentation — owned by the security team
+/docs/security*.md @Haroldwonder/security-team
+
+# Compliance documentation — owned by the compliance team
+/docs/compliance.md @Haroldwonder/compliance-team

@@ -1,8 +1,4 @@
 //! Shared data types for TrustLink.
-//!
-//! Defines [`Attestation`], [`AttestationStatus`], and supporting structs used
-//! throughout the contract. All types are annotated with `#[contracttype]` for
-//! Soroban ABI compatibility. Error definitions live in [`crate::errors`].
 
 use soroban_sdk::{contracttype, xdr::ToXdr, Address, Bytes, Env, String, Vec};
 
@@ -40,16 +36,13 @@ pub enum RequestStatus {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AttestationRequest {
-    /// Unique deterministic ID (hash of subject | issuer | claim_type | timestamp).
     pub id: String,
     pub subject: Address,
     pub issuer: Address,
     pub claim_type: String,
     pub timestamp: u64,
-    /// Unix timestamp after which the request expires if not acted on.
     pub expires_at: u64,
     pub status: RequestStatus,
-    /// Rejection reason set by the issuer, if rejected.
     pub rejection_reason: Option<String>,
 }
 
@@ -136,12 +129,13 @@ pub struct RateLimitConfig {
 
 /// Contract configuration.
 #[contracttype]
-#[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractConfig {
-    pub ttl_config: TtlConfig,
-    pub limits: StorageLimits,
+    pub contract_name: String,
+    pub contract_version: String,
+    pub contract_description: String,
     pub fee_config: FeeConfig,
+    pub ttl_config: TtlConfig,
     pub require_registered_claim_type: bool,
 }
 
@@ -198,8 +192,6 @@ pub struct Attestation {
     pub source_tx: Option<String>,
     pub tags: Option<Vec<String>>,
     pub revocation_reason: Option<String>,
-    /// True when the subject has requested GDPR deletion of this attestation.
-    /// Deleted attestations are excluded from all query results.
     pub deleted: bool,
 }
 
@@ -221,6 +213,7 @@ pub enum AuditAction {
     Renewed,
     Updated,
     Transferred,
+    Deleted,
 }
 
 /// A single immutable entry in an attestation's audit log.
@@ -262,9 +255,7 @@ pub struct MultiSigProposal {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StorageLimits {
-    /// Maximum number of attestations a single issuer may create. Default: 10,000.
     pub max_attestations_per_issuer: u32,
-    /// Maximum number of attestations a single subject may hold. Default: 100.
     pub max_attestations_per_subject: u32,
 }
 
@@ -295,20 +286,6 @@ pub struct Delegation {
     pub expiration: Option<u64>,
 }
 
-
-/// A named attestation template owned by an issuer.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AttestationTemplate {
-    pub claim_type: String,
-    /// Optional expiration window in days (None = no expiration).
-    pub default_expiration_days: Option<u32>,
-    pub metadata_template: Option<String>,
-}
-
-/// Admin council: ordered list of admin addresses.
-pub type AdminCouncil = Vec<Address>;
-
 /// Storage key for the pending admin transfer (two-step pattern).
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -317,8 +294,22 @@ pub struct PendingAdminTransfer {
     pub new_admin: Address,
 }
 
+/// Admin council: ordered list of admin addresses.
+pub type AdminCouncil = Vec<Address>;
+
+/// A named attestation template owned by an issuer.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AttestationTemplate {
+    pub issuer: Address,
+    pub template_id: String,
+    pub claim_type: String,
+    pub metadata: Option<String>,
+    pub metadata_template: Option<String>,
+    pub default_expiration_days: Option<u32>,
+}
+
 impl Attestation {
-    /// Hashes an arbitrary byte payload and returns a 64-character lowercase hex string.
     pub fn hash_payload(env: &Env, payload: &Bytes) -> String {
         let hash = env.crypto().sha256(payload).to_array();
         const HEX: &[u8; 16] = b"0123456789abcdef";
@@ -330,7 +321,6 @@ impl Attestation {
         String::from_bytes(env, &hex)
     }
 
-    /// Generates a deterministic attestation ID from the given inputs.
     pub fn generate_id(
         env: &Env,
         issuer: &Address,
@@ -346,7 +336,6 @@ impl Attestation {
         Self::hash_payload(env, &payload)
     }
 
-    /// Generates a deterministic bridge attestation ID from the given inputs.
     pub fn generate_bridge_id(
         env: &Env,
         bridge: &Address,
@@ -386,7 +375,6 @@ impl Attestation {
 
 
 impl AttestationRequest {
-    /// Deterministic ID: SHA-256 over XDR of `"req:" | subject | issuer | claim_type | timestamp`.
     pub fn generate_id(
         env: &Env,
         subject: &Address,

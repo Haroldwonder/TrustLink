@@ -36,6 +36,13 @@ export enum IssuerTier {
   Premium = 2,
 }
 
+export interface Delegation {
+  delegator: string;
+  delegate: string;
+  claim_type: string;
+  expiration: bigint | null;
+}
+
 // ─── Structs ──────────────────────────────────────────────────────────────────
 
 export interface Attestation {

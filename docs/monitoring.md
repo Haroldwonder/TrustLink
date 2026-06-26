@@ -537,6 +537,74 @@ RPC_URL=https://soroban-testnet.stellar.org \
 }
 ```
 
+### Prometheus Alerting Rules
+
+Ready-to-use Prometheus alerting rules are provided in
+[`monitoring/alerts.yml`](../monitoring/alerts.yml). Load the file into your
+Prometheus configuration:
+
+```yaml
+# prometheus.yml
+rule_files:
+  - "monitoring/alerts.yml"
+```
+
+The file defines one alert group (`trustlink`) with four rules. Each rule
+requires the following metrics to be exported by your TrustLink event indexer:
+
+| Metric | Type | Description |
+|---|---|---|
+| `trustlink_contract_paused` | Gauge | `1` when the contract is paused, `0` otherwise |
+| `trustlink_issuer_removed_total` | Counter | Cumulative count of `iss_rem` events |
+| `trustlink_attestation_revoked_total` | Counter | Cumulative count of `revoked` events |
+| `trustlink_latest_ledger` | Gauge | Current chain tip ledger sequence |
+| `trustlink_indexer_last_processed_ledger` | Gauge | Last ledger processed by the indexer |
+
+#### `TrustLinkContractPaused`
+
+**Severity:** Critical  
+**Condition:** `trustlink_contract_paused == 1`
+
+Fires immediately when the contract is paused via `pause()`. All attestation
+write operations are halted while the contract is paused. Verify the pause was
+an intentional admin action (e.g. incident response) and call `unpause()` once
+the threat is contained.
+
+#### `TrustLinkIssuerRemoved`
+
+**Severity:** Critical  
+**Condition:** Any `iss_rem` event in the last 5 minutes
+
+Fires when an issuer is removed from the registry. Existing attestations from
+the removed issuer remain valid but no new ones can be created, and the issuer
+can no longer revoke their own attestations. Confirm the removal was intentional
+and assess whether affected attestations need to be transferred to a successor
+issuer via `transfer_attestation`.
+
+#### `TrustLinkHighRevocationRate`
+
+**Severity:** High  
+**Condition:** More than 10 `revoked` events in any 5-minute window
+
+A revocation spike may indicate a compromised issuer key, a bulk compliance
+action (e.g. sanctions list update), or a bug in issuer automation. Follow the
+runbook in [Section 8](#8-investigating-a-spike-in-revocations) to determine
+the root cause. Adjust the threshold (`> 10`) to match your expected baseline
+traffic after one week of observation.
+
+#### `TrustLinkIndexerLag`
+
+**Severity:** High  
+**Condition:** Indexer more than 100 ledgers behind the chain tip for 2 minutes
+
+When the indexer lags, all event-based alerts become unreliable — revocation
+spikes, issuer removals, and bridge anomalies may go undetected. Check that the
+indexer process is running, verify RPC connectivity (see the
+[`no_events_received` runbook](#no_events_received--monitor-silence)), and
+switch to a backup RPC endpoint if needed.
+
+---
+
 ### Dashboard Metrics to Track
 
 - **Attestations created per hour** — baseline for normal activity
@@ -545,6 +613,39 @@ RPC_URL=https://soroban-testnet.stellar.org \
 - **Mean time between `exp_hook` and renewal** — issuer responsiveness
 - **Active issuers** — track `iss_reg` minus `iss_rem` over time
 - **Multi-sig proposals pending** — `ms_prop` minus `ms_actv` backlog
+
+### Indexer Metrics
+
+The TrustLink indexer exposes Prometheus metrics for monitoring event processing:
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `trustlink_events_processed_total` | Counter | `type` | Total events processed by type |
+| `trustlink_events_failed_total` | Counter | `type` | Total events that failed to process by type |
+
+Event types tracked:
+- `created` — Attestation created
+- `imported` — Attestation imported
+- `bridged` — Attestation bridged from another chain
+- `revoked` — Attestation revoked
+- `renewed` — Attestation renewed
+- `updated` — Attestation updated
+- `expired` — Attestation expired
+- `endorsed` — Attestation endorsed
+- `iss_reg` — Issuer registered
+- `iss_tier` — Issuer tier updated
+- `iss_rem` — Issuer removed
+- `clmtype` — Claim type registered
+- `ms_prop` — Multi-sig proposed
+- `ms_sign` — Multi-sig co-signed
+- `ms_actv` — Multi-sig activated
+- `adm_init` — Admin initialized
+- `adm_xfer` — Admin transferred
+
+Example Prometheus query for revocation rate:
+```promql
+rate(trustlink_events_processed_total{type="revoked"}[5m])
+```
 
 ---
 
@@ -731,7 +832,77 @@ curl -s ... | jq '[.result.events[].topic[1]] | unique'
 
 ---
 
-## 9. Detecting and Responding to Storage Exhaustion
+## 9. Grafana Dashboard
+
+A pre-built Grafana dashboard is provided at [`monitoring/grafana-dashboard.json`](../monitoring/grafana-dashboard.json). It includes five panels:
+
+| Panel | Type | What it shows |
+|---|---|---|
+| **Total Attestations Over Time** | Time series | Cumulative `trustlink_attestations_total` counter |
+| **Revocation Rate** | Time series | `rate(trustlink_revocations_total[$__rate_interval])` — spikes indicate bulk revocations |
+| **Active Issuers** | Stat | Current value of `trustlink_active_issuers` |
+| **Indexer Lag** | Gauge | `trustlink_indexer_lag_ledgers` — ledgers the indexer is behind the chain tip |
+| **Webhook Delivery Success Rate** | Time series | Ratio of `trustlink_webhook_deliveries_success_total` to total deliveries |
+
+### Prerequisites
+
+- Grafana 10.0+ with a **Prometheus** datasource configured and named `Prometheus`.
+- Your TrustLink indexer exposes the metrics listed above on a `/metrics` endpoint that Prometheus scrapes.
+
+### Importing the dashboard
+
+**Via the Grafana UI:**
+
+1. Open Grafana and go to **Dashboards → Import** (or navigate to `/dashboard/import`).
+2. Click **Upload dashboard JSON file** and select `monitoring/grafana-dashboard.json`.
+3. In the **Prometheus** dropdown, select your Prometheus datasource.
+4. Click **Import**.
+
+**Via the Grafana HTTP API:**
+
+```bash
+# Replace <GRAFANA_URL>, <USER>, and <PASSWORD> with your values
+curl -s -X POST \
+  -H "Content-Type: application/json" \
+  -u "<USER>:<PASSWORD>" \
+  --data-binary @monitoring/grafana-dashboard.json \
+  "<GRAFANA_URL>/api/dashboards/import"
+```
+
+**Via Grafana provisioning (GitOps):**
+
+Copy the file into your Grafana provisioning directory and add a provider config:
+
+```yaml
+# grafana/provisioning/dashboards/trustlink.yaml
+apiVersion: 1
+providers:
+  - name: TrustLink
+    folder: TrustLink
+    type: file
+    options:
+      path: /etc/grafana/dashboards/trustlink
+```
+
+```bash
+cp monitoring/grafana-dashboard.json /etc/grafana/dashboards/trustlink/
+# Grafana picks up the file automatically on the next provisioning cycle (default: 10 s)
+```
+
+### Metric names reference
+
+| Metric | Type | Description |
+|---|---|---|
+| `trustlink_attestations_total` | Counter | All attestations ever created |
+| `trustlink_revocations_total` | Counter | All revocations ever performed |
+| `trustlink_active_issuers` | Gauge | Current registered issuer count |
+| `trustlink_indexer_lag_ledgers` | Gauge | Ledgers the indexer is behind the chain tip |
+| `trustlink_webhook_deliveries_success_total` | Counter | Webhook calls that returned HTTP 2xx |
+| `trustlink_webhook_deliveries_failure_total` | Counter | Webhook calls that failed or timed out |
+
+---
+
+## 10. Detecting and Responding to Storage Exhaustion
 
 TrustLink enforces per-issuer and per-subject attestation limits
 (`max_attestations_per_issuer`, `max_attestations_per_subject`). When a limit

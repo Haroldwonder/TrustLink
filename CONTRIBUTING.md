@@ -9,8 +9,17 @@ TrustLink uses [pre-commit](https://pre-commit.com) to enforce formatting and li
 **Install the hooks once after cloning:**
 
 ```bash
-pip install pre-commit   # or: brew install pre-commit
-pre-commit install
+# Install pre-commit (choose one method):
+pip install --user pre-commit   # or: brew install pre-commit
+
+# Ensure Rust tooling is available for the hooks:
+rustup component add rustfmt clippy
+
+# Install the git hooks (and fetch any hook dependencies):
+pre-commit install --install-hooks
+
+# Verify hooks run cleanly now:
+pre-commit run --all-files
 ```
 
 After that, every `git commit` automatically runs:
@@ -66,6 +75,18 @@ rustup target add wasm32-unknown-unknown
 # 3. Confirm the project compiles
 cargo check
 ```
+
+## Fuzzing
+
+TrustLink includes a cargo-fuzz target for claim type validation edge cases.
+
+```bash
+cargo install --locked cargo-fuzz
+cd fuzz
+cargo fuzz run fuzz_validate_claim_type
+```
+
+The fuzz target exercises `Validation::validate_claim_type` with arbitrary byte sequences, including null bytes, multi-byte UTF-8, and boundary-length inputs.
 
 ## Running Tests
 
@@ -271,6 +292,87 @@ Default local network values used by `scripts/setup_local.sh`:
 docker compose down
 ```
 
+## SDK End-to-End Tests
+
+The TypeScript SDK ships with an end-to-end test suite (`sdk/typescript/e2e/`) that deploys the contract to a local Stellar node and exercises the SDK against it. These tests catch XDR encoding bugs and RPC parameter issues that unit tests with mocked RPC calls cannot detect.
+
+### Prerequisites
+
+- Docker (for the local Stellar Quickstart node)
+- Node.js ≥ 16
+- Stellar CLI (`cargo install --locked stellar-cli --features opt`)
+- A compiled contract WASM (`make build`)
+
+### 1. Start the local Stellar node
+
+```bash
+docker compose up -d
+```
+
+Wait ~10 seconds for the node to be ready.
+
+### 2. Deploy and initialize the contract
+
+```bash
+bash scripts/setup_local.sh
+```
+
+This script:
+- Configures the `local` Soroban network pointing at `http://localhost:8000/soroban/rpc`
+- Generates (or reuses) a `local-admin` identity
+- Funds the identity via Friendbot
+- Deploys the contract WASM
+- Calls `initialize` with the admin address
+- Writes the deployed contract ID to `.local.contract-id`
+
+### 3. Run the e2e tests
+
+```bash
+cd sdk/typescript
+npm install
+npm run test:e2e
+```
+
+The test runner reads the contract ID from `.local.contract-id` automatically. You can also pass it explicitly:
+
+```bash
+CONTRACT_ID=C... npm run test:e2e
+```
+
+To use a specific admin keypair (e.g. the one used during `setup_local.sh`):
+
+```bash
+ADMIN_SECRET=S... npm run test:e2e
+```
+
+### What the tests cover
+
+| Test | Description |
+|------|-------------|
+| `contract is already initialized` | Calls `get_admin` and asserts a valid address is returned |
+| `admin can register a new issuer` | Calls `register_issuer`, then `is_issuer` to confirm |
+| `registered issuer can create an attestation` | Calls `create_attestation` and retrieves the ID via `get_subject_attestations` |
+| `has_valid_claim returns true` | Verifies the freshly created attestation is valid |
+| `has_valid_claim returns false for unknown claim` | Confirms OR-logic does not leak across claim types |
+| `issuer can revoke the attestation` | Calls `revoke_attestation` and checks `revoked: true` on the record |
+| `has_valid_claim returns false after revocation` | Confirms the claim is no longer valid post-revocation |
+
+### Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CONTRACT_ID` | read from `.local.contract-id` | Deployed contract address |
+| `RPC_URL` | `http://localhost:8000/soroban/rpc` | Soroban RPC endpoint |
+| `NETWORK_PASSPHRASE` | `Standalone Network ; February 2017` | Network passphrase |
+| `ADMIN_SECRET` | random (funded via Friendbot) | Admin keypair secret |
+| `ISSUER_SECRET` | random (funded via Friendbot) | Issuer keypair secret |
+
+### 4. Stop local network
+
+```bash
+docker compose down
+```
+
 ## Building the Contract
 
 ```bash
@@ -423,6 +525,19 @@ When you merge commits to `main`:
 
 **Example:** If you merge `feat: ...` and `fix: ...` commits, the next release will be a **minor version bump** (0.1.0 → 0.2.0).
 
+## Review Routing (CODEOWNERS)
+
+TrustLink uses a [`.github/CODEOWNERS`](.github/CODEOWNERS) file to automatically request reviews from the right team when a pull request touches sensitive paths:
+
+| Path | Responsible team |
+|------|-----------------|
+| `src/` | `@Haroldwonder/contract-team` — core contract logic |
+| `sdk/` | `@Haroldwonder/sdk-team` — TypeScript/React SDKs |
+| `docs/security*.md` | `@Haroldwonder/security-team` — security documentation |
+| `docs/compliance.md` | `@Haroldwonder/compliance-team` — compliance documentation |
+
+GitHub will add the matching team as a required reviewer automatically when you open a PR. You do not need to request them manually.
+
 ## PR Process
 
 1. **Branch** off `main` with a descriptive name:
@@ -442,9 +557,11 @@ When you merge commits to `main`:
    - [ ] `cargo clippy --all-targets -- -D warnings` is clean
    - [ ] Commit messages follow Conventional Commits format
 
-4. **Open a PR** against `main`. Include:
+4. **Open a PR** against `main` using the [pull request template](.github/PULL_REQUEST_TEMPLATE.md). GitHub loads it automatically when you open a PR. Fill in:
 
    - What the change does and why
+   - The type of change (bug fix / feature / docs / refactor)
+   - Testing done
    - Any relevant issue numbers (`Closes #123`)
    - Notes for reviewers if the change is non-obvious
 
