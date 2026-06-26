@@ -243,6 +243,83 @@ See the [Known Limitations](#known-limitations) section below.
 
 ---
 
+## Bridge Contract Trust Model
+
+Bridge contracts occupy a privileged position in TrustLink's trust hierarchy.
+Understanding their trust assumptions is essential before registering one.
+
+### What a Bridge Contract Can Do
+
+A registered bridge contract can call `bridge_attestation` to create an
+attestation for **any subject** with **any claim type**. The bridge address
+becomes the on-chain `issuer` of the resulting attestation. There is no
+per-bridge restriction on which subjects or claim types it may attest.
+
+This is intentionally broad — bridges are expected to mirror verified
+attestations from another chain, and the contract cannot independently verify
+the source-chain state.
+
+### Trust Assumptions
+
+Registering a bridge contract means trusting that:
+
+1. **The source-chain verification logic is correct.** The bridge must only
+   relay attestations that were legitimately issued on the source chain. The
+   TrustLink contract has no way to verify this on-chain.
+2. **The bridge contract itself is not compromised.** A compromised bridge key
+   or a bug in the bridge contract can create arbitrary attestations for any
+   subject with any claim type.
+3. **The `source_chain` and `source_tx` fields are accurate.** These are
+   supplied by the bridge and stored verbatim. They are informational only —
+   the contract does not validate them.
+
+### Vetting Process Before Registering a Bridge
+
+Before calling `register_bridge`, the admin should:
+
+1. **Audit the bridge contract source code.** Review the source-chain
+   verification logic, key management, and upgrade mechanism. Confirm the
+   bridge cannot be unilaterally upgraded by a single key.
+2. **Verify the bridge contract address on-chain.** Confirm the address matches
+   the audited bytecode and has not been replaced.
+3. **Confirm the bridge operator's key management.** The bridge operator should
+   use a hardware wallet or multisig account to control the bridge contract.
+4. **Agree on a supported claim type allowlist.** Document which claim types
+   the bridge is authorised to relay. Even though the contract does not enforce
+   this on-chain, the bridge implementation should enforce it internally.
+5. **Establish an incident contact.** Have a direct escalation path to the
+   bridge operator so the admin can call `remove_bridge` quickly if a
+   compromise is suspected.
+6. **Test on testnet first.** Run the bridge against a testnet deployment and
+   verify that only expected attestations are created before enabling on
+   mainnet.
+
+### Blast Radius of a Compromised Bridge
+
+If a bridge contract or its controlling key is compromised, an attacker can:
+
+- Create attestations for **any subject** with **any claim type** — including
+  high-value types such as `KYC_PASSED` or `ACCREDITED_INVESTOR`.
+- Fabricate `source_chain` and `source_tx` values that appear legitimate.
+- Issue attestations at high volume until the admin calls `remove_bridge`.
+
+Unlike a compromised issuer, a compromised bridge is not limited to the claim
+types that issuer was expected to use. The blast radius is therefore equivalent
+to a compromised admin for the purposes of attestation creation.
+
+### Recommended Mitigations
+
+| Mitigation | Description |
+|---|---|
+| Limit registered bridges | Register only bridges you have audited. Prefer zero bridges unless cross-chain support is required. |
+| Monitor `bridged` events | Alert immediately on any `bridged` event from an unexpected `source_chain` or at abnormal volume (see [monitoring/alerts.yml](../monitoring/alerts.yml)). |
+| Enforce claim type restrictions in the bridge | The bridge contract should maintain its own allowlist of claim types it is permitted to relay, even though TrustLink does not enforce this on-chain. |
+| Use a multisig bridge operator key | Require M-of-N signatures to authorise bridge transactions, reducing single-key compromise risk. |
+| Have a `remove_bridge` runbook | Document and rehearse the steps to call `remove_bridge` quickly. The admin should be able to execute this within minutes of a suspected compromise. |
+| Separate bridge registries per source chain | Register a distinct bridge contract per source chain rather than one bridge for all chains. This limits the blast radius to a single chain if one bridge is compromised. |
+
+---
+
 ## Known Limitations
 
 These are honest assessments of what the contract does not protect against.
@@ -404,6 +481,53 @@ Before deploying to mainnet:
 - [ ] Event monitoring and alerting is in place.
 - [ ] The `create_attestations_batch` pause gap (see Known Limitations §10) has
       been assessed and accepted or patched.
+
+---
+
+## Confidence Score Model
+
+`get_confidence_score(attestation_id)` returns a numeric trust score in the range
+**30–100** for an existing attestation. The score is computed on-the-fly from two
+signals: the issuer's trust tier and the number of peer endorsements the
+attestation has received.
+
+### Scoring Formula
+
+```
+score = tier_score + endorsement_bonus
+```
+
+| Component | Value |
+|-----------|-------|
+| `tier_score` — issuer is **Basic** (or tier not set) | 30 |
+| `tier_score` — issuer is **Verified** | 60 |
+| `tier_score` — issuer is **Premium** | 90 |
+| `endorsement_bonus` — +2 per endorsement, max | +10 |
+
+So the minimum possible score is **30** (Basic tier, no endorsements) and the
+maximum is **100** (Premium tier, 5+ endorsements).
+
+### Interpretation
+
+| Score range | Suggested meaning |
+|-------------|-------------------|
+| 30–39 | Low confidence — Basic issuer, little or no peer validation |
+| 40–69 | Medium confidence — Basic issuer with endorsements, or Verified issuer |
+| 70–89 | High confidence — Verified issuer with endorsements |
+| 90–100 | Very high confidence — Premium issuer, optionally with endorsements |
+
+These thresholds are advisory. Applications should define their own minimum
+acceptable score based on the sensitivity of the gated action.
+
+### Caveats
+
+- The score is **not stored** — it is recomputed on every call. Caching it
+  off-chain risks serving a stale value if the issuer's tier changes or new
+  endorsements arrive.
+- The score reflects the **issuer's reputation and peer endorsements**, not the
+  veracity of the claim content.
+- `get_confidence_score` returns `None` for non-existent attestations. Integrators
+  must handle `None` as "no score available" rather than "score is zero".
 
 ---
 

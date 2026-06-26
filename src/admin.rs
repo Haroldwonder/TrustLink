@@ -106,6 +106,10 @@ pub fn get_admin(env: &Env) -> Result<Address, Error> {
     Storage::get_admin(env)
 }
 
+pub fn get_admin_council(env: &Env) -> Result<AdminCouncil, Error> {
+    Storage::get_admin_council(env)
+}
+
 // -----------------------------------------------------------------------
 // Issuer management
 // -----------------------------------------------------------------------
@@ -140,6 +144,19 @@ pub fn add_to_whitelist(env: &Env, issuer: Address, subject: Address) -> Result<
     issuer.require_auth();
     Validation::require_issuer(env, &issuer)?;
     Storage::add_to_whitelist(env, &issuer, &subject);
+    Ok(())
+}
+
+pub fn bulk_add_to_whitelist(env: &Env, issuer: Address, subjects: Vec<Address>) -> Result<(), Error> {
+    const MAX_BATCH: u32 = 50;
+    issuer.require_auth();
+    Validation::require_issuer(env, &issuer)?;
+    if subjects.len() > MAX_BATCH {
+        return Err(Error::LimitExceeded);
+    }
+    for subject in subjects.iter() {
+        Storage::add_to_whitelist(env, &issuer, &subject);
+    }
     Ok(())
 }
 
@@ -332,8 +349,10 @@ pub fn set_require_registered_claim_type(env: &Env, admin: Address, require: boo
     
     let mut config = Storage::get_contract_config(env).unwrap_or_else(|| {
         ContractConfig {
+            contract_name: soroban_sdk::String::from_str(env, "TrustLink"),
+            contract_version: soroban_sdk::String::from_str(env, "0.1.0"),
+            contract_description: soroban_sdk::String::from_str(env, ""),
             ttl_config: Storage::get_ttl_config(env).unwrap_or(TtlConfig { ttl_days: 30 }),
-            limits: Storage::get_limits(env),
             fee_config: Storage::get_fee_config(env).unwrap_or(FeeConfig {
                 attestation_fee: 0,
                 fee_collector: admin.clone(),
@@ -470,6 +489,9 @@ pub fn list_delegations_by_delegator(
 // -----------------------------------------------------------------------
 
 pub fn register_expiration_hook(env: &Env, subject: Address, callback_contract: Address, notify_days_before: u32) -> Result<(), Error> {
+    if notify_days_before == 0 {
+        return Err(Error::InvalidExpiration);
+    }
     subject.require_auth();
     Storage::set_expiration_hook(env, &subject, &ExpirationHook { callback_contract, notify_days_before });
     Ok(())

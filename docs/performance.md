@@ -12,6 +12,11 @@ Benchmarked using Soroban testutils Env (unlimited budget). Results are approxim
 | | 10 attestations (1 valid + 9 noise) | ~25,000 | read-only |
 | | 100 attestations (1 valid + 99 noise) | ~180,000 | read-only (SubjectClaimIndex opt saves ~10x vs no index) |
 | | Invalid claim (100 attestations) | ~150,000 | read-only |
+| `has_all_claims` | 1 claim | ~9,000 | read-only |
+| | 5 claims | ~25,000 | read-only |
+| | 10 claims | ~40,000 | read-only |
+| `has_any_claim` | early-exit (first claim matches) | ~9,000 | read-only |
+| | worst-case (10 claims, no match) | ~70,000 | read-only |
 | `get_subject_attestations` | page_size=10 (100 total) | ~15,000 | read-only |
 | | page_size=50 | ~35,000 | read-only |
 | | page_size=100 (full) | ~65,000 | read-only |

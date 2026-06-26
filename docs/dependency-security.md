@@ -1,322 +1,177 @@
-# Dependency Security — TrustLink
+# Dependency Security Policy
 
 ## Overview
 
-TrustLink is a Soroban smart contract compiled to WASM. Its dependency surface
-is intentionally minimal: one direct production dependency (`soroban-sdk`) and
-two dev-only dependencies (`soroban-sdk` testutils feature and `proptest`).
-All transitive packages are pulled in by those two roots.
+TrustLink uses two complementary tools to keep its dependency tree secure and compliant:
+
+- **cargo-audit** — scans `Cargo.lock` against the [RustSec Advisory Database](https://rustsec.org/) for known CVEs, unsound code, and yanked crates.
+- **cargo-deny** — enforces policy rules across the full dependency graph: license compliance, duplicate crate detection, banned crate enforcement, and source registry restrictions.
+
+Both tools run in CI on every push and pull request. Developers are expected to run them locally before submitting changes.
 
 ---
 
-## Direct Dependencies
+## Approved License Policy
 
-| Crate | Version (Cargo.toml) | Resolved version (Cargo.lock) | Usage |
-|-------|----------------------|-------------------------------|-------|
-| `soroban-sdk` | `21.0.0` | `21.7.7` | Production — Soroban contract SDK |
-| `soroban-sdk` (testutils) | `21.0.0` | `21.7.7` | Dev only — test harness |
-| `proptest` | `1.5.0` | `1.11.0` | Dev only — property-based testing |
+The following SPDX identifiers are permitted for all dependencies:
 
-> **Note:** Cargo.toml specifies `21.0.0` as a minimum compatible version.
-> Cargo.lock resolves to `21.7.7`, which is the latest patch release in the
-> `21.x` series and includes all upstream security and bug fixes.
+| Identifier | Notes |
+|---|---|
+| `MIT` | Primary permissive license |
+| `Apache-2.0` | Primary permissive license |
+| `BSD-2-Clause` | Permissive |
+| `BSD-3-Clause` | Permissive |
+| `ISC` | Permissive (functionally equivalent to MIT) |
+| `0BSD` | Zero-clause BSD; currently used by `adler2` |
+| `BSD-1-Clause` | Used by `fiat-crypto` (OR expression with MIT/Apache-2.0) |
+| `Unlicense` | Public domain dedication; used by `memchr` (OR expression with MIT) |
+| `Zlib` | Permissive; used by `miniz_oxide`, `tinyvec`, `tinyvec_macros` |
+| `Unicode-3.0` | Unicode data license; used by `unicode-ident` (AND expression with MIT/Apache-2.0) |
+| `Apache-2.0 WITH LLVM-exception` | Apache-2.0 with LLVM linking exception; used by `wasi`, `wasmparser`, `wit-bindgen` |
 
----
+Any dependency whose license expression cannot be satisfied by the above identifiers requires an explicit exception documented in `deny.toml` and reviewed in the PR that introduces it.
 
-## Transitive Dependency Inventory
-
-All ~130 transitive packages are pulled in exclusively by `soroban-sdk` and
-`proptest`. No additional direct dependencies exist in the production build.
-
-<details>
-<summary>Full transitive dependency list (click to expand)</summary>
-
-| Crate | Version(s) |
-|-------|-----------|
-| addr2line | 0.25.1 |
-| adler2 | 2.0.1 |
-| android_system_properties | 0.1.5 |
-| arbitrary | 1.3.2 |
-| autocfg | 1.5.1 |
-| backtrace | 0.3.76 |
-| base16ct | 0.2.0 |
-| base32 | 0.4.0 |
-| base64 | 0.13.1, 0.22.1 |
-| base64ct | 1.8.3 |
-| bitflags | 2.11.1 |
-| block-buffer | 0.10.4 |
-| bs58 | 0.5.1 |
-| bumpalo | 3.20.3 |
-| bytes-lit | 0.0.5 |
-| cc | 1.2.62 |
-| cfg-if | 1.0.4 |
-| chrono | 0.4.44 |
-| const-oid | 0.9.6 |
-| core-foundation-sys | 0.8.7 |
-| cpufeatures | 0.2.17 |
-| crate-git-revision | 0.0.6 |
-| crypto-bigint | 0.5.5 |
-| crypto-common | 0.1.6 |
-| ctor | 0.2.9 |
-| curve25519-dalek | 4.1.3 |
-| curve25519-dalek-derive | 0.1.1 |
-| darling | 0.20.11, 0.23.0 |
-| darling_core | 0.20.11, 0.23.0 |
-| darling_macro | 0.20.11, 0.23.0 |
-| der | 0.7.10 |
-| deranged | 0.5.8 |
-| derive_arbitrary | 1.3.2 |
-| digest | 0.10.7 |
-| downcast-rs | 1.2.1 |
-| dyn-clone | 1.0.20 |
-| ecdsa | 0.16.9 |
-| ed25519 | 2.2.3 |
-| ed25519-dalek | 2.2.0 |
-| either | 1.16.0 |
-| elliptic-curve | 0.13.8 |
-| equivalent | 1.0.2 |
-| escape-bytes | 0.1.1 |
-| ethnum | 1.5.3 |
-| ff | 0.13.1 |
-| fiat-crypto | 0.2.9 |
-| find-msvc-tools | 0.1.9 |
-| fnv | 1.0.7 |
-| futures-core | 0.3.32 |
-| futures-task | 0.3.32 |
-| futures-util | 0.3.32 |
-| generic-array | 0.14.9 |
-| getrandom | 0.2.17, 0.3.4 |
-| gimli | 0.32.3 |
-| group | 0.13.0 |
-| hashbrown | 0.12.3, 0.17.1 |
-| hex | 0.4.3 |
-| hex-literal | 0.4.1 |
-| hmac | 0.12.1 |
-| iana-time-zone | 0.1.65 |
-| iana-time-zone-haiku | 0.1.2 |
-| ident_case | 1.0.1 |
-| indexmap | 1.9.3, 2.14.0 |
-| indexmap-nostd | 0.4.0 |
-| itertools | 0.11.0 |
-| itoa | 1.0.18 |
-| js-sys | 0.3.99 |
-| k256 | 0.13.4 |
-| keccak | 0.1.6 |
-| libc | 0.2.186 |
-| libm | 0.2.16 |
-| log | 0.4.30 |
-| memchr | 2.8.0 |
-| miniz_oxide | 0.8.9 |
-| num-bigint | 0.4.6 |
-| num-conv | 0.2.2 |
-| num-derive | 0.4.2 |
-| num-integer | 0.1.46 |
-| num-traits | 0.2.19 |
-| object | 0.37.3 |
-| once_cell | 1.21.4 |
-| p256 | 0.13.2 |
-| paste | 1.0.15 |
-| pin-project-lite | 0.2.17 |
-| pkcs8 | 0.10.2 |
-| powerfmt | 0.2.0 |
-| ppv-lite86 | 0.2.21 |
-| prettyplease | 0.2.37 |
-| primeorder | 0.13.6 |
-| proc-macro2 | 1.0.106 |
-| proptest | 1.11.0 |
-| quote | 1.0.45 |
-| r-efi | 5.3.0 |
-| rand | 0.8.6, 0.9.4 |
-| rand_chacha | 0.3.1, 0.9.0 |
-| rand_core | 0.6.4, 0.9.5 |
-| rand_xorshift | 0.4.0 |
-| ref-cast | 1.0.25 |
-| ref-cast-impl | 1.0.25 |
-| regex-syntax | 0.8.10 |
-| rfc6979 | 0.4.0 |
-| rustc-demangle | 0.1.27 |
-| rustc_version | 0.4.1 |
-| rustversion | 1.0.22 |
-| schemars | 0.9.0, 1.2.1 |
-| sec1 | 0.7.3 |
-| semver | 1.0.28 |
-| serde | 1.0.228 |
-| serde_core | 1.0.228 |
-| serde_derive | 1.0.228 |
-| serde_json | 1.0.150 |
-| serde_with | 3.20.0 |
-| serde_with_macros | 3.20.0 |
-| sha2 | 0.10.9 |
-| sha3 | 0.10.9 |
-| shlex | 1.3.0 |
-| signature | 2.2.0 |
-| slab | 0.4.12 |
-| smallvec | 1.15.1 |
-| soroban-builtin-sdk-macros | 21.2.1 |
-| soroban-env-common | 21.2.1 |
-| soroban-env-guest | 21.2.1 |
-| soroban-env-host | 21.2.1 |
-| soroban-env-macros | 21.2.1 |
-| soroban-ledger-snapshot | 21.7.7 |
-| soroban-sdk | 21.7.7 |
-| soroban-sdk-macros | 21.7.7 |
-| soroban-spec | 21.7.7 |
-| soroban-spec-rust | 21.7.7 |
-| soroban-wasmi | 0.31.1-soroban.20.0.1 |
-| spin | 0.9.8 |
-| spki | 0.7.3 |
-| static_assertions | 1.1.0 |
-| stellar-strkey | 0.0.8 |
-| stellar-xdr | 21.2.0 |
-| strsim | 0.11.1 |
-| subtle | 2.6.1 |
-| syn | 2.0.117 |
-| thiserror | 1.0.69 |
-| thiserror-impl | 1.0.69 |
-| time | 0.3.47 |
-| time-core | 0.1.8 |
-| time-macros | 0.2.27 |
-| tinyvec | 1.11.0 |
-| tinyvec_macros | 0.1.1 |
-| typenum | 1.20.0 |
-| unarray | 0.1.4 |
-| unicode-ident | 1.0.24 |
-| version_check | 0.9.5 |
-| wasi | 0.11.1+wasi-snapshot-preview1 |
-| wasip2 | 1.0.3+wasi-0.2.9 |
-| wasm-bindgen | 0.2.122 |
-| wasm-bindgen-macro | 0.2.122 |
-| wasm-bindgen-macro-support | 0.2.122 |
-| wasm-bindgen-shared | 0.2.122 |
-| wasmi_arena | 0.4.1 |
-| wasmi_core | 0.13.0 |
-| wasmparser | 0.116.1 |
-| wasmparser-nostd | 0.100.2 |
-| windows-core | 0.62.2 |
-| windows-implement | 0.60.2 |
-| windows-interface | 0.59.3 |
-| windows-link | 0.2.1 |
-| windows-result | 0.4.1 |
-| windows-strings | 0.5.1 |
-| wit-bindgen | 0.57.1 |
-| zerocopy | 0.8.48 |
-| zerocopy-derive | 0.8.48 |
-| zeroize | 1.8.2 |
-| zmij | 1.0.21 |
-
-</details>
+**Prohibited licenses** include (but are not limited to): GPL-2.0, GPL-3.0, AGPL-3.0, SSPL, and any other copyleft license that would impose obligations on TrustLink's users or downstream contracts.
 
 ---
 
-## Known CVEs and Mitigations
+## Running Security Checks Locally
 
-As of the last audit run, **no known CVEs affect TrustLink's dependency tree**.
-
-`cargo audit` is run in CI on every push and pull request (see [CI Audit Process](#ci-audit-process) below). The CI job is configured with `--deny warnings`, which causes the build to fail if any advisory — including informational ones — is reported against the resolved dependency set.
-
-The `Cargo.audit` file at the repository root is the authoritative record of any
-accepted advisories. It is currently empty, meaning no vulnerabilities have been
-accepted or suppressed.
-
----
-
-## CI Audit Process
-
-Security scanning is automated via `cargo-audit` in the CI pipeline.
-
-### How it runs
-
-The `audit` job in `.github/workflows/ci.yml` runs on every push and pull
-request:
-
-```yaml
-jobs:
-  audit:
-    name: Security Audit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: rustup show
-      - run: cargo audit --deny warnings
-```
-
-The `--deny warnings` flag treats every advisory — including low-severity and
-informational notices — as a build failure. A PR cannot be merged if any
-unacknowledged advisory exists in the dependency tree.
-
-### Running locally
-
-Install `cargo-audit` and run it from the repository root:
+Before submitting a PR, run:
 
 ```bash
-cargo install cargo-audit --locked
+# Check for known CVEs and yanked crates
 cargo audit
+
+# Check licenses, advisories, bans, and sources
+make deny
+# or equivalently:
+cargo deny check
 ```
 
-To also check against the accepted-advisory list in `Cargo.audit`:
+To run individual cargo-deny checks:
 
 ```bash
-cargo audit --config Cargo.audit
+cargo deny check licenses    # license compliance only
+cargo deny check advisories  # CVE/advisory check only
+cargo deny check bans        # duplicate and banned crate check only
+cargo deny check sources     # registry source check only
 ```
 
-### Accepting an advisory
+---
 
-If a reported advisory does not affect TrustLink's usage pattern, it can be
-accepted by adding an entry to `Cargo.audit`:
+## How Dependency Advisories Are Handled
+
+When `cargo audit` or `cargo deny check advisories` reports a vulnerability:
+
+1. **Assess impact** — determine whether the vulnerable code path is reachable from TrustLink's contract logic. Many advisories affect features (e.g. async, networking) that are not used in a `no_std` WASM contract.
+2. **Update the dependency** — run `cargo update -p <crate>` to pull in a patched version if one exists.
+3. **If no patch is available** — add the advisory ID to the `ignore` list in `deny.toml` with a documented reason and a tracking issue. Example:
+   ```toml
+   [advisories]
+   ignore = [
+       { id = "RUSTSEC-2024-XXXX", reason = "Affects async I/O path not present in WASM build; tracking #NNN" },
+   ]
+   ```
+4. **Never ignore a vulnerability silently** — every `ignore` entry must have a `reason` field.
+
+---
+
+## Duplicate Dependency Review
+
+`cargo deny check bans` warns when multiple versions of the same crate appear in the dependency graph. Duplicates increase binary size and can introduce subtle incompatibilities.
+
+When a new duplicate warning appears:
+
+1. Check whether `cargo update` can resolve it without breaking other constraints.
+2. If the duplicate is unavoidable (e.g. two major versions required by different upstream crates), add a `skip` entry to `deny.toml` with a documented reason:
+   ```toml
+   [bans]
+   skip = [
+       { name = "some-crate", reason = "upstream-a requires 1.x, upstream-b requires 2.x" },
+   ]
+   ```
+3. Review existing `skip` entries whenever `soroban-sdk` is upgraded — some duplicates may be resolved by a new SDK release and the corresponding `skip` entries should be removed.
+
+---
+
+## Banned Crates
+
+The `[bans] deny` list in `deny.toml` is currently empty. Add entries here for crates that must never appear in the dependency graph, for example:
 
 ```toml
-[[advisories]]
-id = "RUSTSEC-YYYY-NNNNN"
-reason = "Vulnerability does not affect our usage — <brief explanation>"
-date = "YYYY-MM-DD"
-reviewer = "github-username"
+[bans]
+deny = [
+    { name = "openssl", reason = "use rustls instead" },
+]
 ```
 
-Every accepted advisory **must** include a written justification and a reviewer.
-Entries are reviewed as part of the security audit process before mainnet
-deployment.
+---
+
+## Source Registry Policy
+
+All dependencies must come from the official crates.io registry. Git dependencies and private registries are denied by `cargo deny check sources`. If a git dependency is temporarily required (e.g. an unreleased patch), it must be:
+
+1. Approved in a PR with a documented reason.
+2. Added to `[sources] allow-git` in `deny.toml`.
+3. Replaced with a published crate version as soon as one is available.
 
 ---
 
-## Audit Configuration File
+## Adding New Dependencies
 
-**Location:** [`Cargo.audit`](../Cargo.audit) (repository root)
+When adding a new dependency:
 
-**Format:** TOML, parsed by `cargo-audit`.
-
-**Current state:** No accepted advisories. The file contains only the format
-documentation and an example entry.
-
-There is no `deny.toml` (cargo-deny) configuration in this repository. If
-license compliance or dependency graph policy enforcement is needed in the
-future, `cargo-deny` can be added alongside `cargo-audit`.
+1. Prefer crates with `MIT` or `Apache-2.0` licenses.
+2. Run `cargo deny check` before committing to confirm the new crate does not introduce a license violation, advisory, or banned crate.
+3. If the crate introduces a new license identifier, add it to the `allow` list in `deny.toml` with a comment explaining which crate requires it.
+4. Avoid adding dependencies with known security advisories. If unavoidable, document the reason in `deny.toml`.
 
 ---
 
-## Dependency Security Posture
+## Dependency Updates
 
-| Property | Status |
-|----------|--------|
-| Direct production dependencies | 1 (`soroban-sdk`) |
-| Dev-only dependencies | 2 (`soroban-sdk` testutils, `proptest`) |
-| Known CVEs in dependency tree | None |
-| Accepted/suppressed advisories | None |
-| Automated scanning | ✅ `cargo audit --deny warnings` on every PR |
-| Cargo.lock committed | ✅ Reproducible builds enforced |
-| Rust toolchain pinned | ✅ `rust-toolchain.toml` (stable channel) |
-| `no_std` contract binary | ✅ WASM target excludes std library |
+- Run `cargo update` periodically (at minimum before each release) to pull in patch-level fixes.
+- After updating, re-run `make deny` and `cargo audit` to confirm no new advisories were introduced.
+- Major version upgrades require a PR with a changelog review.
+- `soroban-sdk` upgrades should be treated as high-priority since they affect the entire dependency tree.
 
-### Why the dependency surface is small
+---
 
-TrustLink targets `wasm32-unknown-unknown` with `#![no_std]`. The Soroban
-runtime provides all host functions (storage, crypto, ledger time). This means:
+## CI Integration
 
-- No networking, filesystem, or OS dependencies in the production binary.
-- No TLS, HTTP, or database crates.
-- The transitive dependency tree is entirely determined by `soroban-sdk`, which
-  is maintained by the Stellar Development Foundation and audited as part of the
-  Soroban platform.
+The CI pipeline (`ci.yml`) runs `cargo audit --deny warnings` in a dedicated `audit` job on every push and pull request. `cargo deny` is not yet in CI — add it by inserting a step after the audit job:
 
-The `proptest` dependency and all `soroban-sdk` testutils packages are
-**dev-only** — they are compiled into the test binary but are never included in
-the deployed WASM artifact.
+```yaml
+- name: Run cargo-deny
+  run: cargo deny check
+```
+
+Until then, run `make deny` locally before every PR.
+
+---
+
+## Exception Management
+
+All exceptions to the default policy (ignored advisories, permitted duplicate versions, non-standard licenses) must be:
+
+1. Documented in `deny.toml` with a `reason` field.
+2. Reviewed in the PR that introduces them.
+3. Re-evaluated on each `soroban-sdk` upgrade or quarterly, whichever comes first.
+4. Removed as soon as the underlying issue is resolved (patch released, duplicate resolved, etc.).
+
+---
+
+## Quick Reference
+
+| Task | Command |
+|---|---|
+| Check for CVEs | `cargo audit` |
+| Full policy check | `make deny` |
+| Licenses only | `cargo deny check licenses` |
+| Advisories only | `cargo deny check advisories` |
+| Bans/duplicates only | `cargo deny check bans` |
+| Sources only | `cargo deny check sources` |
+| Update all deps | `cargo update` |
+| Install cargo-deny | `cargo install --locked cargo-deny` |
+| Install cargo-audit | `cargo install --locked cargo-audit` |

@@ -11,6 +11,8 @@ TypeScript SDK for the [TrustLink](https://github.com/afurious/TrustLink) on-cha
 npm install @trustlink/sdk @stellar/stellar-sdk
 ```
 
+The package is published to npm as [`@trustlink/sdk`](https://www.npmjs.com/package/@trustlink/sdk) with npm provenance attestation enabled.
+
 **Requirements:**
 - Node.js 16.0.0 or higher
 - @stellar/stellar-sdk 12.0.0 or higher
@@ -96,8 +98,12 @@ const issued = await client.getIssuerAttestations(issuer, 0, 10);
 // All valid claim IDs for a subject
 const validClaims = await client.getValidClaims(subject);
 
-// Attestations by tag
-const tagged = await client.getAttestationsByTag(subject, "premium");
+// Attestations by tag (paginated)
+const tagged = await client.getAttestationsByTag(subject, "premium");          // first 20 (default)
+const page2  = await client.getAttestationsByTag(subject, "premium", 20, 20); // next 20
+
+// Attestations by jurisdiction (paginated)
+const euAtts = await client.getAttestationsByJurisdiction(subject, "EU", 0, 10);
 
 // Audit log for an attestation
 const log = await client.getAuditLog(attestationId);
@@ -135,6 +141,15 @@ for await (const a of client.iterateSubjectAttestations(subject, 50)) {
 }
 ```
 
+Iteration stops as soon as a page returns fewer items than `pageSize` (not only
+when it returns zero). This means the generator handles mid-iteration deletions
+gracefully — it will not hang waiting for a page that will never be full.
+
+```typescript
+// iterateSubjectAttestations(subject: string, pageSize?: number): AsyncGenerator<Attestation>
+// iterateIssuerAttestations(issuer: string, pageSize?: number): AsyncGenerator<Attestation>
+```
+
 ### Count Queries
 
 ```typescript
@@ -160,6 +175,17 @@ await client.getClaimTypeDescription("KYC_PASSED");
 await client.listClaimTypes(0, 20);
 ```
 
+### Delegation
+
+```typescript
+const delegation = await client.getDelegation(
+  delegatorAddress,
+  delegateAddress,
+  "KYC_PASSED"
+);
+// delegation is either null or { delegator, delegate, claim_type, expiration }
+```
+
 ### Multi-Sig Proposals
 
 ```typescript
@@ -183,8 +209,22 @@ await client.isPaused();
 await client.healthCheck();
 await client.getGlobalStats();
 await client.getContractMetadata();
-await client.getConfig();
+await client.getConfig();      // Returns ContractConfig: TTL, limits, and fee config in one call
 await client.getFeeConfig();
+```
+
+`getConfig()` returns a `ContractConfig` object combining TTL settings, storage limits, and fee
+configuration in a single RPC call — useful for admin dashboards that would otherwise need three
+separate calls:
+
+```typescript
+const config = await client.getConfig();
+// config.ttl_config.ttl_days                        — attestation TTL in days
+// config.limits.max_attestations_per_issuer         — issuer storage cap
+// config.limits.max_attestations_per_subject        — subject storage cap
+// config.fee_config.attestation_fee                 — fee amount (0 = disabled)
+// config.fee_config.fee_collector                   — collector address
+// config.fee_config.fee_token                       — fee token contract address or null
 ```
 
 ## TypeScript Types

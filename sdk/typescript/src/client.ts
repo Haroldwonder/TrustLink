@@ -19,6 +19,7 @@ import type {
   ClaimTypeInfo,
   ContractConfig,
   ContractMetadata,
+  Delegation,
   Endorsement,
   FeeConfig,
   GlobalStats,
@@ -78,8 +79,14 @@ export class TrustLinkClient {
 
     this.server = new SorobanRpc.Server(this.rpcUrl, { allowHttp: true });
     this.contract = new Contract(contractId);
-    this.retryOptions = options.retry ?? {};
-    this.breaker = new CircuitBreaker(options.circuitBreaker ?? {});
+    const res = options.resilience ?? {};
+    this.retryOptions = options.retry ?? {
+      maxAttempts: res.maxRetries,
+      initialDelayMs: res.backoffMs,
+    };
+    this.breaker = new CircuitBreaker(options.circuitBreaker ?? {
+      failureThreshold: res.circuitBreakerThreshold,
+    });
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
@@ -153,6 +160,10 @@ export class TrustLinkClient {
 
   async getAdmin(): Promise<string> {
     return this.simulate("get_admin");
+  }
+
+  async getAdminCouncil(): Promise<string[]> {
+    return this.simulate("get_admin_council");
   }
 
   async getVersion(): Promise<string> {
@@ -229,6 +240,21 @@ export class TrustLinkClient {
     return this.simulate("list_claim_types", this.u32(start), this.u32(limit));
   }
 
+  // ── Delegation Queries ────────────────────────────────────────────────────
+
+  async getDelegation(
+    delegator: string,
+    delegate: string,
+    claimType: string
+  ): Promise<Delegation | null> {
+    return this.simulate(
+      "get_delegation",
+      this.addr(delegator),
+      this.addr(delegate),
+      this.str(claimType)
+    );
+  }
+
   // ── Attestation Queries ────────────────────────────────────────────────────
 
   async getAttestation(attestationId: string): Promise<Attestation> {
@@ -276,11 +302,35 @@ export class TrustLinkClient {
     );
   }
 
-  async getAttestationsByTag(subject: string, tag: string): Promise<string[]> {
-    return this.simulate(
+  async getAttestationsByTag(subject: string, tag: string, start = 0, limit = 20): Promise<string[]> {
+    const all = await this.simulate<string[]>(
       "get_attestations_by_tag",
       this.addr(subject),
       this.str(tag)
+    );
+    return all.slice(start, start + limit);
+  }
+
+  /**
+   * Returns a paginated list of attestation IDs for a subject filtered by jurisdiction.
+   *
+   * @param subject     - Stellar address of the subject.
+   * @param jurisdiction - Jurisdiction code to filter by (e.g. "US", "EU").
+   * @param start       - Zero-based page offset.
+   * @param limit       - Maximum number of IDs to return.
+   */
+  async getAttestationsByJurisdiction(
+    subject: string,
+    jurisdiction: string,
+    start: number,
+    limit: number
+  ): Promise<string[]> {
+    return this.simulate(
+      "get_attestations_by_jurisdiction",
+      this.addr(subject),
+      this.str(jurisdiction),
+      this.u32(start),
+      this.u32(limit)
     );
   }
 
@@ -336,13 +386,17 @@ export class TrustLinkClient {
     claimType: string,
     minTier: IssuerTier
   ): Promise<boolean> {
-    const tierMap: Record<IssuerTier, number> = { Basic: 0, Verified: 1, Premium: 2 };
+    // IssuerTier is a Soroban #[contracttype] enum — encode as ScVec([ScSymbol(variant)])
     return this.simulate(
       "has_valid_claim_from_tier",
       this.addr(subject),
       this.str(claimType),
-      nativeToScVal(tierMap[minTier], { type: "u32" })
+      xdr.ScVal.scvVec([xdr.ScVal.scvSymbol(minTier)])
     );
+  }
+
+  async getClaimTypeCount(claimType: string): Promise<bigint> {
+    return this.simulate("get_claim_type_count", this.str(claimType));
   }
 
   // ── Count Queries ──────────────────────────────────────────────────────────
@@ -492,6 +546,21 @@ export class TrustLinkClient {
 
   async getEndorsementCount(attestationId: string): Promise<number> {
     return this.simulate("get_endorsement_count", this.str(attestationId));
+  }
+
+  // ── Issue #530: Template management ───────────────────────────────────────
+
+  async getTemplate(issuer: string, templateId: string): Promise<import("./types").AttestationTemplate> {
+    return this.simulate("get_template", this.addr(issuer), this.str(templateId));
+  }
+
+  async listEndorsementsByEndorser(endorser: string, start: number, limit: number): Promise<Endorsement[]> {
+    return this.simulate("list_endorsements_by_endorser", this.addr(endorser), this.u32(start), this.u32(limit));
+  }
+
+  async bulkAddToWhitelist(issuer: string, subjects: string[]): Promise<void> {
+    const subjectsVal = xdr.ScVal.scvVec(subjects.map(s => this.addr(s)));
+    return this.simulate("bulk_add_to_whitelist", this.addr(issuer), subjectsVal);
   }
 
   // ── Pagination Helpers ─────────────────────────────────────────────────────

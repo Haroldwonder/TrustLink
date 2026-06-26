@@ -60,6 +60,10 @@ async function main() {
   const page = await client.getSubjectAttestations(USER_ADDRESS, 0, 5);
   console.log(`First page (up to 5):`, page);
 
+  // Attestations filtered by jurisdiction
+  const euAttestations = await client.getAttestationsByJurisdiction(USER_ADDRESS, "EU", 0, 10);
+  console.log(`EU-jurisdiction attestations:`, euAttestations);
+
   // ── Pagination helpers ──────────────────────────────────────────────────
   console.log("\n=== Pagination Helpers ===");
 
@@ -79,6 +83,17 @@ async function main() {
   }
   console.log(`All issuer attestations (${allIssuerAttestations.length} total):`, allIssuerAttestations);
 
+  // ── Tag-based filtering ──────────────────────────────────────────────────
+  console.log("\n=== Attestations by Tag ===");
+
+  // Fetch the first page of attestations tagged "kyc" for a subject
+  const taggedPage1 = await client.getAttestationsByTag(USER_ADDRESS, "kyc", 0, 10);
+  console.log("Tagged 'kyc' (page 1):", taggedPage1);
+
+  // Fetch the second page
+  const taggedPage2 = await client.getAttestationsByTag(USER_ADDRESS, "kyc", 10, 10);
+  console.log("Tagged 'kyc' (page 2):", taggedPage2);
+
   // ── Claim type registry ──────────────────────────────────────────────────
   console.log("\n=== Claim Types ===");
   const claimTypes = await client.listClaimTypes(0, 20);
@@ -88,6 +103,37 @@ async function main() {
     const desc = await client.getClaimTypeDescription(ct);
     console.log(`  ${ct}: ${desc}`);
   }
+
+  // ── Tier-gated claim verification (Issue #531) ──────────────────────────
+  console.log("\n=== Tier-Gated Claim Verification ===");
+
+  // Check if the subject holds a KYC_PASSED claim issued by a Verified or
+  // higher-tier issuer. Useful for applications that require a minimum level
+  // of trust in the attestation source.
+  const hasVerifiedKyc = await client.hasValidClaimFromTier(
+    USER_ADDRESS,
+    "KYC_PASSED",
+    "Verified"
+  );
+  console.log(`Has KYC_PASSED from Verified+ issuer: ${hasVerifiedKyc}`);
+
+  const hasPremiumKyc = await client.hasValidClaimFromTier(
+    USER_ADDRESS,
+    "KYC_PASSED",
+    "Premium"
+  );
+  console.log(`Has KYC_PASSED from Premium issuer: ${hasPremiumKyc}`);
+
+  // ── Claim type analytics (Issue #532) ────────────────────────────────────
+  console.log("\n=== Claim Type Analytics ===");
+
+  // Query the total number of active attestations for a given claim type.
+  // Useful for dashboards and capacity planning.
+  const kycCount = await client.getClaimTypeCount("KYC_PASSED");
+  console.log(`Total active KYC_PASSED attestations: ${kycCount}`);
+
+  const amlCount = await client.getClaimTypeCount("AML_CLEARED");
+  console.log(`Total active AML_CLEARED attestations: ${amlCount}`);
 
   // ── Error handling ───────────────────────────────────────────────────────
   console.log("\n=== Error Handling ===");

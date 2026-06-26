@@ -178,7 +178,86 @@ Show: running `cargo test` with a test that mocks TrustLink.
 
 ---
 
-## Section 6 — JavaScript / TypeScript Integration (10:30 – 12:30)
+## Section 5.5 — Multi-Sig Attestations (10:30 – 12:00)
+
+> "For high-value claims like `ACCREDITED_INVESTOR`, TrustLink supports M-of-N multi-sig attestations. Instead of one issuer acting alone, multiple registered issuers must co-sign before the attestation becomes active."
+
+Show terminal — propose a 2-of-3 attestation:
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --network testnet \
+  --source ISSUER_A_SECRET \
+  -- propose_attestation \
+  --proposer ISSUER_A_PUBLIC_KEY \
+  --subject SUBJECT_PUBLIC_KEY \
+  --claim_type ACCREDITED_INVESTOR \
+  --required_signers '[{"address":"ISSUER_A_PUBLIC_KEY"},{"address":"ISSUER_B_PUBLIC_KEY"},{"address":"ISSUER_C_PUBLIC_KEY"}]' \
+  --threshold 2
+```
+
+> "The proposer counts as the first signer. Copy the proposal ID from the output."
+
+```bash
+# issuer_b co-signs — threshold of 2 is now reached
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --network testnet \
+  --source ISSUER_B_SECRET \
+  -- cosign_attestation \
+  --issuer ISSUER_B_PUBLIC_KEY \
+  --proposal_id <PROPOSAL_ID>
+```
+
+> "Once the threshold is reached the attestation is automatically finalized and stored. Let's verify."
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --network testnet \
+  -- has_valid_claim \
+  --subject SUBJECT_PUBLIC_KEY \
+  --claim_type ACCREDITED_INVESTOR
+```
+
+Show output: `true`
+
+> "You can also inspect the proposal to see who has signed and whether it's been finalized."
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --network testnet \
+  -- get_multisig_proposal \
+  --proposal_id <PROPOSAL_ID>
+```
+
+> "Proposals expire after 7 days if the threshold isn't reached — protecting against stale partial approvals."
+
+Show the equivalent Rust snippet:
+
+```rust
+let mut required_signers = soroban_sdk::Vec::new(&env);
+required_signers.push_back(issuer_a.clone());
+required_signers.push_back(issuer_b.clone());
+required_signers.push_back(issuer_c.clone());
+
+let proposal_id = contract.propose_attestation(
+    &issuer_a,
+    &user_address,
+    &String::from_str(&env, "ACCREDITED_INVESTOR"),
+    &required_signers,
+    &2, // threshold
+);
+
+contract.cosign_attestation(&issuer_b, &proposal_id);
+assert!(contract.has_valid_claim(&user_address, &String::from_str(&env, "ACCREDITED_INVESTOR")));
+```
+
+---
+
+## Section 6 — JavaScript / TypeScript Integration (12:00 – 14:00)
 
 > "If you're building a frontend, here's how to check a claim with the Stellar SDK."
 
@@ -208,7 +287,7 @@ async function hasValidClaim(subject: string, claimType: string): Promise<boolea
 
 ---
 
-## Outro (12:30 – 13:30)
+## Outro (14:00 – 15:00)
 
 > "That's TrustLink end to end: deploy, issue attestations, and verify them from both Rust contracts and TypeScript frontends."
 

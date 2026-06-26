@@ -376,7 +376,9 @@
                           "key": {
                             "symbol": "details"
                           },
-                          "val": "void"
+                          "val": {
+                            "string": "2592000"
+                          }
                         },
                         {
                           "key": {
@@ -1408,7 +1410,9 @@
                       "key": {
                         "symbol": "details"
                       },
-                      "val": "void"
+                      "val": {
+                        "string": "2592000"
+                      }
                     },
                     {
                       "key": {

@@ -22,10 +22,11 @@ pub struct KycTokenContract;
 #[contractimpl]
 impl KycTokenContract {
     pub fn initialize(env: Env, admin: Address, trustlink_contract: Address) {
+        // FINDING-001: auth must be the first operation, before any storage read.
+        admin.require_auth();
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("already initialized");
         }
-        admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::TrustLink, &trustlink_contract);
     }
@@ -225,4 +226,40 @@ mod test {
         let result = token_client.try_transfer(&sender, &recipient, &100);
         assert!(result.is_err());
     }
-}
+
+    // ── Mock for expiration simulation ────────────────────────────────────────
+
+    #[contract]
+    struct MockTrustLinkExpired;
+
+    #[contractimpl]
+    impl MockTrustLinkExpired {
+        /// Always returns false, simulating an expired (invalid) attestation.
+        pub fn has_valid_claim(_env: Env, _subject: Address, _claim_type: String) -> bool {
+            false
+        }
+    }
+
+    #[test]
+    fn transfer_blocked_when_kyc_expired() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        // Register the "expired KYC" mock — has_valid_claim always returns false,
+        // which is what the real contract returns when an attestation is past its expiration.
+        let trustlink_id = env.register(MockTrustLinkExpired, ());
+        let token_id = env.register(KycTokenContract, ());
+        let token_client = KycTokenContractClient::new(&env, &token_id);
+
+        token_client.initialize(&admin, &trustlink_id);
+
+        let sender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+
+        token_client.mint(&sender, &500);
+
+        // Both sender and recipient have "expired" KYC — transfer must be blocked.
+        let result = token_client.try_transfer(&sender, &recipient, &100);
+        assert!(result.is_err());
+    }

@@ -917,6 +917,42 @@ fn test_bridge_attestation_rejects_source_tx_too_long() {
 }
 
 #[test]
+fn test_bridge_attestation_rejects_empty_source_chain() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let source_chain = String::from_str(&env, "");
+    let source_tx = String::from_str(&env, "0xabc123");
+
+    client.register_bridge(&admin, &bridge);
+    let result = client.try_bridge_attestation(&bridge, &subject, &claim_type, &source_chain, &source_tx);
+
+    assert_eq!(result, Err(Ok(types::Error::InvalidSourceReference)));
+}
+
+#[test]
+fn test_bridge_attestation_rejects_empty_source_tx() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let source_chain = String::from_str(&env, "ethereum");
+    let source_tx = String::from_str(&env, "");
+
+    client.register_bridge(&admin, &bridge);
+    let result = client.try_bridge_attestation(&bridge, &subject, &claim_type, &source_chain, &source_tx);
+
+    assert_eq!(result, Err(Ok(types::Error::InvalidSourceReference)));
+}
+
+#[test]
 fn test_bridge_attestation_emits_event() {
     let env = Env::default();
     env.mock_all_auths();
@@ -2200,9 +2236,11 @@ fn test_audit_log_renew_appends_entry() {
     let log = client.get_audit_log(&id);
 
     assert_eq!(log.len(), 2);
+    let renewed_entry = log.get(1).unwrap();
+    assert_eq!(renewed_entry.action, crate::types::AuditAction::Renewed);
     assert_eq!(
-        log.get(1).unwrap().action,
-        crate::types::AuditAction::Renewed
+        renewed_entry.details,
+        Some(soroban_sdk::String::from_str(&env, "2592000"))
     );
 }
 
@@ -2441,6 +2479,32 @@ fn test_error_already_initialized() {
     client.initialize(&admin, &None);
     let result = client.try_initialize(&admin, &None);
     assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
+}
+
+/// FINDING-001: a second `initialize()` call from ANY address (not just the
+/// original admin) must be rejected before any state mutation occurs.
+#[test]
+fn test_second_initialize_from_any_address_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    let (_, client) = create_test_contract(&env);
+
+    // First initialization establishes `admin` as the sole admin.
+    client.initialize(&admin, &None);
+
+    // A second initialize from a different (arbitrary) address is rejected.
+    let result = client.try_initialize(&attacker, &None);
+    assert_eq!(result, Err(Ok(Error::AlreadyInitialized)));
+
+    // No state was mutated: the admin council is unchanged and the attacker
+    // was never added as an admin.
+    assert_eq!(client.get_admin(), admin);
+    let council = client.get_admin_council();
+    assert_eq!(council.len(), 1);
+    assert_eq!(council.get(0).unwrap(), admin);
 }
 
 #[test]
@@ -7007,6 +7071,24 @@ mod delegation_tests {
     }
 
     #[test]
+    fn get_delegation_returns_none_before_grant_and_some_after() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, issuer, delegate, _, client) = setup(&env);
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        assert_eq!(client.get_delegation(&issuer, &delegate, &claim), None);
+
+        client.delegate_claim_type(&issuer, &delegate, &claim, &None);
+
+        let delegation = client.get_delegation(&issuer, &delegate, &claim);
+        assert_eq!(delegation.as_ref().map(|d| d.delegator.clone()), Some(issuer));
+        assert_eq!(delegation.as_ref().map(|d| d.delegate.clone()), Some(delegate));
+        assert_eq!(delegation.as_ref().map(|d| d.claim_type.clone()), Some(claim));
+        assert_eq!(delegation.as_ref().and_then(|d| d.expiration), None);
+    }
+
+    #[test]
     fn expired_delegation_rejects_delegate() {
         let env = Env::default();
         env.mock_all_auths();
@@ -7139,6 +7221,32 @@ mod delegation_tests {
         let page2 = client.list_delegations_by_delegator(&issuer, &2, &2);
         assert_eq!(page1.len(), 2);
         assert_eq!(page2.len(), 1);
+    }
+
+    #[test]
+    fn revoke_delegation_all_clears_all_delegations() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, issuer, delegate, subject, client) = setup(&env);
+        let claim1 = String::from_str(&env, "KYC_PASSED");
+        let claim2 = String::from_str(&env, "AML_CLEARED");
+
+        // Grant two delegations
+        client.delegate_claim_type(&issuer, &delegate, &claim1, &None);
+        client.delegate_claim_type(&issuer, &delegate, &claim2, &None);
+
+        // Revoke all at once
+        client.revoke_delegation_all(&issuer);
+
+        // Both delegations are gone
+        assert_eq!(client.get_delegation(&issuer, &delegate, &claim1), None);
+        assert_eq!(client.get_delegation(&issuer, &delegate, &claim2), None);
+
+        // Subsequent delegate calls are rejected
+        let result = client.try_create_attestation_as_delegate(
+            &delegate, &issuer, &subject, &claim1, &None, &None,
+        );
+        assert_eq!(result, Err(Ok(Error::Unauthorized)));
     }
 }
 
@@ -7727,7 +7835,7 @@ mod claim_type_requirement_tests {
         let (_admin, _issuer, _subject, client) = setup(&env);
 
         // By default, should be false
-        assert_eq!(client.get_require_registered_claim_type(), false);
+        assert_eq!(client.get_registered_claim_type(), false);
     }
 
     #[test]
@@ -7743,13 +7851,13 @@ mod claim_type_requirement_tests {
     }
 
     #[test]
-    fn test_set_require_registered_claim_type_admin_only() {
+    fn test_set_registered_claim_type_admin_only() {
         let env = Env::default();
         env.mock_all_auths();
         let (admin, _issuer, _subject, client) = setup(&env);
 
         let non_admin = Address::generate(&env);
-        let result = client.try_set_require_registered_claim_type(&non_admin, &true);
+        let result = client.try_set_registered_claim_type(&non_admin, &true);
         assert_eq!(result, Err(Ok(types::Error::Unauthorized)));
     }
 
@@ -7759,8 +7867,8 @@ mod claim_type_requirement_tests {
         env.mock_all_auths();
         let (admin, _issuer, _subject, client) = setup(&env);
 
-        client.set_require_registered_claim_type(&admin, &true);
-        assert_eq!(client.get_require_registered_claim_type(), true);
+        client.set_registered_claim_type(&admin, &true);
+        assert_eq!(client.get_registered_claim_type(), true);
     }
 
     #[test]
@@ -7770,12 +7878,12 @@ mod claim_type_requirement_tests {
         let (admin, _issuer, _subject, client) = setup(&env);
 
         // Enable it first
-        client.set_require_registered_claim_type(&admin, &true);
-        assert_eq!(client.get_require_registered_claim_type(), true);
+        client.set_registered_claim_type(&admin, &true);
+        assert_eq!(client.get_registered_claim_type(), true);
 
         // Then disable it
-        client.set_require_registered_claim_type(&admin, &false);
-        assert_eq!(client.get_require_registered_claim_type(), false);
+        client.set_registered_claim_type(&admin, &false);
+        assert_eq!(client.get_registered_claim_type(), false);
     }
 
     #[test]
@@ -7785,7 +7893,7 @@ mod claim_type_requirement_tests {
         let (admin, issuer, subject, client) = setup(&env);
 
         // Enable the requirement
-        client.set_require_registered_claim_type(&admin, &true);
+        client.set_registered_claim_type(&admin, &true);
 
         // Try to create attestation with unregistered claim type
         let unregistered = String::from_str(&env, "UNREGISTERED_CLAIM");
@@ -7805,7 +7913,7 @@ mod claim_type_requirement_tests {
         client.register_claim_type(&admin, &claim_type, &description);
 
         // Enable the requirement
-        client.set_require_registered_claim_type(&admin, &true);
+        client.set_registered_claim_type(&admin, &true);
 
         // Create attestation with registered claim type should succeed
         let id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
@@ -7828,7 +7936,7 @@ mod claim_type_requirement_tests {
         client.register_claim_type(&admin, &claim3, &String::from_str(&env, "Merchant"));
 
         // Enable the requirement
-        client.set_require_registered_claim_type(&admin, &true);
+        client.set_registered_claim_type(&admin, &true);
 
         // All registered types should work
         let id1 = client.create_attestation(&issuer, &subject, &claim1, &None, &None, &None);
@@ -7859,12 +7967,12 @@ mod claim_type_requirement_tests {
         assert!(!id1.is_empty());
 
         // Enable requirement - should fail
-        client.set_require_registered_claim_type(&admin, &true);
+        client.set_registered_claim_type(&admin, &true);
         let result = client.try_create_attestation(&issuer, &subject, &unregistered, &None, &None, &None);
         assert_eq!(result, Err(Ok(types::Error::InvalidClaimType)));
 
         // Disable requirement - should work again
-        client.set_require_registered_claim_type(&admin, &false);
+        client.set_registered_claim_type(&admin, &false);
         let id2 = client.create_attestation(&issuer, &subject, &unregistered, &None, &None, &None);
         assert!(!id2.is_empty());
     }
@@ -7880,7 +7988,7 @@ mod claim_type_requirement_tests {
         client.register_claim_type(&admin, &registered, &String::from_str(&env, "Registered"));
 
         // Enable requirement
-        client.set_require_registered_claim_type(&admin, &true);
+        client.set_registered_claim_type(&admin, &true);
 
         // Create subjects
         let subject1 = Address::generate(&env);
@@ -8154,5 +8262,119 @@ mod get_valid_claims_tests {
         let claims = client.get_valid_claims(&subject);
         assert_eq!(claims.len(), 1);
         assert_eq!(claims.get(0).unwrap(), claim_type);
+    }
+}
+
+#[cfg(test)]
+mod global_stats_tests {
+    use super::*;
+
+    /// Test global stats tracking across mixed operations:
+    /// - N=5 attestation creates
+    /// - M=3 revocations  
+    /// - K=2 issuer registrations
+    /// Asserts that total_attestations == N, total_revocations == M, total_issuers == K
+    #[test]
+    fn test_global_stats_mixed_operations() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (admin, issuer, client) = setup(&env);
+        
+        // Verify initial state: 1 issuer from setup, 0 attestations, 0 revocations
+        let initial_stats = client.get_global_stats();
+        assert_eq!(initial_stats.total_issuers, 1, "Setup should have created 1 issuer");
+        assert_eq!(initial_stats.total_attestations, 0, "Should start with 0 attestations");
+        assert_eq!(initial_stats.total_revocations, 0, "Should start with 0 revocations");
+
+        // ---- Create N=5 attestations ----
+        let n_creates = 5u32;
+        let mut attestation_ids = Vec::new();
+        let claim_type = String::from_str(&env, "KYC_PASSED");
+        let future_expiration = env.ledger().timestamp() + 86400;
+
+        for i in 0..n_creates {
+            let subject = Address::generate(&env);
+            let id = client.create_attestation(
+                &issuer,
+                &subject,
+                &claim_type,
+                &Some(future_expiration),
+                &None,
+                &None,
+            );
+            attestation_ids.push(id);
+        }
+
+        // Verify stats after creates: total_attestations == 5
+        let stats_after_creates = client.get_global_stats();
+        assert_eq!(
+            stats_after_creates.total_attestations,
+            n_creates as u64,
+            "Should have {} attestations after creates",
+            n_creates
+        );
+        assert_eq!(
+            stats_after_creates.total_revocations, 0,
+            "Should still have 0 revocations"
+        );
+
+        // ---- Revoke M=3 of the attestations ----
+        let m_revocations = 3u32;
+        for i in 0..m_revocations {
+            client.revoke_attestation(&issuer, &attestation_ids.get(i as usize).unwrap(), &None);
+        }
+
+        // Verify stats after revocations: total_revocations == 3, total_attestations unchanged
+        let stats_after_revocations = client.get_global_stats();
+        assert_eq!(
+            stats_after_revocations.total_attestations,
+            n_creates as u64,
+            "Total attestations should remain {} after revocations",
+            n_creates
+        );
+        assert_eq!(
+            stats_after_revocations.total_revocations,
+            m_revocations as u64,
+            "Should have {} revocations",
+            m_revocations
+        );
+        assert_eq!(
+            stats_after_revocations.total_issuers, 1,
+            "Should still have only 1 issuer"
+        );
+
+        // ---- Register K=2 new issuers ----
+        let k_new_issuers = 2u32;
+        for _ in 0..k_new_issuers {
+            let new_issuer = Address::generate(&env);
+            client.register_issuer(&admin, &new_issuer);
+        }
+
+        // ---- Final assertion: verify all stats match expected values ----
+        let final_stats = client.get_global_stats();
+        
+        // N = 5 creates
+        assert_eq!(
+            final_stats.total_attestations, n_creates as u64,
+            "Final total_attestations must equal N={} creates",
+            n_creates
+        );
+        
+        // M = 3 revocations
+        assert_eq!(
+            final_stats.total_revocations, m_revocations as u64,
+            "Final total_revocations must equal M={} revocations",
+            m_revocations
+        );
+        
+        // K+1 = 3 total issuers (1 from setup + 2 new)
+        let expected_total_issuers = 1 + k_new_issuers;
+        assert_eq!(
+            final_stats.total_issuers, expected_total_issuers as u64,
+            "Final total_issuers must equal {} (1 from setup + {} new)",
+            expected_total_issuers,
+            k_new_issuers
+        );
     }
 }

@@ -41,7 +41,7 @@ TrustLink is designed with security as a first-class concern. Before mainnet dep
 
 Three security findings were identified in the pre-audit review and must be resolved before mainnet deployment:
 
-1. **FINDING-001 [MEDIUM]:** `initialize()` state read before auth
+1. **FINDING-001 [MEDIUM]:** `initialize()` state read before auth — ✅ resolved (`require_auth()` is now the first operation in `initialize()`)
 2. **FINDING-002 [HIGH]:** `revoke_attestation()` missing `require_issuer` check
 3. **FINDING-003 [HIGH]:** `update_expiration()` missing `require_issuer` check
 
@@ -866,7 +866,7 @@ For the pre-mainnet line-by-line authorization audit, see
 - **Payment Systems**: Verify merchant credentials
 - **Governance**: Validate voter eligibility
 - **Marketplaces**: Confirm seller reputation
-- **Insurance**: Verify policyholder identity
+- **Insurance**: Verify policyholder identity — see [examples/insurance/README.md](examples/insurance/README.md)
 - **Stellar Anchors**: End-to-end anchor KYC attestation flow example in [examples/anchor-integration/README.md](examples/anchor-integration/README.md)
 - **Soroban Tokens**: KYC-restricted token transfer example in [examples/kyc-token/README.md](examples/kyc-token/README.md)
 - **DAO Governance**: Voter eligibility-gated voting example in [examples/governance/README.md](examples/governance/README.md)
@@ -1031,6 +1031,10 @@ Key design choices are documented as ADRs in [docs/adr/](docs/adr/):
 | [ADR-002](docs/adr/ADR-002-persistent-storage.md) | Persistent storage instead of temporary storage  |
 | [ADR-003](docs/adr/ADR-003-immutable-history.md)  | Immutable attestation history (no delete)        |
 | [ADR-004](docs/adr/ADR-004-dual-indexes.md)       | Separate issuer and subject indexes              |
+| [ADR-006](docs/adr/ADR-006-multi-issuer-or-logic.md) | OR-logic across issuers in `has_valid_claim` |
+| [ADR-007](docs/adr/ADR-007-attestation-requests.md) | Pull-based attestation request workflow        |
+| [ADR-008](docs/adr/ADR-008-rate-limiting.md)      | Rate limiting design and known limitations       |
+| [ADR-009](docs/adr/ADR-009-delegation-model.md)   | Delegation model and trust chain implications    |
 
 A blank [template](docs/adr/ADR-000-template.md) is available for new decisions.
 

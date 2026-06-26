@@ -11,6 +11,22 @@ use crate::validation::Validation;
 pub const MAX_SOURCE_CHAIN_LEN: u32 = 32;
 pub const MAX_SOURCE_TX_LEN: u32 = 128;
 
+/// Convert a `u64` to a Soroban `String` without `std` (no `format!`/`to_string`).
+pub fn u64_to_string(env: &Env, n: u64) -> String {
+    if n == 0 {
+        return String::from_bytes(env, b"0");
+    }
+    let mut buf = [0u8; 20]; // u64::MAX has 20 decimal digits
+    let mut pos = 20usize;
+    let mut val = n;
+    while val > 0 {
+        pos -= 1;
+        buf[pos] = b'0' + (val % 10) as u8;
+        val /= 10;
+    }
+    String::from_bytes(env, &buf[pos..20])
+}
+
 // -----------------------------------------------------------------------
 // Shared helpers (pub so admin.rs / multisig.rs / request.rs can reuse)
 // -----------------------------------------------------------------------
@@ -55,6 +71,9 @@ pub fn validate_reason(reason: &Option<String>) -> Result<(), Error> {
 }
 
 pub fn validate_source_reference(source_chain: &String, source_tx: &String) -> Result<(), Error> {
+    if source_chain.is_empty() || source_tx.is_empty() {
+        return Err(Error::InvalidSourceReference);
+    }
     if source_chain.len() > MAX_SOURCE_CHAIN_LEN || source_tx.len() > MAX_SOURCE_TX_LEN {
         return Err(Error::MetadataTooLong);
     }
@@ -81,10 +100,12 @@ pub fn validate_jurisdiction(env: &Env, jurisdiction: &Option<String>) -> Result
         if code.len() != 2 {
             return Err(Error::InvalidJurisdiction);
         }
+
         
         // Must be exactly 2 uppercase ASCII letters (A-Z)
-        let bytes = code.as_bytes();
-        if bytes.len() != 2 || !bytes.iter().all(|&b| b >= b'A' && b <= b'Z') {
+        let mut buf = [0u8; 2];
+        code.copy_into_slice(&mut buf);
+        if !buf.iter().all(|&b| b >= b'A' && b <= b'Z') {
             return Err(Error::InvalidJurisdiction);
         }
         
@@ -164,6 +185,7 @@ pub fn store_attestation(env: &Env, attestation: &Attestation) {
     // the new chunked index (for efficient paginated queries).
     Storage::add_subject_attestation(env, &attestation.subject, &attestation.id);
     Storage::add_issuer_attestation(env, &attestation.issuer, &attestation.id);
+    Storage::add_valid_attestation(env, &attestation.subject, &attestation.id);
     crate::storage::ChunkedIndex::add_subject(env, &attestation.subject, &attestation.id);
     crate::storage::ChunkedIndex::add_issuer(env, &attestation.issuer, &attestation.id);
     let mut stats = Storage::get_issuer_stats(env, &attestation.issuer);
@@ -483,6 +505,7 @@ pub fn create_attestations_batch(
         // Write attestation record and per-subject index — issuer index deferred.
         Storage::set_attestation(env, &attestation);
         Storage::add_subject_attestation(env, &subject, &attestation_id);
+        Storage::add_valid_attestation(env, &subject, &attestation_id);
         crate::storage::ChunkedIndex::add_subject(env, &subject, &attestation_id);
 
         Storage::append_audit_entry(
@@ -540,6 +563,7 @@ pub fn revoke_attestation(
     attestation.revocation_reason = reason.clone();
     Storage::set_attestation(env, &attestation);
     Storage::remove_subject_attestation(env, &attestation.subject, &attestation_id);
+    Storage::remove_valid_attestation(env, &attestation.subject, &attestation_id);
     Storage::remove_issuer_attestation(env, &issuer, &attestation_id);
     crate::storage::ChunkedIndex::remove_subject(env, &attestation.subject, &attestation_id);
     crate::storage::ChunkedIndex::remove_issuer(env, &issuer, &attestation_id);
@@ -577,11 +601,12 @@ pub fn renew_attestation(
     attestation.expiration = new_expiration;
     Storage::set_attestation(env, &attestation);
     Events::attestation_renewed(env, &attestation_id, &issuer, new_expiration);
+    let details = new_expiration.map(|ts| u64_to_string(env, ts));
     Storage::append_audit_entry(env, &attestation_id, &AuditEntry {
         action: AuditAction::Renewed,
         actor: issuer.clone(),
         timestamp: env.ledger().timestamp(),
-        details: None,
+        details,
     });
     Ok(())
 }
@@ -736,10 +761,17 @@ pub fn request_deletion(env: &Env, subject: Address, attestation_id: String) -> 
     attestation.deleted = true;
     Storage::set_attestation(env, &attestation);
     Storage::remove_subject_attestation(env, &subject, &attestation_id);
+    Storage::remove_valid_attestation(env, &subject, &attestation_id);
     crate::storage::ChunkedIndex::remove_subject(env, &subject, &attestation_id);
 
     let timestamp = env.ledger().timestamp();
     Events::deletion_requested(env, &subject, &attestation_id, timestamp);
+    Storage::append_audit_entry(env, &attestation_id, &AuditEntry {
+        action: AuditAction::Deleted,
+        actor: subject.clone(),
+        timestamp,
+        details: None,
+    });
     Ok(())
 }
 
@@ -778,6 +810,18 @@ pub fn endorse_attestation(env: &Env, endorser: Address, attestation_id: String)
 
 pub fn get_endorsement_count(env: &Env, attestation_id: String) -> u32 {
     Storage::get_endorsements(env, &attestation_id).len()
+}
+
+pub fn list_endorsements_by_endorser(env: &Env, endorser: Address, start: u32, limit: u32) -> Vec<Endorsement> {
+    let all = Storage::get_endorsements_by_endorser(env, &endorser);
+    let total = all.len();
+    let start = start.min(total);
+    let end = (start + limit).min(total);
+    let mut result = Vec::new(env);
+    for i in start..end {
+        result.push_back(all.get(i).unwrap());
+    }
+    result
 }
 
 // -----------------------------------------------------------------------

@@ -5,7 +5,13 @@ Python SDK for the TrustLink on-chain attestation contract on Stellar.
 ## Installation
 
 ```bash
-pip install trustlink-contract
+pip install trustlink-sdk
+```
+
+Requires Python 3.8+. For async support (FastAPI, aiohttp):
+
+```bash
+pip install "trustlink-sdk[async]"
 ```
 
 ## Quick Start
@@ -41,6 +47,61 @@ client.revoke_attestation(
     attestation_id="att_...",
     reason="User requested"
 )
+```
+
+## Async Usage (asyncio / FastAPI / aiohttp)
+
+Install with the async extra to pull in `httpx`:
+
+```bash
+pip install "trustlink-contract[async]"
+```
+
+Use `AsyncTrustLinkClient` as an async context manager so the underlying HTTP
+session is closed automatically:
+
+```python
+import asyncio
+from trustlink import AsyncTrustLinkClient
+
+async def main():
+    async with AsyncTrustLinkClient(
+        contract_id="C...",
+        rpc_url="https://soroban-testnet.stellar.org",
+    ) as client:
+        # All read methods are awaitable
+        has_kyc = await client.has_valid_claim("GXXXXXX", "KYC_PASSED")
+        print("KYC valid:", has_kyc)
+
+        attestation = await client.get_attestation("att_...")
+        print("Attestation:", attestation)
+
+        stats = await client.get_global_stats()
+        print("Total attestations:", stats["total_attestations"])
+
+asyncio.run(main())
+```
+
+### FastAPI example
+
+```python
+from fastapi import FastAPI
+from trustlink import AsyncTrustLinkClient
+
+app = FastAPI()
+client = AsyncTrustLinkClient(
+    contract_id="C...",
+    rpc_url="https://soroban-testnet.stellar.org",
+)
+
+@app.on_event("shutdown")
+async def shutdown():
+    await client.close()
+
+@app.get("/kyc/{address}")
+async def check_kyc(address: str) -> dict:
+    has_kyc = await client.has_valid_claim(address, "KYC_PASSED")
+    return {"address": address, "kyc_valid": has_kyc}
 ```
 
 ## API Reference

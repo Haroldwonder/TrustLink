@@ -249,6 +249,53 @@ soroban contract invoke \
   --issuer ISSUER_ADDRESS
 ```
 
+## Rollback to a previously built WASM hash
+
+Use rollback only for emergency recovery or when you need to restore a previously audited and verified release artifact.
+It is not intended for normal feature upgrades.
+
+### When to use rollback
+
+- Recover from a live mainnet regression
+- Redeploy a previously verified WASM release artifact
+- Restore service after a failed or unsafe deployment
+
+### Locate a previous WASM hash
+
+If you already have a prior artifact available locally, compute its hash with:
+
+```bash
+find target/wasm32-unknown-unknown/release -name '*.wasm' -exec sha256sum {} +
+```
+
+If you do not have the artifact locally, restore it from your CI/release artifact archive, prior build cache, or deployment records.
+Then verify the hash before running rollback.
+
+### Execute rollback
+
+1. Build or restore the exact release artifact locally:
+
+```bash
+make optimize
+```
+
+2. Run the rollback command for the selected network:
+
+```bash
+make rollback NETWORK=mainnet WASM_HASH=<hash>
+```
+
+3. Confirm the prompt when targeting `mainnet`.
+
+The Makefile rollback target searches `target/wasm32-unknown-unknown/release` for a matching compiled `.wasm` file and deploys it.
+If the hash is not found, restore the matching binary and retry.
+
+### Notes
+
+- Prior deployment logs, release notes, or CI artifact metadata should record the trusted WASM hash.
+- The rollback command requires the exact binary hash and will not deploy a different build.
+- Mainnet rollback includes an explicit confirmation prompt to prevent accidental redeployments.
+
 ## Configuration
 
 ### Network Configuration

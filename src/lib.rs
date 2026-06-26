@@ -12,6 +12,7 @@ mod storage;
 mod constants;
 pub mod types;
 mod validation;
+pub use crate::validation::Validation;
 
 #[cfg(test)]
 mod test;
@@ -30,11 +31,10 @@ use soroban_sdk::{contract, contractimpl, Address, Env, String, Vec};
 use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::{
-    Attestation, AttestationRequest, AttestationStatus, AttestationTemplate, AuditEntry, Delegation, Error,
+    Attestation, AttestationRequest, AttestationStatus, AttestationTemplate, AuditEntry, Error,
     ExpirationHook, FeeConfig, GlobalStats, HealthStatus, IssuerMetadata, IssuerStats, IssuerTier,
     MultiSigProposal, PendingAdminTransfer, RateLimitConfig, StorageLimits,
 };
-use crate::validation::Validation;
 
 #[contract]
 pub struct TrustLinkContract;
@@ -238,12 +238,12 @@ impl TrustLinkContract {
     // Contract Config
     // -----------------------------------------------------------------------
 
-    pub fn set_require_registered_claim_type(env: Env, admin: Address, require: bool) -> Result<(), Error> {
+    pub fn set_registered_claim_type(env: Env, admin: Address, require: bool) -> Result<(), Error> {
         admin::set_require_registered_claim_type(&env, admin, require)
     }
 
     #[must_use]
-    pub fn get_require_registered_claim_type(env: Env) -> bool {
+    pub fn get_registered_claim_type(env: Env) -> bool {
         admin::get_require_registered_claim_type(&env)
     }
 
@@ -288,10 +288,6 @@ impl TrustLinkContract {
 
     pub fn revoke_delegation(env: Env, issuer: Address, delegate: Address, claim_type: String) -> Result<(), Error> {
         admin::revoke_delegation(&env, issuer, delegate, claim_type)
-    }
-
-    pub fn list_delegations_by_delegator(env: Env, delegator: Address, start: u32, limit: u32) -> Vec<Delegation> {
-        admin::list_delegations_by_delegator(&env, delegator, start, limit)
     }
 
     // -----------------------------------------------------------------------
@@ -579,10 +575,6 @@ impl TrustLinkContract {
 
     pub fn reject_request(env: Env, issuer: Address, request_id: String, reason: Option<String>) -> Result<(), Error> {
         request::reject_request(&env, issuer, request_id, reason)
-    }
-
-    pub fn cancel_request(env: Env, subject: Address, request_id: String) -> Result<(), Error> {
-        request::cancel_request(&env, subject, request_id)
     }
 
     pub fn get_pending_requests(env: Env, issuer: Address, start: u32, limit: u32) -> Vec<AttestationRequest> {

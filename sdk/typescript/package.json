@@ -11,10 +11,13 @@
   ],
   "scripts": {
     "build": "tsc",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest",
+    "prepublishOnly": "npm run build"
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run clean && npm run build && npm run validate",
     "validate": "node scripts/validate-package.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "docs": "typedoc --out docs/api src/index.ts"
   },
   "keywords": [
     "stellar",
@@ -38,7 +41,8 @@
     "url": "https://github.com/afurious/TrustLink/issues"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   },
   "engines": {
     "node": ">=16.0.0"
@@ -48,7 +52,8 @@
   },
   "devDependencies": {
     "typescript": "^5.4.5",
-    "@types/node": "^20.14.0"
+    "@types/node": "^20.14.0",
+    "typedoc": "^0.26.0"
   },
   "peerDependencies": {
     "@stellar/stellar-sdk": ">=12.0.0"
