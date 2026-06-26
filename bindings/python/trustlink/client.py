@@ -212,6 +212,28 @@ class TrustLinkClient:
         """
         return self._simulate("is_issuer", self._addr(address))
 
+    def get_valid_claims(self, subject: str) -> List[str]:
+        """Get all valid claim IDs for a subject.
+
+        Args:
+            subject: Subject address
+
+        Returns:
+            List of valid claim IDs
+        """
+        return self._simulate("get_valid_claims", self._addr(subject))
+
+    def get_valid_claim_count(self, subject: str) -> int:
+        """Get count of valid claims for a subject.
+
+        Args:
+            subject: Subject address
+
+        Returns:
+            Number of valid (non-revoked, non-expired) claims
+        """
+        return self._simulate("get_valid_claim_count", self._addr(subject))
+
     # ─── Write Operations ──────────────────────────────────────────────────────
 
     def create_attestation(

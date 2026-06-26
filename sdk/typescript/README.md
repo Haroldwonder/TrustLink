@@ -174,6 +174,32 @@ const endorsements = await client.getEndorsements(attestationId);
 const count = await client.getEndorsementCount(attestationId);
 ```
 
+### Delegations
+
+```typescript
+// List all delegations granted by a delegator (paginated)
+const delegations = await client.listDelegationsByDelegator(delegatorAddress, 0, 20);
+// delegations[0].delegate, delegations[0].claim_types, delegations[0].expires_at
+```
+
+### Whitelist
+
+```typescript
+// Check if an issuer has whitelist mode enabled
+const enabled = await client.isWhitelistEnabled(issuerAddress);
+
+// Check if a subject is on an issuer's whitelist
+const listed = await client.isWhitelisted(issuerAddress, subjectAddress);
+```
+
+### Templates
+
+```typescript
+// List attestation templates registered by an issuer (paginated)
+const templates = await client.listTemplates(issuerAddress, 0, 20);
+// templates[0].id, templates[0].name, templates[0].claim_type, templates[0].description
+```
+
 ### Contract Info
 
 ```typescript

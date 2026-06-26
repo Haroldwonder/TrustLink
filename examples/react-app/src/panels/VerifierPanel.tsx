@@ -1,10 +1,13 @@
 import { useState } from "react";
-import { hasValidClaim, getSubjectAttestations, Attestation } from "../contract";
+import { hasValidClaim, getSubjectAttestations, isWhitelistEnabled, isWhitelisted, Attestation } from "../contract";
 
 export default function VerifierPanel() {
   const [subject, setSubject] = useState("");
   const [claimType, setClaimType] = useState("");
+  const [issuer, setIssuer] = useState("");
   const [checkResult, setCheckResult] = useState<boolean | null>(null);
+  const [whitelistEnabled, setWhitelistEnabled] = useState<boolean | null>(null);
+  const [whitelistedResult, setWhitelistedResult] = useState<boolean | null>(null);
   const [attestations, setAttestations] = useState<Attestation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -14,9 +17,19 @@ export default function VerifierPanel() {
     setLoading(true);
     setError(null);
     setCheckResult(null);
+    setWhitelistEnabled(null);
+    setWhitelistedResult(null);
     try {
       const result = await hasValidClaim(subject.trim(), claimType.trim());
       setCheckResult(result);
+      if (issuer.trim()) {
+        const enabled = await isWhitelistEnabled(issuer.trim());
+        setWhitelistEnabled(enabled);
+        if (enabled) {
+          const listed = await isWhitelisted(issuer.trim(), subject.trim());
+          setWhitelistedResult(listed);
+        }
+      }
     } catch (e: unknown) {
       setError((e as Error).message);
     } finally {
@@ -47,11 +60,15 @@ export default function VerifierPanel() {
         <h3>Check Claim</h3>
         <div className="field">
           <label>Subject Address</label>
-          <input value={subject} onChange={(e) => { setSubject(e.target.value); setCheckResult(null); }} placeholder="G..." />
+          <input value={subject} onChange={(e) => { setSubject(e.target.value); setCheckResult(null); setWhitelistEnabled(null); setWhitelistedResult(null); }} placeholder="G..." />
         </div>
         <div className="field">
           <label>Claim Type</label>
           <input value={claimType} onChange={(e) => { setClaimType(e.target.value); setCheckResult(null); }} placeholder="KYC, AML…" />
+        </div>
+        <div className="field">
+          <label>Issuer Address (optional — for whitelist check)</label>
+          <input value={issuer} onChange={(e) => { setIssuer(e.target.value); setWhitelistEnabled(null); setWhitelistedResult(null); }} placeholder="G..." />
         </div>
         <div style={{ display: "flex", gap: "0.5rem" }}>
           <button className="btn btn-primary" disabled={loading || !subject || !claimType} onClick={handleCheck}>
@@ -67,6 +84,18 @@ export default function VerifierPanel() {
             {checkResult
               ? `✓ ${subject.slice(0, 8)}… holds a valid "${claimType}" claim.`
               : `✗ No valid "${claimType}" claim found for this address.`}
+          </div>
+        )}
+
+        {whitelistEnabled !== null && (
+          <div className="alert alert-info" style={{ marginTop: "0.5rem" }}>
+            {whitelistEnabled
+              ? whitelistedResult !== null
+                ? whitelistedResult
+                  ? `✓ Subject is on the issuer's whitelist.`
+                  : `✗ Subject is NOT on the issuer's whitelist.`
+                : `Issuer has whitelist mode enabled.`
+              : `Issuer does not use whitelist mode.`}
           </div>
         )}
       </div>

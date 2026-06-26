@@ -277,3 +277,28 @@ export async function getExpiringAttestations(
     nativeToScVal(50, { type: "u32" })
   );
 }
+
+export async function isWhitelistEnabled(issuer: string): Promise<boolean> {
+  return simulate("is_whitelist_enabled", addr(issuer));
+}
+
+export async function isWhitelisted(issuer: string, subject: string): Promise<boolean> {
+  return simulate("is_whitelisted", addr(issuer), addr(subject));
+}
+
+export interface Template {
+  id: string;
+  issuer: string;
+  name: string;
+  claim_type: string;
+  description: string | null;
+}
+
+export async function listTemplates(issuer: string): Promise<Template[]> {
+  return simulate(
+    "list_templates",
+    addr(issuer),
+    nativeToScVal(0, { type: "u32" }),
+    nativeToScVal(50, { type: "u32" })
+  );
+}

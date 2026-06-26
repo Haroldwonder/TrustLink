@@ -1,11 +1,20 @@
-import { useState } from "react";
-import { createAttestation, revokeAttestation, getSubjectAttestations, Attestation } from "../contract";
+import { useState, useEffect } from "react";
+import { createAttestation, revokeAttestation, getSubjectAttestations, listTemplates, Attestation, Template } from "../contract";
 import IssuerDashboard from "./IssuerDashboard";
 
 interface Props { address: string; }
 
 export default function IssuerPanel({ address }: Props) {
-  const [tab, setTab] = useState<"dashboard" | "create" | "revoke" | "lookup">("dashboard");
+  const [tab, setTab] = useState<"dashboard" | "create" | "revoke" | "lookup" | "templates">("dashboard");
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+
+  useEffect(() => {
+    if (tab === "create" || tab === "templates") {
+      setTemplatesLoading(true);
+      listTemplates(address).then(setTemplates).catch(() => setTemplates([])).finally(() => setTemplatesLoading(false));
+    }
+  }, [tab, address]);
   const [subject, setSubject] = useState("");
   const [claimType, setClaimType] = useState("");
   const [metadata, setMetadata] = useState("");
@@ -93,6 +102,13 @@ export default function IssuerPanel({ address }: Props) {
           >
             Lookup
           </button>
+          <button
+            className={`tab ${tab === "templates" ? "active" : ""}`}
+            onClick={() => setTab("templates")}
+            style={{ flex: 1, textAlign: "center", padding: "0.5rem" }}
+          >
+            Templates
+          </button>
         </div>
         <IssuerDashboard address={address} />
       </div>
@@ -131,9 +147,27 @@ export default function IssuerPanel({ address }: Props) {
         >
           Lookup
         </button>
+        <button
+          className={`tab ${tab === "templates" ? "active" : ""}`}
+          onClick={() => setTab("templates")}
+          style={{ flex: 1, textAlign: "center", padding: "0.5rem" }}
+        >
+          Templates
+        </button>
       </div>
 
       {status && <div className={`alert alert-${status.type}`}>{status.msg}</div>}
+
+      {tab === "templates" && (
+        <div className="card">
+          <h3>Attestation Templates</h3>
+          {templatesLoading
+            ? <p className="empty">Loading templates…</p>
+            : templates.length === 0
+              ? <p className="empty">No templates found.</p>
+              : <TemplateList items={templates} />}
+        </div>
+      )}
 
       {tab === "create" && (
         <div className="card">
@@ -205,6 +239,23 @@ function AttestationList({ items }: { items: Attestation[] }) {
           </div>
           <span className="meta">Subject: {a.subject}</span>
           <span className="meta">ID: {a.id}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TemplateList({ items }: { items: Template[] }) {
+  return (
+    <div className="att-list">
+      {items.map((t) => (
+        <div key={t.id} className="att-item">
+          <div className="row">
+            <span className="claim">{t.name}</span>
+            <span className="badge badge-valid">{t.claim_type}</span>
+          </div>
+          {t.description && <span className="meta">{t.description}</span>}
+          <span className="meta">ID: {t.id}</span>
         </div>
       ))}
     </div>
