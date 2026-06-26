@@ -1,0 +1,12 @@
+[package]
+name = "trustlink-supply-chain-example"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+soroban-sdk = { version = "=21.3.0", features = ["contract"] }
+trustlink = { path = "../../" }
+
+[[bin]]
+name = "example"
+path = "src/main.rs"
