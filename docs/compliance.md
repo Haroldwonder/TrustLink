@@ -264,6 +264,90 @@ compliance record.
 | Compliance role    | Primary retention policy control       | Infrastructure cache-lifetime only       |
 | Default            | None (no expiry unless set)            | 30 days                                  |
 
+## Data Portability — GDPR Article 20 / CCPA
+
+GDPR Article 20 and CCPA grant data subjects the right to receive a copy of
+all personal data held about them in a structured, machine-readable format.
+
+### `TrustLinkClient.exportSubjectData(subject, options?)`
+
+The TypeScript SDK provides a helper that aggregates all on-chain data for a
+subject into a single JSON object without requiring any new contract methods:
+
+```typescript
+import { TrustLinkClient } from "@trustlink/sdk";
+
+const client = new TrustLinkClient({ contractId, network: "mainnet" });
+
+const export = await client.exportSubjectData(
+  "GBEXAMPLE...",
+  { requestIds: ["req_abc", "req_def"] } // optional: known request IDs
+);
+
+console.log(JSON.stringify(export, null, 2));
+```
+
+The returned `SubjectDataExport` object contains:
+
+```typescript
+{
+  subject: string;           // subject's Stellar address
+  exportedAt: string;        // ISO 8601 timestamp of export generation
+  attestations: Array<{
+    attestation: Attestation;   // full attestation record
+    auditLog: AuditEntry[];     // all actions on this attestation
+    endorsements: Endorsement[]; // issuers who endorsed this attestation
+  }>;
+  requestHistory: AttestationRequest[];  // requests submitted by the subject
+  summary: {
+    totalAttestations: number;
+    activeAttestations: number;
+    revokedAttestations: number;
+    deletedAttestations: number;
+    totalEndorsements: number;
+    totalAuditEntries: number;
+  };
+}
+```
+
+The helper calls only existing read functions (`get_subject_attestations`,
+`get_audit_log`, `get_endorsements`, `get_attestation_request`) — no new
+contract methods are required.
+
+### Request history
+
+The contract stores attestation requests but does not expose a per-subject
+request index. To include request history in the export, pass the subject's
+known request IDs via `options.requestIds`. These can be retrieved from:
+
+- Your application's database (where you stored the ID when the subject called
+  `request_attestation`).
+- The indexer's `pendingRequests` GraphQL query filtered by subject.
+
+### Operator workflow for data-portability responses
+
+| Step | Action |
+|------|--------|
+| 1 | Verify the requester is the subject (authenticate via signature or session). |
+| 2 | Call `exportSubjectData(subject, { requestIds })`. |
+| 3 | Merge the on-chain export with any off-chain personal data your system holds. |
+| 4 | Deliver the combined export to the subject in a machine-readable format (JSON). |
+| 5 | Log the request and response in your compliance audit trail. |
+
+### Export constraints
+
+- **Deleted attestations**: Attestations flagged `deleted: true` remain in
+  the on-chain export (they are still stored on the ledger). Soft-deleted
+  records are included in `attestations` with `attestation.deleted === true`.
+  Off-chain systems that received `DeletionRequested` events and purged their
+  copies should omit those records from any off-chain component of the export.
+- **Historical ledger data**: Raw ledger history is immutable and accessible
+  to anyone who has the attestation ID; this is a property of public
+  blockchains and is disclosed in your privacy notice.
+- **Off-chain data**: `exportSubjectData` covers only on-chain TrustLink
+  records. Operators who store additional personal data in off-chain systems
+  must independently include that data in the portability export.
+
 ## Summary of GDPR-Relevant Contract Functions
 
 | Function | GDPR Relevance |

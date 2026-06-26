@@ -34,6 +34,7 @@ const config = {
   networkPassphrase: process.env.NETWORK_PASSPHRASE || Networks.TESTNET,
   contractId: process.env.TRUSTLINK_CONTRACT_ID || "",
   issuerSecret: process.env.ISSUER_SECRET || "",
+  indexerUrl: process.env.INDEXER_URL || "",
 };
 
 function required(value, name) {
@@ -414,6 +415,196 @@ async function importAttestation() {
   console.log(`Attestation imported. TX: ${result.hash}`);
 }
 
+// ---------------------------------------------------------------------------
+// export-audit-trail
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch all attestations for an issuer from the GraphQL indexer, following
+ * cursor-based pagination until all pages are consumed.
+ */
+async function fetchAttestationsByIssuer(issuerAddr) {
+  const query = `
+    query($issuer: String!, $after: String) {
+      attestationsByIssuer(issuer: $issuer, first: 100, after: $after) {
+        edges {
+          node {
+            id
+            claimType
+            subject
+            timestamp
+            isRevoked
+            createdAt
+          }
+          cursor
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+  `;
+
+  const attestations = [];
+  let after = null;
+
+  while (true) {
+    const response = await fetch(config.indexerUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, variables: { issuer: issuerAddr, after } }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Indexer request failed: ${response.status} ${response.statusText}`);
+    }
+
+    const { data, errors } = await response.json();
+    if (errors?.length) throw new Error(errors[0].message);
+
+    const { edges, pageInfo } = data.attestationsByIssuer;
+    attestations.push(...edges.map((e) => e.node));
+
+    if (!pageInfo.hasNextPage) break;
+    after = pageInfo.endCursor;
+  }
+
+  return attestations;
+}
+
+/**
+ * Normalize an AuditAction value from scValToNative, which may decode a
+ * Soroban enum as a string, an array, or an object with a single key.
+ */
+function parseActionName(raw) {
+  if (typeof raw === "string") return raw;
+  if (Array.isArray(raw) && raw.length > 0) return String(raw[0]);
+  if (raw && typeof raw === "object") return Object.keys(raw)[0] ?? String(raw);
+  return String(raw);
+}
+
+async function exportAuditTrail() {
+  required(config.contractId, "TRUSTLINK_CONTRACT_ID");
+  required(config.indexerUrl, "INDEXER_URL");
+
+  const issuerIdx = args.indexOf("--issuer");
+  const fromIdx = args.indexOf("--from");
+  const toIdx = args.indexOf("--to");
+  const formatIdx = args.indexOf("--format");
+  const outputIdx = args.indexOf("--output");
+
+  const issuerAddr = issuerIdx !== -1 ? args[issuerIdx + 1] : null;
+  const fromDate = fromIdx !== -1 ? args[fromIdx + 1] : null;
+  const toDate = toIdx !== -1 ? args[toIdx + 1] : null;
+  const format = formatIdx !== -1 ? args[formatIdx + 1] : "json";
+  const outputFile = outputIdx !== -1 ? args[outputIdx + 1] : null;
+
+  if (!issuerAddr || !fromDate || !toDate) {
+    console.error(
+      "Usage: issuer-cli export-audit-trail --issuer <address> --from <ISO-date> --to <ISO-date> [--format csv|json] [--output <file>]"
+    );
+    console.error("Example: issuer-cli export-audit-trail --issuer GABC... --from 2024-01-01 --to 2024-12-31 --format csv --output audit.csv");
+    process.exit(1);
+  }
+
+  const fromTs = Math.floor(new Date(fromDate).getTime() / 1000);
+  const toTs = Math.floor(new Date(toDate).getTime() / 1000);
+
+  if (isNaN(fromTs) || isNaN(toTs)) {
+    console.error("Invalid date format. Use ISO 8601 dates, e.g. 2024-01-01 or 2024-01-01T00:00:00Z.");
+    process.exit(1);
+  }
+
+  console.log(`\nExporting audit trail for issuer: ${issuerAddr}`);
+  console.log(`Date range: ${fromDate} → ${toDate}`);
+  console.log("Fetching attestations from indexer...");
+
+  const attestations = await fetchAttestationsByIssuer(issuerAddr);
+  console.log(`Found ${attestations.length} attestation(s).`);
+
+  const server = new SorobanRpc.Server(config.rpcUrl);
+  const contract = new Contract(config.contractId);
+
+  // Use the issuer's own account as simulation source if secret is provided;
+  // otherwise fall back to the issuer address itself (must exist on-chain).
+  const sourceAddress = config.issuerSecret
+    ? Keypair.fromSecret(config.issuerSecret).publicKey()
+    : issuerAddr;
+
+  console.log("Fetching audit log entries from contract...");
+
+  const rows = [];
+  for (const att of attestations) {
+    let auditEntries = [];
+    try {
+      const auditOp = contract.call(
+        "get_audit_log",
+        nativeToScVal(att.id, { type: "string" })
+      );
+      const retval = await simulateRead(server, sourceAddress, auditOp, config.networkPassphrase);
+      auditEntries = retval ? scValToNative(retval) : [];
+    } catch (err) {
+      console.warn(`  Warning: Could not fetch audit log for ${att.id}: ${err.message}`);
+      continue;
+    }
+
+    for (const entry of auditEntries) {
+      const ts = Number(typeof entry.timestamp === "bigint" ? entry.timestamp : BigInt(entry.timestamp));
+      if (ts >= fromTs && ts <= toTs) {
+        const actorStr =
+          typeof entry.actor === "string"
+            ? entry.actor
+            : entry.actor?.toString?.() ?? String(entry.actor);
+
+        rows.push({
+          issuer: issuerAddr,
+          attestation_id: att.id,
+          claim_type: att.claimType,
+          subject: att.subject,
+          action: parseActionName(entry.action),
+          actor: actorStr,
+          timestamp: new Date(ts * 1000).toISOString(),
+          details: entry.details ?? "",
+        });
+      }
+    }
+  }
+
+  if (rows.length === 0) {
+    console.log("No audit entries found in the specified date range.");
+    return;
+  }
+
+  let output;
+  if (format === "csv") {
+    const header = "issuer,attestation_id,claim_type,subject,action,actor,timestamp,details";
+    const csvRows = rows.map((r) =>
+      [
+        r.issuer,
+        r.attestation_id,
+        r.claim_type,
+        r.subject,
+        r.action,
+        r.actor,
+        r.timestamp,
+        `"${String(r.details).replace(/"/g, '""')}"`,
+      ].join(",")
+    );
+    output = [header, ...csvRows].join("\n");
+  } else {
+    output = JSON.stringify(rows, null, 2);
+  }
+
+  if (outputFile) {
+    fs.writeFileSync(outputFile, output, "utf8");
+    console.log(`✓ Written ${rows.length} audit entries to ${outputFile}`);
+  } else {
+    console.log(output);
+    console.log(`\n✓ Exported ${rows.length} audit entries`);
+  }
+}
+
 function showHelp() {
   console.log(`
 TrustLink Issuer CLI
@@ -443,11 +634,17 @@ Commands:
   import <subject> <claim_type> --source-ref <ref> [--expiry <days>] [--metadata <json>]
     Import an off-chain attestation (admin only)
 
+  export-audit-trail --issuer <address> --from <date> --to <date> [--format csv|json] [--output <file>]
+    Export a regulator-ready audit trail for an issuer over a date range.
+    Queries attestations from the indexer and fetches audit log entries from
+    the contract. Output is JSON (default) or CSV.
+
 Environment Variables:
   RPC_URL                 Stellar RPC endpoint (default: testnet)
   NETWORK_PASSPHRASE      Stellar network (default: testnet)
   TRUSTLINK_CONTRACT_ID   TrustLink contract address
   ISSUER_SECRET           Issuer's secret key
+  INDEXER_URL             TrustLink indexer GraphQL endpoint (required for export-audit-trail)
 
 Examples:
   issuer-cli issue GBRPYHIL... KYC_PASSED --expiry 365
@@ -458,6 +655,7 @@ Examples:
   issuer-cli cosign-proposal proposal_abc123
   issuer-cli list-proposals
   issuer-cli import GBRPYHIL... KYC_PASSED --source-ref "external-id-123" --expiry 365
+  issuer-cli export-audit-trail --issuer GABC... --from 2024-01-01 --to 2024-12-31 --format csv --output audit.csv
 `);
 }
 
@@ -492,6 +690,9 @@ async function main() {
         break;
       case "import":
         await importAttestation();
+        break;
+      case "export-audit-trail":
+        await exportAuditTrail();
         break;
       default:
         console.error(`Unknown command: ${command}`);

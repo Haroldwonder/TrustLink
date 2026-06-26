@@ -288,6 +288,35 @@ export function parseTrustLinkError(errorMessage: string): TrustLinkError | null
   return null;
 }
 
+/**
+ * Structured export of all data held about a subject, suitable for a
+ * GDPR/CCPA data-portability response.  Produced by TrustLinkClient.exportSubjectData().
+ */
+export interface SubjectDataExport {
+  subject: string;
+  /** ISO 8601 timestamp of when the export was generated. */
+  exportedAt: string;
+  attestations: Array<{
+    attestation: Attestation;
+    auditLog: AuditEntry[];
+    endorsements: Endorsement[];
+  }>;
+  /**
+   * Attestation requests the subject submitted.  Populated only when the
+   * caller passes known request IDs via options.requestIds — the contract
+   * does not expose a per-subject request index.
+   */
+  requestHistory: AttestationRequest[];
+  summary: {
+    totalAttestations: number;
+    activeAttestations: number;
+    revokedAttestations: number;
+    deletedAttestations: number;
+    totalEndorsements: number;
+    totalAuditEntries: number;
+  };
+}
+
 /** Attestation template created by an issuer. */
 export interface AttestationTemplate {
   issuer: string;
