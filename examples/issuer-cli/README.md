@@ -5,6 +5,8 @@ A simple command-line tool for issuers to manage attestations without writing co
 ## Features
 
 - **Issue attestations**: Create new claims for users with optional expiration and metadata
+- **Bulk-create**: Batch-issue attestations to many subjects from a CSV file
+- **Template management**: Create, list, and delete attestation templates
 - **Revoke attestations**: Revoke existing attestations with optional reason
 - **List issued**: View all attestations issued by this issuer with pagination
 - **Check claims**: Verify if a subject has a valid claim from this issuer
@@ -249,6 +251,107 @@ $ node issuer-cli.mjs issue invalid KYC_PASSED
 # Attestation already exists
 $ node issuer-cli.mjs issue GBRPYHIL... KYC_PASSED
 ✗ Failed to create attestation: DuplicateAttestation
+```
+
+### Bulk-Create from CSV
+
+Issue attestations to many subjects in one command using a CSV file.
+
+```bash
+node issuer-cli.mjs bulk-create --file subjects.csv --claim-type KYC_PASSED [--expiry <days>]
+```
+
+The CSV must have an `address` column. Optional per-row columns override the command-line defaults:
+
+| Column | Required | Description |
+|--------|----------|-------------|
+| `address` | Yes | Subject's Stellar address |
+| `claim_type` | No | Overrides `--claim-type` for this row |
+| `expiry_days` | No | Overrides `--expiry` for this row |
+| `metadata` | No | JSON metadata string |
+
+Example `subjects.csv`:
+
+```csv
+address,claim_type,expiry_days,metadata
+GBRPYHIL2CI3WHZDTOOQFC6EB4CGQOFSNHERX3UNFOK2MAGNTQEFU,KYC_PASSED,365,
+GCZST3XVZZPE6EEZPQH3NXCWG4QG4EXIHKJL8ZQZQN7VQGGKXZ,,730,"{""tier"":""premium""}"
+GXYZ123456789ABCDEF,AML_CLEARED,,
+```
+
+Output:
+
+```
+Bulk-creating 3 attestation(s) from subjects.csv…
+
+  [row 2] OK    GBRPYHIL...  claim=KYC_PASSED  id=att_abc123
+  [row 3] OK    GCZST3XV...  claim=KYC_PASSED  id=att_def456
+  [row 4] FAIL  GXYZ1234...  claim=AML_CLEARED  error=DuplicateAttestation
+
+Done: 2 succeeded, 1 failed out of 3 rows.
+```
+
+### Template Management
+
+Attestation templates let you pre-define claim type and metadata so you can issue consistently without repeating parameters.
+
+#### Create a Template
+
+```bash
+node issuer-cli.mjs template create --id <template_id> --claim-type <type> [--metadata <json>]
+```
+
+Examples:
+
+```bash
+node issuer-cli.mjs template create --id kyc-standard --claim-type KYC_PASSED
+node issuer-cli.mjs template create --id accredited-inv --claim-type ACCREDITED_INVESTOR \
+  --metadata '{"level":"accredited"}'
+```
+
+Output:
+
+```
+Creating template "kyc-standard" (KYC_PASSED)…
+✓ Template "kyc-standard" created.
+```
+
+#### List Templates
+
+```bash
+node issuer-cli.mjs template list
+```
+
+Output:
+
+```
+Listing templates for GABC…
+
+  Found 2 template(s):
+  1. ID: kyc-standard
+     Claim Type: KYC_PASSED
+  2. ID: accredited-inv
+     Claim Type: ACCREDITED_INVESTOR
+     Metadata: {"level":"accredited"}
+```
+
+#### Delete a Template
+
+```bash
+node issuer-cli.mjs template delete <template_id>
+```
+
+Example:
+
+```bash
+node issuer-cli.mjs template delete kyc-standard
+```
+
+Output:
+
+```
+Deleting template "kyc-standard"…
+✓ Template "kyc-standard" deleted.
 ```
 
 ## Scripting

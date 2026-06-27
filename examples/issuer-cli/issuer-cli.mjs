@@ -605,6 +605,245 @@ async function exportAuditTrail() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// CSV helpers
+// ---------------------------------------------------------------------------
+
+function parseCsvLine(line) {
+  const values = [];
+  let current = "";
+  let inQuotes = false;
+  for (const char of line) {
+    if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === "," && !inQuotes) {
+      values.push(current);
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  values.push(current);
+  return values.map((v) => v.trim());
+}
+
+function parseCsv(content) {
+  const lines = content.trim().split(/\r?\n/).filter((l) => l.trim());
+  if (lines.length < 2) throw new Error("CSV must have a header row and at least one data row.");
+  const headers = parseCsvLine(lines[0]).map((h) => h.toLowerCase());
+  const addrIdx = headers.indexOf("address");
+  if (addrIdx === -1) throw new Error("CSV must have an 'address' column.");
+  const ctIdx = headers.indexOf("claim_type");
+  const expIdx = headers.indexOf("expiry_days");
+  const metaIdx = headers.indexOf("metadata");
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const vals = parseCsvLine(lines[i]);
+    const address = vals[addrIdx];
+    if (!address) continue;
+    rows.push({
+      lineNum: i + 1,
+      address,
+      claim_type: ctIdx >= 0 ? vals[ctIdx] || null : null,
+      expiry_days: expIdx >= 0 && vals[expIdx] ? parseInt(vals[expIdx], 10) : null,
+      metadata: metaIdx >= 0 ? vals[metaIdx] || null : null,
+    });
+  }
+  return rows;
+}
+
+// ---------------------------------------------------------------------------
+// bulk-create
+// ---------------------------------------------------------------------------
+
+async function bulkCreate() {
+  required(config.contractId, "TRUSTLINK_CONTRACT_ID");
+  required(config.issuerSecret, "ISSUER_SECRET");
+
+  const fileIdx = args.indexOf("--file");
+  const claimTypeArg = args.find((a) => a === "--claim-type") ? args[args.indexOf("--claim-type") + 1] : null;
+  const defaultExpiry = args.find((a) => a === "--expiry") ? parseInt(args[args.indexOf("--expiry") + 1], 10) : 365;
+
+  if (fileIdx === -1 || !args[fileIdx + 1]) {
+    console.error("Usage: issuer-cli bulk-create --file subjects.csv --claim-type <type> [--expiry <days>]");
+    console.error("CSV columns: address (required), claim_type, expiry_days, metadata");
+    process.exit(1);
+  }
+
+  const csvPath = args[fileIdx + 1];
+  let csvContent;
+  try {
+    csvContent = fs.readFileSync(path.resolve(csvPath), "utf8");
+  } catch (err) {
+    console.error(`Cannot read file ${csvPath}: ${err.message}`);
+    process.exit(1);
+  }
+
+  const rows = parseCsv(csvContent);
+  if (rows.length === 0) {
+    console.error("No data rows found in CSV.");
+    process.exit(1);
+  }
+
+  console.log(`\nBulk-creating ${rows.length} attestation(s) from ${csvPath}…\n`);
+
+  const server = new SorobanRpc.Server(config.rpcUrl);
+  const contract = new Contract(config.contractId);
+  const issuer = Keypair.fromSecret(config.issuerSecret);
+
+  let succeeded = 0;
+  let failed = 0;
+
+  for (const row of rows) {
+    const ct = row.claim_type || claimTypeArg;
+    if (!ct) {
+      console.error(`  [row ${row.lineNum}] SKIP  ${row.address} — no claim_type; pass --claim-type or add a claim_type column`);
+      failed++;
+      continue;
+    }
+
+    const expiryDays = row.expiry_days ?? defaultExpiry;
+    const expiration = Math.floor(Date.now() / 1000) + expiryDays * 24 * 60 * 60;
+
+    const createOp = contract.call(
+      "create_attestation",
+      nativeToScVal(Address.fromString(issuer.publicKey()), { type: "address" }),
+      nativeToScVal(Address.fromString(row.address), { type: "address" }),
+      nativeToScVal(ct, { type: "string" }),
+      nativeToScVal(expiration, { type: "u64" }),
+      row.metadata ? nativeToScVal(row.metadata, { type: "string" }) : nativeToScVal(null, { type: "void" })
+    );
+
+    try {
+      const res = await submitWrite(server, issuer, createOp, config.networkPassphrase);
+      const attestationId = res.returnValue ? scValToNative(res.returnValue) : "—";
+      console.log(`  [row ${row.lineNum}] OK    ${row.address}  claim=${ct}  id=${attestationId}`);
+      succeeded++;
+    } catch (err) {
+      console.error(`  [row ${row.lineNum}] FAIL  ${row.address}  claim=${ct}  error=${err.message}`);
+      failed++;
+    }
+  }
+
+  console.log(`\nDone: ${succeeded} succeeded, ${failed} failed out of ${rows.length} rows.`);
+  if (failed > 0) process.exit(1);
+}
+
+// ---------------------------------------------------------------------------
+// template management
+// ---------------------------------------------------------------------------
+
+async function templateCreate() {
+  required(config.contractId, "TRUSTLINK_CONTRACT_ID");
+  required(config.issuerSecret, "ISSUER_SECRET");
+
+  const idIdx = args.indexOf("--id");
+  const ctIdx = args.indexOf("--claim-type");
+  const metaIdx = args.indexOf("--metadata");
+
+  const templateId = idIdx >= 0 ? args[idIdx + 1] : null;
+  const claimType = ctIdx >= 0 ? args[ctIdx + 1] : null;
+  const metadata = metaIdx >= 0 ? args[metaIdx + 1] : null;
+
+  if (!templateId || !claimType) {
+    console.error("Usage: issuer-cli template create --id <template_id> --claim-type <type> [--metadata <json>]");
+    process.exit(1);
+  }
+
+  const server = new SorobanRpc.Server(config.rpcUrl);
+  const contract = new Contract(config.contractId);
+  const issuer = Keypair.fromSecret(config.issuerSecret);
+
+  console.log(`\nCreating template "${templateId}" (${claimType})…`);
+
+  const op = contract.call(
+    "create_template",
+    nativeToScVal(Address.fromString(issuer.publicKey()), { type: "address" }),
+    nativeToScVal(templateId, { type: "string" }),
+    nativeToScVal(claimType, { type: "string" }),
+    metadata ? nativeToScVal(metadata, { type: "string" }) : nativeToScVal(null, { type: "void" })
+  );
+
+  await submitWrite(server, issuer, op, config.networkPassphrase);
+  console.log(`✓ Template "${templateId}" created.`);
+}
+
+async function templateList() {
+  required(config.contractId, "TRUSTLINK_CONTRACT_ID");
+  required(config.issuerSecret, "ISSUER_SECRET");
+
+  const server = new SorobanRpc.Server(config.rpcUrl);
+  const contract = new Contract(config.contractId);
+  const issuer = Keypair.fromSecret(config.issuerSecret);
+
+  console.log(`\nListing templates for ${issuer.publicKey()}…`);
+
+  const op = contract.call(
+    "list_templates",
+    nativeToScVal(Address.fromString(issuer.publicKey()), { type: "address" })
+  );
+
+  const retval = await simulateRead(server, issuer.publicKey(), op, config.networkPassphrase);
+  const templates = retval ? scValToNative(retval) : [];
+
+  if (templates.length === 0) {
+    console.log("  (no templates)");
+    return;
+  }
+
+  console.log(`\n  Found ${templates.length} template(s):`);
+  templates.forEach((tmpl, i) => {
+    console.log(`  ${i + 1}. ID: ${tmpl.template_id}`);
+    console.log(`     Claim Type: ${tmpl.claim_type}`);
+    if (tmpl.metadata) console.log(`     Metadata: ${tmpl.metadata}`);
+  });
+}
+
+async function templateDelete() {
+  required(config.contractId, "TRUSTLINK_CONTRACT_ID");
+  required(config.issuerSecret, "ISSUER_SECRET");
+
+  const templateId = args[2];
+  if (!templateId) {
+    console.error("Usage: issuer-cli template delete <template_id>");
+    process.exit(1);
+  }
+
+  const server = new SorobanRpc.Server(config.rpcUrl);
+  const contract = new Contract(config.contractId);
+  const issuer = Keypair.fromSecret(config.issuerSecret);
+
+  console.log(`\nDeleting template "${templateId}"…`);
+
+  const op = contract.call(
+    "delete_template",
+    nativeToScVal(Address.fromString(issuer.publicKey()), { type: "address" }),
+    nativeToScVal(templateId, { type: "string" })
+  );
+
+  await submitWrite(server, issuer, op, config.networkPassphrase);
+  console.log(`✓ Template "${templateId}" deleted.`);
+}
+
+async function handleTemplate() {
+  const subcommand = args[1];
+  switch (subcommand) {
+    case "create":
+      await templateCreate();
+      break;
+    case "list":
+      await templateList();
+      break;
+    case "delete":
+      await templateDelete();
+      break;
+    default:
+      console.error(`Unknown template subcommand: ${subcommand}`);
+      console.error("Usage: issuer-cli template <create|list|delete> [options]");
+      process.exit(1);
+  }
+}
+
 function showHelp() {
   console.log(`
 TrustLink Issuer CLI
@@ -639,6 +878,21 @@ Commands:
     Queries attestations from the indexer and fetches audit log entries from
     the contract. Output is JSON (default) or CSV.
 
+  bulk-create --file subjects.csv --claim-type <type> [--expiry <days>]
+    Batch-create attestations from a CSV file. The CSV must have an 'address'
+    column; optional per-row columns: claim_type, expiry_days, metadata.
+    Per-row claim_type overrides --claim-type when present.
+    Reports success/failure for every row.
+
+  template create --id <template_id> --claim-type <type> [--metadata <json>]
+    Create an attestation template for this issuer.
+
+  template list
+    List all templates for this issuer.
+
+  template delete <template_id>
+    Delete an existing template.
+
 Environment Variables:
   RPC_URL                 Stellar RPC endpoint (default: testnet)
   NETWORK_PASSPHRASE      Stellar network (default: testnet)
@@ -656,6 +910,10 @@ Examples:
   issuer-cli list-proposals
   issuer-cli import GBRPYHIL... KYC_PASSED --source-ref "external-id-123" --expiry 365
   issuer-cli export-audit-trail --issuer GABC... --from 2024-01-01 --to 2024-12-31 --format csv --output audit.csv
+  issuer-cli bulk-create --file subjects.csv --claim-type KYC_PASSED --expiry 365
+  issuer-cli template create --id kyc-standard --claim-type KYC_PASSED
+  issuer-cli template list
+  issuer-cli template delete kyc-standard
 `);
 }
 
@@ -693,6 +951,12 @@ async function main() {
         break;
       case "export-audit-trail":
         await exportAuditTrail();
+        break;
+      case "bulk-create":
+        await bulkCreate();
+        break;
+      case "template":
+        await handleTemplate();
         break;
       default:
         console.error(`Unknown command: ${command}`);
