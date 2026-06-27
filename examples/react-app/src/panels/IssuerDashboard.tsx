@@ -7,6 +7,32 @@ import {
 } from "../contract";
 import { useIssuerStats } from "../../../../sdk/react/src";
 
+function exportAttestationsCSV(attestations: Attestation[]) {
+  const header = ["id", "subject", "claim_type", "status", "expiration"];
+  const now = BigInt(Math.floor(Date.now() / 1000));
+  const rows = attestations.map((a) => {
+    const status = a.revoked
+      ? "Revoked"
+      : a.expiration && a.expiration < now
+        ? "Expired"
+        : "Valid";
+    const expiration = a.expiration
+      ? new Date(Number(a.expiration) * 1000).toISOString()
+      : "";
+    return [a.id, a.subject, a.claim_type, status, expiration]
+      .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+      .join(",");
+  });
+  const csv = [header.join(","), ...rows].join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "attestations.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 interface Props { address: string; }
 
 export default function IssuerDashboard({ address }: Props) {
@@ -16,6 +42,18 @@ export default function IssuerDashboard({ address }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [renewing, setRenewing] = useState<Set<string>>(new Set());
+
+  async function handleRenew(id: string, currentExpiration: bigint) {
+    setRenewing((prev) => new Set(prev).add(id));
+    try {
+      const { renewAttestation } = await import("../contract");
+      const newExpiration = currentExpiration + BigInt(30 * 86400);
+      await renewAttestation(address, id, newExpiration);
+      await handleRefresh();
+    } finally {
+      setRenewing((prev) => { const s = new Set(prev); s.delete(id); return s; });
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -178,9 +216,16 @@ export default function IssuerDashboard({ address }: Props) {
         </div>
       </div>
 
-      <div style={{ marginTop: "2rem", textAlign: "center" }}>
+      <div style={{ marginTop: "2rem", textAlign: "center", display: "flex", gap: "0.75rem", justifyContent: "center" }}>
         <button className="btn btn-outline" onClick={handleRefresh}>
           Refresh
+        </button>
+        <button
+          className="btn btn-outline"
+          onClick={() => exportAttestationsCSV([...recent, ...expiring])}
+          disabled={recent.length === 0 && expiring.length === 0}
+        >
+          Export CSV
         </button>
       </div>
     </div>

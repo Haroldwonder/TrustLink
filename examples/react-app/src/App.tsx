@@ -10,6 +10,8 @@ import MultiSigPanel from "./panels/MultiSigPanel";
 import CouncilPanel from "./panels/CouncilPanel";
 import DelegationPanel from "./panels/DelegationPanel";
 import WhitelistPanel from "./panels/WhitelistPanel";
+import { useAttestationSubscription } from "./hooks/useAttestationSubscription";
+import { useToasts, ToastContainer } from "./Toast";
 
 type Tab = "admin" | "issuer" | "user" | "verifier" | "requests" | "multisig" | "council" | "delegation" | "whitelist";
 
@@ -52,6 +54,9 @@ export default function App() {
     setTab("user");
     setError(null);
   }
+
+  const { toasts, push: pushToast, dismiss: dismissToast } = useToasts();
+  useAttestationSubscription(address, pushToast);
 
   const short = address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "";
 
@@ -118,6 +123,7 @@ export default function App() {
       {tab === "verifier" && <ErrorBoundary><VerifierPanel /></ErrorBoundary>}
       {tab === "admin" && <ErrorBoundary><AdminPanel address={address} /></ErrorBoundary>}
       {tab === "council" && <ErrorBoundary><CouncilPanel address={address} /></ErrorBoundary>}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </>
   );
 }

@@ -1,12 +1,13 @@
-import { useState } from "react";
-import { createAttestation, revokeAttestation, getSubjectAttestations, Attestation } from "../contract";
+import { useState, useEffect } from "react";
+import { createAttestation, revokeAttestation, getSubjectAttestations, listTemplates, createAttestationFromTemplate, Attestation, AttestationTemplate } from "../contract";
 import { SkeletonAttestationList } from "../SkeletonList";
 import IssuerDashboard from "./IssuerDashboard";
+import TemplatePanel from "./TemplatePanel";
 
 interface Props { address: string; }
 
 export default function IssuerPanel({ address }: Props) {
-  const [tab, setTab] = useState<"dashboard" | "create" | "revoke" | "lookup">("dashboard");
+  const [tab, setTab] = useState<"dashboard" | "create" | "revoke" | "lookup" | "templates">("dashboard");
   const [subject, setSubject] = useState("");
   const [claimType, setClaimType] = useState("");
   const [metadata, setMetadata] = useState("");
@@ -19,6 +20,15 @@ export default function IssuerPanel({ address }: Props) {
   const [lookupAddr, setLookupAddr] = useState("");
   const [attestations, setAttestations] = useState<Attestation[]>([]);
   const [lookupLoading, setLookupLoading] = useState(false);
+
+  const [templates, setTemplates] = useState<AttestationTemplate[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState("");
+  const [templateSubject, setTemplateSubject] = useState("");
+  const [templateLoading, setTemplateLoading] = useState(false);
+
+  useEffect(() => {
+    listTemplates(address).then(setTemplates).catch(() => {});
+  }, [address]);
 
   async function handleCreate() {
     if (!subject || !claimType) return;
@@ -47,6 +57,21 @@ export default function IssuerPanel({ address }: Props) {
       setStatus({ type: "error", msg: (e as Error).message });
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleFromTemplate() {
+    if (!selectedTemplate || !templateSubject) return;
+    setTemplateLoading(true);
+    setStatus(null);
+    try {
+      await createAttestationFromTemplate(address, selectedTemplate, templateSubject.trim(), null);
+      setStatus({ type: "success", msg: "Attestation created from template." });
+      setTemplateSubject("");
+    } catch (e: unknown) {
+      setStatus({ type: "error", msg: (e as Error).message });
+    } finally {
+      setTemplateLoading(false);
     }
   }
 
@@ -91,6 +116,21 @@ export default function IssuerPanel({ address }: Props) {
       <div>
         <TabNav />
         <IssuerDashboard address={address} />
+      </div>
+    );
+  }
+
+  if (tab === "templates") {
+    return (
+      <div>
+        <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem", borderBottom: "1px solid #2d3148", paddingBottom: "0.5rem" }}>
+          {(["dashboard", "create", "revoke", "lookup", "templates"] as const).map((t) => (
+            <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)} style={{ flex: 1, textAlign: "center", padding: "0.5rem", textTransform: "capitalize" }}>
+              {t}
+            </button>
+          ))}
+        </div>
+        <TemplatePanel address={address} />
       </div>
     );
   }
@@ -144,6 +184,41 @@ export default function IssuerPanel({ address }: Props) {
           >
             Create
           </button>
+          {templates.length > 0 && (
+            <div style={{ marginTop: "1.5rem", borderTop: "1px solid #2d3148", paddingTop: "1rem" }}>
+              <h4 style={{ marginBottom: "0.75rem", color: "#94a3b8", fontSize: "0.85rem" }}>Or create from template</h4>
+              <div className="field">
+                <label>Template</label>
+                <select
+                  value={selectedTemplate}
+                  onChange={(e) => setSelectedTemplate(e.target.value)}
+                  style={{ background: "#0f1117", border: "1px solid #2d3148", borderRadius: "0.5rem", padding: "0.5rem 0.75rem", color: "#e2e8f0", width: "100%" }}
+                >
+                  <option value="">Select a template…</option>
+                  {templates.map((t) => (
+                    <option key={t.template_id} value={t.template_id}>
+                      {t.template_id} — {t.claim_type}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label>Subject Address</label>
+                <input
+                  value={templateSubject}
+                  onChange={(e) => setTemplateSubject(e.target.value)}
+                  placeholder="G..."
+                />
+              </div>
+              <button
+                className="btn btn-outline"
+                disabled={templateLoading || !selectedTemplate || !templateSubject}
+                onClick={handleFromTemplate}
+              >
+                {templateLoading ? "Creating…" : "Create from Template"}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
