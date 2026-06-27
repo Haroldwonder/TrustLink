@@ -177,6 +177,21 @@ export interface Endorsement {
   timestamp: bigint;
 }
 
+export interface Delegation {
+  delegator: string;
+  delegate: string;
+  claim_types: string[] | null;
+  expires_at: bigint | null;
+}
+
+export interface Template {
+  id: string;
+  issuer: string;
+  name: string;
+  claim_type: string;
+  description: string | null;
+}
+
 export type AuditAction = "Created" | "Revoked" | "Renewed" | "Updated" | "Transferred";
 
 export interface AuditEntry {

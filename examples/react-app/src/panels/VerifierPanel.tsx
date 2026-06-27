@@ -1,12 +1,15 @@
 import { useState } from "react";
-import { hasValidClaim, getSubjectAttestations, getAttestation, Attestation } from "../contract";
+import { hasValidClaim, getSubjectAttestations, getAttestation, isWhitelistEnabled, isWhitelisted, Attestation } from "../contract";
 
 type InputMode = "manual" | "scan";
 
 export default function VerifierPanel() {
   const [subject, setSubject] = useState("");
   const [claimType, setClaimType] = useState("");
+  const [issuer, setIssuer] = useState("");
   const [checkResult, setCheckResult] = useState<boolean | null>(null);
+  const [whitelistEnabled, setWhitelistEnabled] = useState<boolean | null>(null);
+  const [whitelistedResult, setWhitelistedResult] = useState<boolean | null>(null);
   const [attestations, setAttestations] = useState<Attestation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -22,9 +25,19 @@ export default function VerifierPanel() {
     setLoading(true);
     setError(null);
     setCheckResult(null);
+    setWhitelistEnabled(null);
+    setWhitelistedResult(null);
     try {
       const result = await hasValidClaim(subject.trim(), claimType.trim());
       setCheckResult(result);
+      if (issuer.trim()) {
+        const enabled = await isWhitelistEnabled(issuer.trim());
+        setWhitelistEnabled(enabled);
+        if (enabled) {
+          const listed = await isWhitelisted(issuer.trim(), subject.trim());
+          setWhitelistedResult(listed);
+        }
+      }
     } catch (e: unknown) {
       setError((e as Error).message);
     } finally {

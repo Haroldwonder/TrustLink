@@ -165,6 +165,17 @@ export default function IssuerPanel({ address }: Props) {
         </div>
       )}
 
+      {tab === "templates" && (
+        <div className="card">
+          <h3>Attestation Templates</h3>
+          {templatesLoading
+            ? <p className="empty">Loading templates…</p>
+            : templates.length === 0
+              ? <p className="empty">No templates found.</p>
+              : <TemplateList items={templates} />}
+        </div>
+      )}
+
       {tab === "create" && (
         <div className="card">
           <h3>Create Attestation</h3>
@@ -336,5 +347,22 @@ function AttestationList({ items }: { items: Attestation[] }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+function TemplateList({ items }: { items: Template[] }) {
+  return (
+    <div className="att-list">
+      {items.map((t) => (
+        <div key={t.id} className="att-item">
+          <div className="row">
+            <span className="claim">{t.name}</span>
+            <span className="badge badge-valid">{t.claim_type}</span>
+          </div>
+          {t.description && <span className="meta">{t.description}</span>}
+          <span className="meta">ID: {t.id}</span>
+        </div>
+      ))}
+    </div>
   );
 }

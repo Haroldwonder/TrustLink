@@ -295,6 +295,7 @@ import type {
   MultiSigProposal,
   Network,
   SubjectDataExport,
+  Template,
   TrustLinkClientOptions,
 } from "./types";
 import { parseTrustLinkError } from "./types";
@@ -862,6 +863,26 @@ export class TrustLinkClient {
   async bulkAddToWhitelist(issuer: string, subjects: string[]): Promise<void> {
     const subjectsVal = xdr.ScVal.scvVec(subjects.map(s => this.addr(s)));
     return this.simulate("bulk_add_to_whitelist", this.addr(issuer), subjectsVal);
+  }
+
+  async isWhitelisted(issuer: string, subject: string): Promise<boolean> {
+    return this.simulate("is_whitelisted", this.addr(issuer), this.addr(subject));
+  }
+
+  async isWhitelistEnabled(issuer: string): Promise<boolean> {
+    return this.simulate("is_whitelist_enabled", this.addr(issuer));
+  }
+
+  // ── Delegations ────────────────────────────────────────────────────────────
+
+  async listDelegationsByDelegator(delegator: string, start: number, limit: number): Promise<Delegation[]> {
+    return this.simulate("list_delegations_by_delegator", this.addr(delegator), this.u32(start), this.u32(limit));
+  }
+
+  // ── Templates ─────────────────────────────────────────────────────────────
+
+  async listTemplates(issuer: string, start: number, limit: number): Promise<Template[]> {
+    return this.simulate("list_templates", this.addr(issuer), this.u32(start), this.u32(limit));
   }
 
   // ── Pagination Helpers ─────────────────────────────────────────────────────
