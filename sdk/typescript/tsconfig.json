@@ -1,6 +1,8 @@
 {
   "compilerOptions": {
     "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
     "module": "commonjs",
     "lib": ["ES2020"],
     "declaration": true,
@@ -10,6 +12,10 @@
     "rootDir": "./src",
     "strict": true,
     "esModuleInterop": true,
+    "skipLibCheck": true
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist", "__tests__"]
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },

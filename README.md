@@ -10,6 +10,8 @@ TrustLink is a Soroban smart contract that provides a reusable trust layer for t
 
 TrustLink solves the problem of decentralized identity verification and trust establishment on-chain. Instead of each application building its own KYC/verification system, TrustLink provides a shared attestation infrastructure that can be queried by any smart contract or dApp.
 
+**New here? Start with the [5-Minute Quickstart](docs/quickstart.md)** — go from zero to verifying a testnet attestation using only the TypeScript SDK, in under 15 commands.
+
 ### Key Features
 
 - **Authorized Issuers**: Admin-controlled registry of trusted attestation issuers
@@ -41,7 +43,7 @@ TrustLink is designed with security as a first-class concern. Before mainnet dep
 
 Three security findings were identified in the pre-audit review and must be resolved before mainnet deployment:
 
-1. **FINDING-001 [MEDIUM]:** `initialize()` state read before auth
+1. **FINDING-001 [MEDIUM]:** `initialize()` state read before auth — ✅ resolved (`require_auth()` is now the first operation in `initialize()`)
 2. **FINDING-002 [HIGH]:** `revoke_attestation()` missing `require_issuer` check
 3. **FINDING-003 [HIGH]:** `update_expiration()` missing `require_issuer` check
 
@@ -51,18 +53,29 @@ See [docs/security-review.md](./docs/security-review.md) for details and remedia
 
 - **Trust Hierarchy:** [docs/security.md](./docs/security.md) - Admin, issuer, and subject roles
 - **Threat Model:** [docs/security.md](./docs/security.md) - Known limitations and mitigations
+- **Bug Bounty:** [docs/bug-bounty.md](./docs/bug-bounty.md) - Vulnerability rewards and scope
 - **GDPR Compliance:** [docs/compliance.md](./docs/compliance.md) - Right to erasure and data minimization
 - **Monitoring:** [docs/monitoring.md](./docs/monitoring.md) - Event streaming and alerting
 
 ### Reporting Security Issues
 
 If you discover a security vulnerability, please email security@trustlink.io with:
+
 - Description of the vulnerability
 - Steps to reproduce
 - Potential impact
 - Suggested fix (if any)
 
 Please do not disclose security issues publicly until they have been addressed.
+
+### Bug Bounty Program
+
+TrustLink operates an active bug bounty program with rewards for verified vulnerabilities. See [docs/bug-bounty.md](./docs/bug-bounty.md) for:
+
+- In-scope contracts and components
+- Severity tiers and reward ranges
+- Submission process and safe harbor
+- Known limitations and excluded findings
 
 ## Architecture
 
@@ -162,14 +175,14 @@ contract.remove_issuer(&admin, &issuer_address);
 
 When an issuer is removed via `remove_issuer`:
 
-| Action                                                   | Allowed? | Reason                                                                                                               |
-| -------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------- |
-| Existing attestations remain valid                       | Yes      | Attestation validity depends only on revocation and expiration status, not issuer registration                       |
-| `has_valid_claim` returns true for existing attestations | Yes      | Validity checks do not verify issuer registration                                                                    |
-| Removed issuer creates new attestations                  | **No**   | `create_attestation` calls `require_issuer`, which rejects unregistered issuers                                      |
-| Removed issuer revokes their own attestations            | Yes      | `revoke_attestation` only checks that the caller matches the attestation's original issuer, not current registration |
+| Action                                                   | Allowed? | Reason                                                                                                        |
+| -------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------- |
+| Existing attestations remain valid                       | Yes      | Attestation validity depends only on revocation and expiration status, not issuer registration                |
+| `has_valid_claim` returns true for existing attestations | Yes      | Validity checks do not verify issuer registration                                                             |
+| Removed issuer creates new attestations                  | **No**   | `create_attestation` calls `require_issuer`, which rejects unregistered issuers                               |
+| Removed issuer revokes their own attestations            | **No**   | `revoke_attestation` requires the caller to still be a registered issuer (deregistered issuers cannot revoke) |
 
-This is by design — attestations represent signed facts at a point in time. Removing an issuer prevents future issuance but does not retroactively invalidate previously issued attestations.
+Removing an issuer prevents future issuance and also blocks the removed issuer from revoking attestations after deregistration. Previously issued attestations remain valid unless successfully revoked by a currently-registered issuer.
 
 ### Register Bridge Contracts
 
@@ -307,13 +320,13 @@ let has_specific_kyc = contract.has_valid_claim_from_issuer(
 
 A subject may hold the same claim type issued by multiple issuers. `has_valid_claim` uses OR-logic across all issuers — it returns `true` if **any one** attestation for that claim type is currently valid, regardless of the state of the others.
 
-| Scenario | Result |
-|----------|--------|
-| Two issuers, both valid | `true` |
-| Two issuers, one revoked, one valid | `true` |
-| Two issuers, one expired, one valid | `true` |
-| Two issuers, both revoked | `false` |
-| Two issuers, both expired | `false` |
+| Scenario                            | Result  |
+| ----------------------------------- | ------- |
+| Two issuers, both valid             | `true`  |
+| Two issuers, one revoked, one valid | `true`  |
+| Two issuers, one expired, one valid | `true`  |
+| Two issuers, both revoked           | `false` |
+| Two issuers, both expired           | `false` |
 
 Use `has_valid_claim_from_issuer` when you need to verify a claim from a specific trusted issuer rather than any issuer in the registry.
 
@@ -402,6 +415,7 @@ contract.transfer_attestation(&admin, &attestation_id, &new_issuer);
 ```
 
 **Effects:**
+
 - Updates `issuer` field in attestation record
 - Removes ID from old issuer's attestation index
 - Adds ID to new issuer's attestation index
@@ -410,6 +424,7 @@ contract.transfer_attestation(&admin, &attestation_id, &new_issuer);
 - Appends `Transferred` audit entry: `actor=admin, details=new_issuer_address`
 
 **Validations:**
+
 - Caller must be admin
 - `attestation_id` must exist
 - `new_issuer` must be registered
@@ -551,10 +566,26 @@ let valid  = contract.get_valid_claim_count(&user_address);          // only non
 // List user's attestations (paginated)
 let attestations = contract.get_subject_attestations(&user_address, &0, &10);
 
-// Search attestations by date range (paginated)
+// Search attestations by date range (legacy offset pagination)
 let from_ts = 1_700_000_000;
 let to_ts = 1_701_000_000;
 let attestations = contract.get_attestations_in_range(&user_address, &from_ts, &to_ts, &0, &10);
+
+// Preferred page-after cursor pagination for resilient traversal across deletions
+let first_page = contract.get_attestations_in_range_after(
+    &user_address,
+    &from_ts,
+    &to_ts,
+    &None,
+    &10,
+);
+let second_page = contract.get_attestations_in_range_after(
+    &user_address,
+    &from_ts,
+    &to_ts,
+    &Some(first_page.get(9).unwrap().id.clone()),
+    &10,
+);
 
 // List issuer's attestations
 let issued = contract.get_issuer_attestations(&issuer_address, &0, &10);
@@ -632,10 +663,10 @@ impl LendingContract {
 
 TrustLink enforces configurable limits to prevent malicious issuers from exhausting on-chain storage.
 
-| Limit | Default | Description |
-|---|---|---|
-| `max_attestations_per_issuer` | 10,000 | Max attestations a single issuer may create |
-| `max_attestations_per_subject` | 100 | Max attestations a single subject may hold |
+| Limit                          | Default | Description                                 |
+| ------------------------------ | ------- | ------------------------------------------- |
+| `max_attestations_per_issuer`  | 10,000  | Max attestations a single issuer may create |
+| `max_attestations_per_subject` | 100     | Max attestations a single subject may hold  |
 
 Attempting to create an attestation beyond either limit returns `Error::LimitExceeded` (code `#10`).
 
@@ -664,6 +695,28 @@ soroban contract invoke --id <CONTRACT_ID> --network testnet --source ADMIN_SECR
   --max_attestations_per_issuer 5000 \
   --max_attestations_per_subject 50
 ```
+
+## Storage Cost Estimates
+
+Every attestation written to the Stellar ledger consumes a base reserve (locked XLM). The table below gives issuers a quick budget reference.
+
+| Scenario                | Approx. XLM reserve per attestation |
+| ----------------------- | ----------------------------------- |
+| Baseline (no metadata)  | ~15–16 XLM                          |
+| With ~200-byte metadata | ~18–20 XLM                          |
+| Revocation only         | ~1–2 XLM                            |
+
+Costs are **reserve**, not fees — the XLM is locked, not burned, and is returned if the entry is evicted or deleted.
+
+Key drivers:
+
+- The main `Attestation` entry is ~800 bytes → ~13 XLM data reserve + 0.5 XLM entry fee.
+- Each new subject/issuer index Vec entry adds ~1 XLM.
+- Optional metadata adds ~0.5 XLM per 32 bytes.
+
+For full ledger entry size breakdown, XLM calculations, TTL/rent guidance, and bulk cost projections (10 → 10,000 attestations), see [docs/performance.md — Storage Cost Per Attestation](docs/performance.md#storage-cost-per-attestation-xlm).
+
+> Base reserve figures are based on the current Stellar network parameters (0.5 XLM per entry + 0.5 XLM per 32 bytes). Verify with `stellar network info` before budgeting for production.
 
 ## Error Handling
 
@@ -828,7 +881,9 @@ For the pre-mainnet line-by-line authorization audit, see
 - **Payment Systems**: Verify merchant credentials
 - **Governance**: Validate voter eligibility
 - **Marketplaces**: Confirm seller reputation
-- **Insurance**: Verify policyholder identity
+- **Insurance**: Verify policyholder identity — see [examples/insurance/README.md](examples/insurance/README.md)
+- **Real-Estate Title**: Long-lived title and lien attestation flow — see [examples/real-estate/README.md](examples/real-estate/README.md)
+- **Healthcare Credentials**: Privacy-sensitive provider licensing and vaccination verification — see [examples/healthcare/README.md](examples/healthcare/README.md)
 - **Stellar Anchors**: End-to-end anchor KYC attestation flow example in [examples/anchor-integration/README.md](examples/anchor-integration/README.md)
 - **Soroban Tokens**: KYC-restricted token transfer example in [examples/kyc-token/README.md](examples/kyc-token/README.md)
 - **DAO Governance**: Voter eligibility-gated voting example in [examples/governance/README.md](examples/governance/README.md)
@@ -879,13 +934,13 @@ rustup target add wasm32-unknown-unknown
 
 ### Environment variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `ADMIN_SECRET` | Yes (deploy/invoke) | Stellar secret key (`S...`) used to sign transactions |
-| `CONTRACT_ID` | Yes (invoke) | Contract address returned by `deploy` |
-| `TESTNET_RPC_URL` | No | Override testnet RPC (default: `https://soroban-testnet.stellar.org`) |
-| `MAINNET_RPC_URL` | No | Override mainnet RPC |
-| `LOCAL_RPC_URL` | No | Override local RPC (default: `http://localhost:8000/soroban/rpc`) |
+| Variable          | Required            | Description                                                           |
+| ----------------- | ------------------- | --------------------------------------------------------------------- |
+| `ADMIN_SECRET`    | Yes (deploy/invoke) | Stellar secret key (`S...`) used to sign transactions                 |
+| `CONTRACT_ID`     | Yes (invoke)        | Contract address returned by `deploy`                                 |
+| `TESTNET_RPC_URL` | No                  | Override testnet RPC (default: `https://soroban-testnet.stellar.org`) |
+| `MAINNET_RPC_URL` | No                  | Override mainnet RPC                                                  |
+| `LOCAL_RPC_URL`   | No                  | Override local RPC (default: `http://localhost:8000/soroban/rpc`)     |
 
 Never commit `ADMIN_SECRET` to version control. Always pass it via the shell environment.
 
@@ -950,24 +1005,24 @@ make invoke NETWORK=mainnet ARGS='-- get_admin'
 
 ### All Makefile targets
 
-| Target | Description |
-|--------|-------------|
-| `make build` | Build WASM release artifact |
-| `make test` | Run all unit tests |
-| `make optimize` | Build + optimize WASM |
-| `make fmt` | Format source code |
-| `make clippy` | Run clippy linter |
-| `make clean` | Remove build artifacts |
-| `make install` | Print dependency installation instructions |
-| `make deploy` | Deploy to `NETWORK` (default: testnet) |
-| `make deploy NETWORK=testnet` | Deploy to testnet |
+| Target                        | Description                                  |
+| ----------------------------- | -------------------------------------------- |
+| `make build`                  | Build WASM release artifact                  |
+| `make test`                   | Run all unit tests                           |
+| `make optimize`               | Build + optimize WASM                        |
+| `make fmt`                    | Format source code                           |
+| `make clippy`                 | Run clippy linter                            |
+| `make clean`                  | Remove build artifacts                       |
+| `make install`                | Print dependency installation instructions   |
+| `make deploy`                 | Deploy to `NETWORK` (default: testnet)       |
+| `make deploy NETWORK=testnet` | Deploy to testnet                            |
 | `make deploy NETWORK=mainnet` | Deploy to mainnet (prompts for confirmation) |
-| `make deploy NETWORK=local` | Deploy to local node |
-| `make testnet` | Alias for `deploy NETWORK=testnet` |
-| `make mainnet` | Alias for `deploy NETWORK=mainnet` |
-| `make local` | Alias for `deploy NETWORK=local` |
-| `make invoke ARGS='-- fn'` | Invoke a contract function on `NETWORK` |
-| `make help` | Print all targets with usage examples |
+| `make deploy NETWORK=local`   | Deploy to local node                         |
+| `make testnet`                | Alias for `deploy NETWORK=testnet`           |
+| `make mainnet`                | Alias for `deploy NETWORK=mainnet`           |
+| `make local`                  | Alias for `deploy NETWORK=local`             |
+| `make invoke ARGS='-- fn'`    | Invoke a contract function on `NETWORK`      |
+| `make help`                   | Print all targets with usage examples        |
 
 ## Video Tutorial
 
@@ -979,20 +1034,30 @@ A companion written guide with all commands and code snippets is available at [d
 
 For a step-by-step walkthrough covering Rust cross-contract patterns, JavaScript/TypeScript usage, error handling, and testnet testing, see [docs/integration-guide.md](docs/integration-guide.md).
 
+New to TrustLink? Start with the [5-Minute Quickstart](docs/quickstart.md) for the fastest path to verifying your first attestation on testnet.
+
 ## Storage Layout
 
 For a full reference of every on-chain storage key, the data each holds, TTL policy, serialization format, and a practical RPC read example for indexer developers, see [docs/storage-layout.md](docs/storage-layout.md).
+
+## Glossary
+
+Terms like *attestation*, *issuer*, *subject*, *bridge*, *claim type*, *endorsement*, and *delegation* have specific meanings in TrustLink. See [docs/glossary.md](docs/glossary.md) for definitions of all domain-specific terms.
 
 ## Architecture Decision Records
 
 Key design choices are documented as ADRs in [docs/adr/](docs/adr/):
 
-| ADR                                               | Decision                                         |
-| ------------------------------------------------- | ------------------------------------------------ |
-| [ADR-001](docs/adr/ADR-001-deterministic-ids.md)  | Deterministic IDs instead of sequential counters |
-| [ADR-002](docs/adr/ADR-002-persistent-storage.md) | Persistent storage instead of temporary storage  |
-| [ADR-003](docs/adr/ADR-003-immutable-history.md)  | Immutable attestation history (no delete)        |
-| [ADR-004](docs/adr/ADR-004-dual-indexes.md)       | Separate issuer and subject indexes              |
+| ADR                                                  | Decision                                         |
+| ---------------------------------------------------- | ------------------------------------------------ |
+| [ADR-001](docs/adr/ADR-001-deterministic-ids.md)     | Deterministic IDs instead of sequential counters |
+| [ADR-002](docs/adr/ADR-002-persistent-storage.md)    | Persistent storage instead of temporary storage  |
+| [ADR-003](docs/adr/ADR-003-immutable-history.md)     | Immutable attestation history (no delete)        |
+| [ADR-004](docs/adr/ADR-004-dual-indexes.md)          | Separate issuer and subject indexes              |
+| [ADR-006](docs/adr/ADR-006-multi-issuer-or-logic.md) | OR-logic across issuers in `has_valid_claim`     |
+| [ADR-007](docs/adr/ADR-007-attestation-requests.md)  | Pull-based attestation request workflow          |
+| [ADR-008](docs/adr/ADR-008-rate-limiting.md)         | Rate limiting design and known limitations       |
+| [ADR-009](docs/adr/ADR-009-delegation-model.md)      | Delegation model and trust chain implications    |
 
 A blank [template](docs/adr/ADR-000-template.md) is available for new decisions.
 

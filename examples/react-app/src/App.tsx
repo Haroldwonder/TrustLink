@@ -1,22 +1,48 @@
 import { useState, useEffect } from "react";
-import { connectWallet, getWalletAddress } from "./wallet";
+import { Networks } from "@stellar/stellar-sdk";
+import { connectWallet, getWalletAddress, getConnectedNetwork, disconnectWallet } from "./wallet";
+import { ErrorBoundary } from "./ErrorBoundary";
 import AdminPanel from "./panels/AdminPanel";
 import IssuerPanel from "./panels/IssuerPanel";
 import UserPanel from "./panels/UserPanel";
 import VerifierPanel from "./panels/VerifierPanel";
+import AttestationRequestPanel from "./panels/AttestationRequestPanel";
+import MultiSigPanel from "./panels/MultiSigPanel";
+import CouncilPanel from "./panels/CouncilPanel";
+import DelegationPanel from "./panels/DelegationPanel";
+import WhitelistPanel from "./panels/WhitelistPanel";
+import { useAttestationSubscription } from "./hooks/useAttestationSubscription";
+import { useToasts, ToastContainer } from "./Toast";
 
-type Tab = "admin" | "issuer" | "user" | "verifier";
+type Tab = "admin" | "issuer" | "user" | "verifier" | "requests" | "multisig" | "council" | "delegation" | "whitelist";
 
 export default function App() {
   const [address, setAddress] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("user");
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [networkMismatch, setNetworkMismatch] = useState(false);
+  const [darkMode, setDarkMode] = useState<boolean>(() => {
+    const stored = localStorage.getItem("trustlink-theme");
+    return stored ? stored === "dark" : true;
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", darkMode ? "dark" : "light");
+    localStorage.setItem("trustlink-theme", darkMode ? "dark" : "light");
+  }, [darkMode]);
 
   // Auto-reconnect if Freighter is already authorised
   useEffect(() => {
     getWalletAddress().then((addr) => { if (addr) setAddress(addr); });
   }, []);
+
+  useEffect(() => {
+    if (!address) { setNetworkMismatch(false); return; }
+    getConnectedNetwork().then((passphrase) => {
+      setNetworkMismatch(passphrase != null && passphrase !== Networks.TESTNET);
+    });
+  }, [address]);
 
   async function handleConnect() {
     setConnecting(true);
@@ -24,12 +50,24 @@ export default function App() {
     try {
       const addr = await connectWallet();
       setAddress(addr);
+      const passphrase = await getConnectedNetwork();
+      setNetworkMismatch(passphrase != null && passphrase !== Networks.TESTNET);
     } catch (e: unknown) {
       setError((e as Error).message);
     } finally {
       setConnecting(false);
     }
   }
+
+  async function handleDisconnect() {
+    await disconnectWallet();
+    setAddress(null);
+    setTab("user");
+    setError(null);
+  }
+
+  const { toasts, push: pushToast, dismiss: dismissToast } = useToasts();
+  useAttestationSubscription(address, pushToast);
 
   const short = address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "";
 
@@ -54,9 +92,14 @@ export default function App() {
 
   const TABS: { id: Tab; label: string }[] = [
     { id: "user", label: "My Attestations" },
+    { id: "requests", label: "Requests" },
+    { id: "multisig", label: "Multi-Sig" },
+    { id: "delegation", label: "Delegation" },
+    { id: "whitelist", label: "Whitelist" },
     { id: "issuer", label: "Issuer" },
     { id: "verifier", label: "Verifier" },
     { id: "admin", label: "Admin" },
+    { id: "council", label: "Council" },
   ];
 
   return (
@@ -64,8 +107,11 @@ export default function App() {
       <header className="header">
         <h1>TrustLink</h1>
         <div className="wallet-info">
+          <button className="btn btn-outline theme-toggle" onClick={() => setDarkMode((d) => !d)} aria-label="Toggle dark mode">
+            {darkMode ? "☀️" : "🌙"}
+          </button>
           <span className="addr">{short}</span>
-          <button className="btn btn-outline" style={{ fontSize: "0.8rem", padding: "0.3rem 0.75rem" }} onClick={() => setAddress(null)}>
+          <button className="btn btn-outline" style={{ fontSize: "0.8rem", padding: "0.3rem 0.75rem" }} onClick={handleDisconnect}>
             Disconnect
           </button>
         </div>
@@ -79,10 +125,26 @@ export default function App() {
         ))}
       </nav>
 
-      {tab === "user" && <UserPanel address={address} />}
-      {tab === "issuer" && <IssuerPanel address={address} />}
-      {tab === "verifier" && <VerifierPanel />}
-      {tab === "admin" && <AdminPanel address={address} />}
+      {networkMismatch && (
+        <div
+          className="alert alert-error"
+          style={{ margin: "1rem", borderRadius: "0.5rem", padding: "1rem 1.25rem", fontSize: "0.9rem" }}
+        >
+          <strong>Wrong network.</strong> Your Freighter wallet is connected to a different network than
+          this app (Stellar Testnet). Please switch your wallet network to Testnet and reconnect.
+        </div>
+      )}
+
+      {tab === "user" && <ErrorBoundary><UserPanel address={address} /></ErrorBoundary>}
+      {tab === "requests" && <ErrorBoundary><AttestationRequestPanel address={address} /></ErrorBoundary>}
+      {tab === "multisig" && <ErrorBoundary><MultiSigPanel address={address} /></ErrorBoundary>}
+      {tab === "delegation" && <ErrorBoundary><DelegationPanel address={address} /></ErrorBoundary>}
+      {tab === "whitelist" && <ErrorBoundary><WhitelistPanel address={address} /></ErrorBoundary>}
+      {tab === "issuer" && <ErrorBoundary><IssuerPanel address={address} /></ErrorBoundary>}
+      {tab === "verifier" && <ErrorBoundary><VerifierPanel /></ErrorBoundary>}
+      {tab === "admin" && <ErrorBoundary><AdminPanel address={address} /></ErrorBoundary>}
+      {tab === "council" && <ErrorBoundary><CouncilPanel address={address} /></ErrorBoundary>}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </>
   );
 }

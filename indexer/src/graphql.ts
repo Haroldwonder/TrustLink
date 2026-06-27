@@ -1,12 +1,20 @@
 import { PubSub } from "graphql-subscriptions";
-import { PrismaClient, Attestation } from "@prisma/client";
+import { PrismaClient, Attestation, MultisigProposal, AttestationRequest, Template, Delegation, WhitelistEntry, CouncilAction } from "@prisma/client";
 
 export const pubsub = new PubSub();
 export const ATTESTATION_CREATED = "ATTESTATION_CREATED";
+export const ATTESTATION_REVOKED = "ATTESTATION_REVOKED";
+export const ISSUER_REGISTERED = "ISSUER_REGISTERED";
 
 type MappedAttestation = Omit<Attestation, "timestamp" | "expiration" | "createdAt" | "updatedAt"> & {
   timestamp: string;
   expiration: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type MappedProposal = Omit<MultisigProposal, "expiresAt" | "createdAt" | "updatedAt"> & {
+  expiresAt: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -21,24 +29,134 @@ function mapAttestation(a: Attestation): MappedAttestation {
   };
 }
 
-export function buildResolvers(db: PrismaClient) {
+function mapProposal(p: MultisigProposal): MappedProposal {
+  return {
+    ...p,
+    expiresAt: String(p.expiresAt),
+    createdAt: p.createdAt.toISOString(),
+    updatedAt: p.updatedAt.toISOString(),
+  };
+}
+
+type MappedRequest = Omit<AttestationRequest, "requestedAt" | "expiresAt" | "createdAt" | "updatedAt"> & {
+  requestedAt: string;
+  expiresAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+function mapRequest(r: AttestationRequest): MappedRequest {
+  return {
+    ...r,
+    requestedAt: String(r.requestedAt),
+    expiresAt: String(r.expiresAt),
+    createdAt: r.createdAt.toISOString(),
+    updatedAt: r.updatedAt.toISOString(),
+  };
+}
+
+function mapTemplate(t: Template) {
+  return { ...t, createdAt: t.createdAt.toISOString() };
+}
+
+function mapDelegation(d: Delegation) {
+  return { ...d, expiresAt: String(d.expiresAt), createdAt: d.createdAt.toISOString() };
+}
+
+function mapWhitelistEntry(w: WhitelistEntry) {
+  return { ...w, createdAt: w.createdAt.toISOString() };
+}
+
+function mapCouncilAction(c: CouncilAction) {
+  return { ...c, createdAt: c.createdAt.toISOString() };
+}
+
+export function buildResolvers(db: PrismaClient, getLastLedger?: () => number) {
   return {
     Query: {
+      healthCheck: async () => {
+        let dbOk = false;
+        try {
+          await db.$queryRaw`SELECT 1`;
+          dbOk = true;
+        } catch {
+          dbOk = false;
+        }
+        return {
+          status: dbOk ? "ok" : "degraded",
+          lastLedger: getLastLedger ? getLastLedger() : null,
+          timestamp: new Date().toISOString(),
+        };
+      },
+
       attestations: async (
         _: unknown,
-        args: { subject?: string; claimType?: string; status?: "ACTIVE" | "REVOKED" }
-      ) => {
+        args: { 
+          subject?: string; 
+          claimType?: string; 
+          status?: "ACTIVE" | "REVOKED";
+          first?: number;
+          after?: string;
+        }
+      ): Promise<AttestationConnection> => {
         const where: Record<string, unknown> = {};
         if (args.subject) where.subject = args.subject;
         if (args.claimType) where.claimType = args.claimType;
         if (args.status === "ACTIVE") where.isRevoked = false;
         if (args.status === "REVOKED") where.isRevoked = true;
 
-        const rows = await db.attestation.findMany({
-          where,
-          orderBy: { timestamp: "desc" },
+        return buildAttestationConnection(db, where, args.first, args.after);
+      },
+
+      attestationsByIssuer: async (
+        _: unknown,
+        args: {
+          issuer: string;
+          first?: number;
+          after?: string;
+        }
+      ): Promise<AttestationConnection> => {
+        const where = { issuer: args.issuer };
+        return buildAttestationConnection(db, where, args.first, args.after);
+      },
+
+      issuer: async (_: unknown, args: { address: string }) => {
+        const issuer = await db.issuer.findUnique({
+          where: { address: args.address },
         });
-        return rows.map(mapAttestation);
+        return issuer
+          ? {
+              ...issuer,
+              registeredAt: issuer.registeredAt.toISOString(),
+              updatedAt: issuer.updatedAt.toISOString(),
+            }
+          : null;
+      },
+
+      issuers: async (
+        _: unknown,
+        args: { start?: number; limit?: number }
+      ) => {
+        const start = args.start ?? 0;
+        const limit = args.limit ?? 50;
+
+        const [issuers, total] = await Promise.all([
+          db.issuer.findMany({
+            skip: start,
+            take: limit,
+            orderBy: { registeredAt: "desc" },
+          }),
+          db.issuer.count(),
+        ]);
+
+        return {
+          items: issuers.map((i) => ({
+            ...i,
+            registeredAt: i.registeredAt.toISOString(),
+            updatedAt: i.updatedAt.toISOString(),
+          })),
+          total,
+        };
       },
 
       issuerStats: async (_: unknown, args: { issuer: string }) => {
@@ -57,6 +175,106 @@ export function buildResolvers(db: PrismaClient) {
           revoked,
           claimTypes,
         };
+      },
+
+      proposal: async (_: unknown, args: { id: string }) => {
+        const proposal = await db.multisigProposal.findUnique({
+          where: { id: args.id },
+        });
+        return proposal ? mapProposal(proposal) : null;
+      },
+
+      proposals: async (
+        _: unknown,
+        args: { subject?: string; finalized?: boolean }
+      ) => {
+        const where: Record<string, unknown> = {};
+        if (args.subject) where.subject = args.subject;
+        if (args.finalized !== undefined) where.finalized = args.finalized;
+
+        const rows = await db.multisigProposal.findMany({
+          where,
+          orderBy: { createdAt: "desc" },
+        });
+        return rows.map(mapProposal);
+      },
+
+      multiSigProposal: async (_: unknown, args: { id: string }) => {
+        if (!args.id) return null;
+        const proposal = await db.multisigProposal.findUnique({
+          where: { id: args.id },
+        });
+        return proposal ? mapProposal(proposal) : null;
+      },
+
+      openProposals: async (_: unknown, args: { subject: string }) => {
+        if (!args.subject) return [];
+        const rows = await db.multisigProposal.findMany({
+          where: { subject: args.subject, finalized: false },
+          orderBy: { createdAt: "desc" },
+        });
+        return rows.map(mapProposal);
+      },
+
+      attestationRequest: async (_: unknown, args: { id: string }) => {
+        if (!args.id) return null;
+        const req = await db.attestationRequest.findUnique({ where: { id: args.id } });
+        return req ? mapRequest(req) : null;
+      },
+
+      pendingRequests: async (_: unknown, args: { issuer: string }) => {
+        if (!args.issuer) return [];
+        const rows = await db.attestationRequest.findMany({
+          where: { issuer: args.issuer, status: "PENDING" },
+          orderBy: { createdAt: "asc" },
+        });
+        return rows.map(mapRequest);
+      },
+
+      endorsements: async (_: unknown, args: { attestationId: string }) => {
+        if (!args.attestationId) return [];
+        const rows = await db.endorsement.findMany({
+          where: { attestationId: args.attestationId },
+          orderBy: { timestamp: "asc" },
+        });
+        return rows.map((e) => ({
+          ...e,
+          timestamp: String(e.timestamp),
+          createdAt: e.createdAt.toISOString(),
+        }));
+      },
+
+      templates: async (_: unknown, args: { issuer: string }) => {
+        const rows = await db.template.findMany({
+          where: { issuer: args.issuer },
+          orderBy: { createdAt: "asc" },
+        });
+        return rows.map(mapTemplate);
+      },
+
+      delegationsByDelegator: async (_: unknown, args: { delegator: string }) => {
+        const rows = await db.delegation.findMany({
+          where: { delegator: args.delegator },
+          orderBy: { createdAt: "asc" },
+        });
+        return rows.map(mapDelegation);
+      },
+
+      isWhitelisted: async (_: unknown, args: { issuer: string; subject: string }) => {
+        const entry = await db.whitelistEntry.findUnique({
+          where: { issuer_subject: { issuer: args.issuer, subject: args.subject } },
+        });
+        return entry !== null;
+      },
+
+      councilActions: async (_: unknown, args: { executed?: boolean }) => {
+        const where: Record<string, unknown> = {};
+        if (args.executed !== undefined) where.executed = args.executed;
+        const rows = await db.councilAction.findMany({
+          where,
+          orderBy: { createdAt: "desc" },
+        });
+        return rows.map(mapCouncilAction);
       },
     },
 
@@ -91,6 +309,47 @@ export function buildResolvers(db: PrismaClient) {
         resolve: (payload: {
           onAttestationCreated: ReturnType<typeof mapAttestation>;
         }) => payload.onAttestationCreated,
+      },
+
+      onAttestationRevoked: {
+        subscribe: (_: unknown, args: { issuer?: string }) => {
+          const iter = pubsub.asyncIterableIterator<{
+            onAttestationRevoked: { id: string; issuer: string; revokedAt: string };
+          }>(ATTESTATION_REVOKED);
+
+          if (!args.issuer) return iter;
+
+          const issuer = args.issuer;
+          return {
+            [Symbol.asyncIterator]() {
+              return this;
+            },
+            async next(): Promise<IteratorResult<unknown>> {
+              while (true) {
+                const result = await iter.next();
+                if (result.done) return result;
+                const data = result.value?.onAttestationRevoked;
+                if (!data || data.issuer === issuer) return result;
+              }
+            },
+            async return() {
+              return iter.return?.() ?? { done: true as const, value: undefined };
+            },
+          };
+        },
+        resolve: (payload: {
+          onAttestationRevoked: { id: string; issuer: string; revokedAt: string };
+        }) => payload.onAttestationRevoked,
+      },
+
+      onIssuerRegistered: {
+        subscribe: () =>
+          pubsub.asyncIterableIterator<{
+            onIssuerRegistered: { issuer: string; registeredAt: string };
+          }>(ISSUER_REGISTERED),
+        resolve: (payload: {
+          onIssuerRegistered: { issuer: string; registeredAt: string };
+        }) => payload.onIssuerRegistered,
       },
     },
   };

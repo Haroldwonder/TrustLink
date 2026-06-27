@@ -247,4 +247,121 @@ mod tests {
         assert!(approved.is_ok());
     }
 }
-    
+
+// ── Multi-issuer OR-logic tests for has_valid_claim ──────────────────────────
+// Covers all table rows from the README:
+//   Both valid -> true
+//   One revoked, one valid -> true
+//   One expired, one valid -> true
+//   Both revoked -> false
+//   Both expired -> false
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod multi_issuer_tests {
+    use super::*;
+    use soroban_sdk::testutils::Ledger;
+
+    fn setup_two_issuers(
+        env: &Env,
+    ) -> (TrustLinkContractClient, Address, Address, Address, Address) {
+        let id = env.register_contract(None, TrustLinkContract);
+        let client = TrustLinkContractClient::new(env, &id);
+        let admin = Address::generate(env);
+        let issuer_a = Address::generate(env);
+        let issuer_b = Address::generate(env);
+        let subject = Address::generate(env);
+        client.initialize(&admin, &None);
+        client.register_issuer(&admin, &issuer_a);
+        client.register_issuer(&admin, &issuer_b);
+        (client, admin, issuer_a, issuer_b, subject)
+    }
+
+    #[test]
+    fn test_multi_issuer_both_valid_returns_true() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, admin, issuer_a, issuer_b, subject) = setup_two_issuers(&env);
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        env.ledger().with_mut(|l| l.timestamp = 1_000);
+        client.import_attestation(&admin, &issuer_a, &subject, &claim, &500, &None);
+        env.ledger().with_mut(|l| l.timestamp = 1_001);
+        client.import_attestation(&admin, &issuer_b, &subject, &claim, &600, &None);
+
+        assert!(client.has_valid_claim(&subject, &claim));
+    }
+
+    #[test]
+    fn test_multi_issuer_one_revoked_one_valid_returns_true() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, admin, issuer_a, issuer_b, subject) = setup_two_issuers(&env);
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        env.ledger().with_mut(|l| l.timestamp = 1_000);
+        let id_a = client.import_attestation(&admin, &issuer_a, &subject, &claim, &500, &None);
+        env.ledger().with_mut(|l| l.timestamp = 1_001);
+        client.import_attestation(&admin, &issuer_b, &subject, &claim, &600, &None);
+
+        client.revoke_attestation(&issuer_a, &id_a, &None);
+
+        assert!(client.has_valid_claim(&subject, &claim));
+    }
+
+    #[test]
+    fn test_multi_issuer_one_expired_one_valid_returns_true() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, admin, issuer_a, issuer_b, subject) = setup_two_issuers(&env);
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        env.ledger().with_mut(|l| l.timestamp = 1_000);
+        // issuer_a's attestation expires at 2_000
+        client.import_attestation(&admin, &issuer_a, &subject, &claim, &500, &Some(2_000));
+        env.ledger().with_mut(|l| l.timestamp = 1_001);
+        // issuer_b's attestation has no expiration
+        client.import_attestation(&admin, &issuer_b, &subject, &claim, &600, &None);
+
+        // advance past issuer_a's expiration
+        env.ledger().with_mut(|l| l.timestamp = 3_000);
+
+        assert!(client.has_valid_claim(&subject, &claim));
+    }
+
+    #[test]
+    fn test_multi_issuer_both_revoked_returns_false() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, admin, issuer_a, issuer_b, subject) = setup_two_issuers(&env);
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        env.ledger().with_mut(|l| l.timestamp = 1_000);
+        let id_a = client.import_attestation(&admin, &issuer_a, &subject, &claim, &500, &None);
+        env.ledger().with_mut(|l| l.timestamp = 1_001);
+        let id_b = client.import_attestation(&admin, &issuer_b, &subject, &claim, &600, &None);
+
+        client.revoke_attestation(&issuer_a, &id_a, &None);
+        client.revoke_attestation(&issuer_b, &id_b, &None);
+
+        assert!(!client.has_valid_claim(&subject, &claim));
+    }
+
+    #[test]
+    fn test_multi_issuer_both_expired_returns_false() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, admin, issuer_a, issuer_b, subject) = setup_two_issuers(&env);
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        env.ledger().with_mut(|l| l.timestamp = 1_000);
+        client.import_attestation(&admin, &issuer_a, &subject, &claim, &500, &Some(2_000));
+        env.ledger().with_mut(|l| l.timestamp = 1_001);
+        client.import_attestation(&admin, &issuer_b, &subject, &claim, &600, &Some(2_000));
+
+        // advance past both expirations
+        env.ledger().with_mut(|l| l.timestamp = 3_000);
+
+        assert!(!client.has_valid_claim(&subject, &claim));
+    }
+}

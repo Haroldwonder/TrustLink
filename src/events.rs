@@ -1,18 +1,50 @@
-use soroban_sdk::{symbol_short, Address, Env, String};
+use soroban_sdk::{symbol_short, Address, Env, String, Symbol};
 
 use crate::types::{Attestation, IssuerTier};
+
+// Event topic constants (max 9 chars for symbol_short!)
+const TOPIC_ADM_INIT: Symbol = symbol_short!("adm_init");
+const TOPIC_CREATED: Symbol = symbol_short!("created");
+const TOPIC_IMPORTED: Symbol = symbol_short!("imported");
+const TOPIC_BRIDGED: Symbol = symbol_short!("bridged");
+const TOPIC_REVOKED: Symbol = symbol_short!("revoked");
+const TOPIC_RENEWED: Symbol = symbol_short!("renewed");
+const TOPIC_UPDATED: Symbol = symbol_short!("updated");
+const TOPIC_EXPIRED: Symbol = symbol_short!("expired");
+const TOPIC_DEL_REQ: Symbol = symbol_short!("del_req");
+const TOPIC_ISS_REG: Symbol = symbol_short!("iss_reg");
+const TOPIC_ISS_TIER: Symbol = symbol_short!("iss_tier");
+const TOPIC_ISS_REM: Symbol = symbol_short!("iss_rem");
+const TOPIC_CLM_TYPE: Symbol = symbol_short!("clm_type");
+const TOPIC_MS_PROP: Symbol = symbol_short!("ms_prop");
+const TOPIC_MS_SIGN: Symbol = symbol_short!("ms_sign");
+const TOPIC_MS_ACTV: Symbol = symbol_short!("ms_actv");
+const TOPIC_ADM_XFER: Symbol = symbol_short!("adm_xfer");
+const TOPIC_ADM_ADD: Symbol = symbol_short!("adm_add");
+const TOPIC_ADM_REM: Symbol = symbol_short!("adm_rem");
+const TOPIC_ENDORSED: Symbol = symbol_short!("endorsed");
+const TOPIC_EXP_HOOK: Symbol = symbol_short!("exp_hook");
+const TOPIC_PAUSED: Symbol = symbol_short!("paused");
+const TOPIC_REQ: Symbol = symbol_short!("att_req");
+const TOPIC_REQ_OK: Symbol = symbol_short!("req_ok");
+const TOPIC_REQ_NO: Symbol = symbol_short!("req_no");
+const TOPIC_REQ_CANCEL: Symbol = symbol_short!("req_cncl");
+const TOPIC_WL_ON: Symbol = symbol_short!("wl_on");
+const TOPIC_WL_ADD: Symbol = symbol_short!("wl_add");
+const TOPIC_WL_REM: Symbol = symbol_short!("wl_rem");
+const TOPIC_TPL_DEL: Symbol = symbol_short!("tpl_del");
 
 pub struct Events;
 
 impl Events {
     pub fn admin_initialized(env: &Env, admin: &Address, timestamp: u64) {
         env.events()
-            .publish((symbol_short!("adm_init"),), (admin.clone(), timestamp));
+            .publish((TOPIC_ADM_INIT,), (admin.clone(), timestamp));
     }
 
     pub fn attestation_created(env: &Env, attestation: &Attestation) {
         env.events().publish(
-            (symbol_short!("created"), attestation.subject.clone()),
+            (TOPIC_CREATED, attestation.subject.clone()),
             (
                 attestation.id.clone(),
                 attestation.issuer.clone(),
@@ -25,7 +57,7 @@ impl Events {
 
     pub fn attestation_imported(env: &Env, attestation: &Attestation) {
         env.events().publish(
-            (symbol_short!("imported"), attestation.subject.clone()),
+            (TOPIC_IMPORTED, attestation.subject.clone()),
             (
                 attestation.id.clone(),
                 attestation.issuer.clone(),
@@ -38,7 +70,7 @@ impl Events {
 
     pub fn attestation_bridged(env: &Env, attestation: &Attestation) {
         env.events().publish(
-            (symbol_short!("bridged"), attestation.subject.clone()),
+            (TOPIC_BRIDGED, attestation.subject.clone()),
             (
                 attestation.id.clone(),
                 attestation.issuer.clone(),
@@ -55,14 +87,21 @@ impl Events {
         );
     }
 
-    pub fn attestation_revoked(
+    pub fn attestation_revoked(env: &Env, attestation_id: &String, issuer: &Address, reason: &Option<String>) {
+        env.events().publish(
+            (TOPIC_REVOKED, issuer.clone()),
+            (attestation_id.clone(), reason.clone()),
+        );
+    }
+
+    pub fn attestation_revoked_with_reason(
         env: &Env,
         attestation_id: &String,
         issuer: &Address,
         reason: &Option<String>,
     ) {
         env.events().publish(
-            (symbol_short!("revoked"), issuer.clone()),
+            (TOPIC_REVOKED, issuer.clone()),
             (attestation_id.clone(), reason.clone()),
         );
     }
@@ -74,7 +113,7 @@ impl Events {
         new_expiration: Option<u64>,
     ) {
         env.events().publish(
-            (symbol_short!("renewed"), issuer.clone()),
+            (TOPIC_RENEWED, issuer.clone()),
             (attestation_id.clone(), new_expiration),
         );
     }
@@ -86,7 +125,7 @@ impl Events {
         new_expiration: Option<u64>,
     ) {
         env.events().publish(
-            (symbol_short!("updated"), issuer.clone()),
+            (TOPIC_UPDATED, issuer.clone()),
             (attestation_id.clone(), new_expiration),
         );
     }
@@ -105,39 +144,49 @@ impl Events {
 
     pub fn attestation_expired(env: &Env, attestation_id: &String, subject: &Address) {
         env.events().publish(
-            (symbol_short!("expired"), subject.clone()),
+            (TOPIC_EXPIRED, subject.clone()),
             attestation_id.clone(),
+        );
+    }
+
+    pub fn deletion_requested(
+        env: &Env,
+        subject: &Address,
+        attestation_id: &String,
+        timestamp: u64,
+    ) {
+        env.events().publish(
+            (TOPIC_DEL_REQ, subject.clone()),
+            (attestation_id.clone(), timestamp),
         );
     }
 
     pub fn issuer_registered(env: &Env, issuer: &Address, admin: &Address, timestamp: u64) {
         env.events().publish(
-            (symbol_short!("iss_reg"), issuer.clone()),
+            (TOPIC_ISS_REG, issuer.clone()),
             (admin.clone(), timestamp),
         );
     }
 
-    /// Emitted when an issuer's tier is set or updated by the admin.
     pub fn issuer_tier_updated(env: &Env, issuer: &Address, tier: &IssuerTier) {
         env.events()
-            .publish((symbol_short!("iss_tier"), issuer.clone()), *tier);
+            .publish((TOPIC_ISS_TIER, issuer.clone()), tier.clone());
     }
 
     pub fn issuer_removed(env: &Env, issuer: &Address, admin: &Address, timestamp: u64) {
         env.events().publish(
-            (symbol_short!("iss_rem"), issuer.clone()),
+            (TOPIC_ISS_REM, issuer.clone()),
             (admin.clone(), timestamp),
         );
     }
 
     pub fn claim_type_registered(env: &Env, claim_type: &String, description: &String) {
         env.events().publish(
-            (symbol_short!("clmtype"), claim_type.clone()),
+            (TOPIC_CLM_TYPE, claim_type.clone()),
             description.clone(),
         );
     }
 
-    /// Emitted when a new multi-sig proposal is created.
     pub fn multisig_proposed(
         env: &Env,
         proposal_id: &String,
@@ -146,12 +195,11 @@ impl Events {
         threshold: u32,
     ) {
         env.events().publish(
-            (symbol_short!("ms_prop"), subject.clone()),
+            (TOPIC_MS_PROP, subject.clone()),
             (proposal_id.clone(), proposer.clone(), threshold),
         );
     }
 
-    /// Emitted when an issuer co-signs a multi-sig proposal.
     pub fn multisig_cosigned(
         env: &Env,
         proposal_id: &String,
@@ -160,24 +208,55 @@ impl Events {
         threshold: u32,
     ) {
         env.events().publish(
-            (symbol_short!("ms_sign"), signer.clone()),
+            (TOPIC_MS_SIGN, signer.clone()),
             (proposal_id.clone(), signatures_so_far, threshold),
         );
     }
 
-    /// Emitted when admin rights are transferred to a new address.
+    pub fn multisig_activated(env: &Env, proposal_id: &String, attestation_id: &String) {
+        env.events().publish(
+            (TOPIC_MS_ACTV,),
+            (proposal_id.clone(), attestation_id.clone()),
+        );
+    }
+
     pub fn admin_transferred(env: &Env, old_admin: &Address, new_admin: &Address) {
         env.events().publish(
-            (symbol_short!("adm_xfer"),),
+            (TOPIC_ADM_XFER,),
             (old_admin.clone(), new_admin.clone()),
         );
     }
 
-    /// Emitted when a multi-sig proposal reaches threshold and the attestation is activated.
-    pub fn multisig_activated(env: &Env, proposal_id: &String, attestation_id: &String) {
+    pub fn admin_transfer_proposed(env: &Env, current_admin: &Address, new_admin: &Address) {
         env.events().publish(
-            (symbol_short!("ms_actv"),),
-            (proposal_id.clone(), attestation_id.clone()),
+            (symbol_short!("adm_prop"), current_admin.clone()),
+            new_admin.clone(),
+        );
+    }
+
+    pub fn admin_added(env: &Env, by_admin: &Address, new_admin: &Address, timestamp: u64) {
+        env.events().publish(
+            (TOPIC_ADM_ADD, by_admin.clone()),
+            (new_admin.clone(), timestamp),
+        );
+    }
+
+    pub fn admin_removed(env: &Env, by_admin: &Address, removed_admin: &Address, timestamp: u64) {
+        env.events().publish(
+            (TOPIC_ADM_REM, by_admin.clone()),
+            (removed_admin.clone(), timestamp),
+        );
+    }
+
+    pub fn attestation_transferred(
+        env: &Env,
+        attestation_id: &String,
+        old_issuer: &Address,
+        new_issuer: &Address,
+    ) {
+        env.events().publish(
+            (symbol_short!("att_xfer"), old_issuer.clone()),
+            (attestation_id.clone(), new_issuer.clone()),
         );
     }
 
@@ -189,12 +268,11 @@ impl Events {
         timestamp: u64,
     ) {
         env.events().publish(
-            (symbol_short!("endorsed"), endorser.clone()),
+            (TOPIC_ENDORSED, endorser.clone()),
             (attestation_id.clone(), timestamp),
         );
     }
 
-    /// Emitted when an expiration hook is triggered for a subject's attestation.
     pub fn expiration_hook_triggered(
         env: &Env,
         subject: &Address,
@@ -202,18 +280,16 @@ impl Events {
         expiration: u64,
     ) {
         env.events().publish(
-            (symbol_short!("exp_hook"), subject.clone()),
+            (TOPIC_EXP_HOOK, subject.clone()),
             (attestation_id.clone(), expiration),
         );
     }
 
-    /// Emitted when the admin pauses the contract.
     pub fn contract_paused(env: &Env, admin: &Address, timestamp: u64) {
         env.events()
-            .publish((symbol_short!("paused"),), (admin.clone(), timestamp));
+            .publish((TOPIC_PAUSED,), (admin.clone(), timestamp));
     }
 
-    /// Emitted when the admin unpauses the contract.
     pub fn contract_unpaused(env: &Env, admin: &Address, timestamp: u64) {
         env.events()
             .publish((symbol_short!("unpaused"),), (admin.clone(), timestamp));
@@ -250,7 +326,7 @@ impl Events {
         expires_at: u64,
     ) {
         env.events().publish(
-            (symbol_short!("req"), issuer.clone()),
+            (TOPIC_REQ, issuer.clone()),
             (
                 request_id.clone(),
                 subject.clone(),
@@ -260,7 +336,6 @@ impl Events {
         );
     }
 
-    /// Emitted when an issuer fulfills an attestation request.
     pub fn request_fulfilled(
         env: &Env,
         request_id: &String,
@@ -268,12 +343,11 @@ impl Events {
         attestation_id: &String,
     ) {
         env.events().publish(
-            (symbol_short!("req_ok"), issuer.clone()),
+            (TOPIC_REQ_OK, issuer.clone()),
             (request_id.clone(), attestation_id.clone()),
         );
     }
 
-    /// Emitted when an issuer rejects an attestation request.
     pub fn request_rejected(
         env: &Env,
         request_id: &String,
@@ -281,9 +355,134 @@ impl Events {
         reason: &Option<String>,
     ) {
         env.events().publish(
-            (symbol_short!("req_no"), issuer.clone()),
+            (TOPIC_REQ_NO, issuer.clone()),
             (request_id.clone(), reason.clone()),
         );
     }
-}
 
+    /// Emitted when a subject cancels their own pending attestation request.
+    pub fn request_cancelled(env: &Env, request_id: &String, subject: &Address) {
+        env.events().publish(
+            (TOPIC_REQ_CANCEL, subject.clone()),
+            request_id.clone(),
+        );
+    }
+
+    /// Emitted when issuer creates a delegation to a sub-issuer for a claim type.
+    pub fn delegation_created(
+        env: &Env,
+        delegator: &Address,
+        delegate: &Address,
+        claim_type: &String,
+        expiration: Option<u64>,
+    ) {
+        env.events().publish(
+            (symbol_short!("del_crtd"), delegator.clone()),
+            (delegate.clone(), claim_type.clone(), expiration),
+        );
+    }
+
+    pub fn delegation_revoked(
+        env: &Env,
+        delegator: &Address,
+        delegate: &Address,
+        claim_type: &String,
+    ) {
+        env.events().publish(
+            (symbol_short!("del_rvkd"), delegator.clone()),
+            (delegate.clone(), claim_type.clone()),
+        );
+    }
+
+    pub fn whitelist_mode_enabled(env: &Env, issuer: &Address) {
+        env.events()
+            .publish((TOPIC_WL_ON, issuer.clone()), ());
+    }
+
+    pub fn whitelist_updated(env: &Env, issuer: &Address, subject: &Address, added: bool) {
+        let sym = if added { TOPIC_WL_ADD } else { TOPIC_WL_REM };
+        env.events().publish((sym, issuer.clone()), subject.clone());
+    }
+
+    /// Emitted when an issuer creates or overwrites a template.
+    pub fn template_created(env: &Env, issuer: &Address, template_id: &String) {
+        env.events().publish(
+            (symbol_short!("tmpl_crt"), issuer.clone()),
+            template_id.clone(),
+        );
+    }
+
+    pub fn council_initialized(env: &Env, quorum: u32, member_count: u32) {
+        env.events().publish(
+            (symbol_short!("cncl_ini"),),
+            (quorum, member_count),
+        );
+    }
+
+    pub fn proposal_created(env: &Env, proposal_id: u32, proposer: &Address) {
+        env.events().publish(
+            (symbol_short!("prop_new"), proposer.clone()),
+            proposal_id,
+        );
+    }
+
+    pub fn proposal_approved(env: &Env, proposal_id: u32, approver: &Address) {
+        env.events().publish(
+            (symbol_short!("prop_ok"), approver.clone()),
+            proposal_id,
+        );
+    }
+
+    pub fn proposal_executed(env: &Env, proposal_id: u32) {
+        env.events().publish(
+            (symbol_short!("prop_exe"),),
+            proposal_id,
+        );
+    }
+
+    /// Emitted when an issuer deletes one of their attestation templates (Issue #530).
+    pub fn template_deleted(env: &Env, issuer: &Address, template_id: &String) {
+        env.events().publish(
+            (TOPIC_TPL_DEL, issuer.clone()),
+            template_id.clone(),
+        );
+    }
+
+    /// Emitted when an issuer amends the metadata of an existing attestation.
+    pub fn attestation_amended(env: &Env, attestation_id: &String, issuer: &Address, timestamp: u64) {
+        env.events().publish(
+            (symbol_short!("amended"), issuer.clone()),
+            (attestation_id.clone(), timestamp),
+        );
+    }
+
+    /// Emitted when a subject raises a dispute against one of their attestations.
+    pub fn dispute_raised(
+        env: &Env,
+        attestation_id: &String,
+        subject: &Address,
+        reason: &String,
+        timestamp: u64,
+    ) {
+        env.events().publish(
+            (symbol_short!("disputed"), subject.clone()),
+            (attestation_id.clone(), reason.clone(), timestamp),
+        );
+    }
+
+    /// Emitted when a dispute is resolved by the issuer or an admin.
+    pub fn dispute_resolved(env: &Env, attestation_id: &String, resolver: &Address, timestamp: u64) {
+        env.events().publish(
+            (symbol_short!("dsp_res"), resolver.clone()),
+            (attestation_id.clone(), timestamp),
+        );
+    }
+
+    /// Emitted the moment a council proposal reaches quorum, starting the timelock clock.
+    pub fn council_timelock_started(env: &Env, proposal_id: u32, quorum_reached_at: u64) {
+        env.events().publish(
+            (symbol_short!("tl_start"),),
+            (proposal_id, quorum_reached_at),
+        );
+    }
+}

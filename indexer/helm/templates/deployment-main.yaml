@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "trustlink-indexer.fullname" . }}-main
+  labels:
+    {{- include "trustlink-indexer.labels" . | nindent 4 }}
+    app-version: stable
+spec:
+  replicas: {{ .Values.main.replicaCount | default .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "trustlink-indexer.selectorLabels" . | nindent 6 }}
+      deployment-type: main
+  template:
+    metadata:
+      labels:
+        {{- include "trustlink-indexer.selectorLabels" . | nindent 8 }}
+        deployment-type: main
+    spec:
+      containers:
+      - name: indexer
+        image: "{{ .Values.image.repository }}:{{ .Values.main.imageTag | default .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.port }}
+          protocol: TCP
+        env:
+        - name: RPC_URL
+          value: {{ .Values.rpcUrl }}
+        - name: CONTRACT_ID
+          value: {{ .Values.contractId }}
+        - name: GENESIS_LEDGER
+          value: "{{ .Values.genesisLedger }}"
+        - name: PORT
+          value: "{{ .Values.port }}"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "trustlink-indexer.fullname" . }}-db
+              key: database-url
+        startupProbe:
+          {{- toYaml .Values.startupProbe | nindent 10 }}
+        livenessProbe:
+          {{- toYaml .Values.livenessProbe | nindent 10 }}
+        readinessProbe:
+          {{- toYaml .Values.readinessProbe | nindent 10 }}
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}

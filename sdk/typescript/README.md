@@ -1,12 +1,147 @@
 # @trustlink/sdk
 
+TypeScript client for the [TrustLink](../../README.md) Soroban attestation contract on Stellar.
 TypeScript SDK for the [TrustLink](https://github.com/afurious/TrustLink) on-chain attestation contract on Stellar.
+
+[![npm version](https://badge.fury.io/js/@trustlink%2Fsdk.svg)](https://badge.fury.io/js/@trustlink%2Fsdk)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Installation
 
 ```bash
+npm install @trustlink/sdk
+```
+
+## Quick start
+
+```ts
+import { TrustLinkClient } from "@trustlink/sdk";
+
+const client = new TrustLinkClient({
+  rpcUrl: "https://soroban-testnet.stellar.org",
+  contractId: "C...",
+});
+```
+
+## API reference
+
+### Attestation range queries
+
+#### `getAttestationsInRange(start, end)`
+
+Returns all attestations whose `timestamp` falls within the closed interval
+`[start, end]` (Unix seconds).
+
+```ts
+const attestations = await client.getAttestationsInRange(
+  1_700_000_000,
+  1_710_000_000
+);
+```
+
+Maps to the contract's `get_attestations_in_range(start, end)` entry point.
+
+#### `getAttestationsInRangeAfter(cursor, limit)`
+
+Cursor-based pagination — returns up to `limit` attestations created **after**
+the attestation identified by `cursor`. Use the last returned ID as the next
+`cursor` to page through large result sets without re-fetching.
+
+```ts
+let cursor = "";
+const pageSize = 20;
+
+while (true) {
+  const page = await client.getAttestationsInRangeAfter(cursor, pageSize);
+  if (page.length === 0) break;
+  // process page…
+  cursor = page[page.length - 1].id;
+}
+```
+
+Maps to the contract's `get_attestations_in_range_after(cursor, limit)` entry
+point.
+
+### Admin / council
+
+#### `getCouncil()`
+
+Returns the current admin-council configuration (members list, threshold,
+creation timestamp).
+
+```ts
+const council = await client.getCouncil();
+console.log(council.members, council.threshold);
+```
+
+#### `getCouncilProposal(proposalId)`
+
+Returns a single council proposal including approvals and execution status.
+
+```ts
+const proposal = await client.getCouncilProposal("abc123");
+console.log(proposal.action, proposal.approvals);
+```
+
+### Storage limits
+
+#### `getLimits()`
+
+Returns the `StorageLimits` configuration enforced by the contract.
+
+```ts
+const limits = await client.getLimits();
+console.log(limits.max_attestations_per_subject);
+```
+
+```ts
+interface StorageLimits {
+  max_attestations_per_subject: number;
+  max_attestations_per_issuer: number;
+  max_tags_per_attestation: number;
+  max_tag_length: number;
+  max_metadata_length: number;
+}
+```
+
+### Other methods
+
+| Method | Description |
+|--------|-------------|
+| `getAttestation(id)` | Fetch a single attestation |
+| `getAttestationStatus(id)` | Fetch live `AttestationStatus` |
+| `getSubjectAttestations(subject)` | All attestation IDs for a subject |
+| `getIssuerAttestations(issuer)` | All attestation IDs from an issuer |
+| `getMultisigProposal(id)` | Fetch a multi-sig proposal |
+| `getAdmin()` | Contract admin address |
+| `getFeeConfig()` | Fee configuration |
+| `getIssuerMetadata(issuer)` | Issuer name / URL / description |
+| `getContractMetadata()` | Contract name / version / description |
+| `getVersion()` | Contract version string |
+
+## Types
+
+All TypeScript types are exported from the package root:
+
+```ts
+import type {
+  Attestation,
+  AttestationStatus,
+  Council,
+  CouncilProposal,
+  StorageLimits,
+  MultiSigProposal,
+  FeeConfig,
+} from "@trustlink/sdk";
+```
 npm install @trustlink/sdk @stellar/stellar-sdk
 ```
+
+The package is published to npm as [`@trustlink/sdk`](https://www.npmjs.com/package/@trustlink/sdk) with npm provenance attestation enabled.
+
+**Requirements:**
+- Node.js 16.0.0 or higher
+- @stellar/stellar-sdk 12.0.0 or higher
 
 ## Quick Start
 
@@ -89,11 +224,56 @@ const issued = await client.getIssuerAttestations(issuer, 0, 10);
 // All valid claim IDs for a subject
 const validClaims = await client.getValidClaims(subject);
 
-// Attestations by tag
-const tagged = await client.getAttestationsByTag(subject, "premium");
+// Attestations by tag (paginated)
+const tagged = await client.getAttestationsByTag(subject, "premium");          // first 20 (default)
+const page2  = await client.getAttestationsByTag(subject, "premium", 20, 20); // next 20
+
+// Attestations by jurisdiction (paginated)
+const euAtts = await client.getAttestationsByJurisdiction(subject, "EU", 0, 10);
 
 // Audit log for an attestation
 const log = await client.getAuditLog(attestationId);
+```
+
+### Pagination Helpers
+
+Instead of manually tracking `start` offsets, use the async generator helpers to
+iterate over every attestation without writing a pagination loop:
+
+```typescript
+// Iterate all attestations for a subject
+for await (const attestation of client.iterateSubjectAttestations(subject)) {
+  console.log(attestation.id, attestation.claim_type);
+}
+
+// Iterate all attestations issued by an issuer
+for await (const attestation of client.iterateIssuerAttestations(issuer)) {
+  console.log(attestation.id, attestation.subject);
+}
+
+// Collect all into an array
+const all: Attestation[] = [];
+for await (const a of client.iterateSubjectAttestations(subject)) {
+  all.push(a);
+}
+```
+
+Both helpers accept an optional `pageSize` argument (default `20`) that controls
+how many attestations are fetched per RPC call:
+
+```typescript
+for await (const a of client.iterateSubjectAttestations(subject, 50)) {
+  // fetches 50 at a time
+}
+```
+
+Iteration stops as soon as a page returns fewer items than `pageSize` (not only
+when it returns zero). This means the generator handles mid-iteration deletions
+gracefully — it will not hang waiting for a page that will never be full.
+
+```typescript
+// iterateSubjectAttestations(subject: string, pageSize?: number): AsyncGenerator<Attestation>
+// iterateIssuerAttestations(issuer: string, pageSize?: number): AsyncGenerator<Attestation>
 ```
 
 ### Count Queries
@@ -121,6 +301,17 @@ await client.getClaimTypeDescription("KYC_PASSED");
 await client.listClaimTypes(0, 20);
 ```
 
+### Delegation
+
+```typescript
+const delegation = await client.getDelegation(
+  delegatorAddress,
+  delegateAddress,
+  "KYC_PASSED"
+);
+// delegation is either null or { delegator, delegate, claim_type, expiration }
+```
+
 ### Multi-Sig Proposals
 
 ```typescript
@@ -135,6 +326,32 @@ const endorsements = await client.getEndorsements(attestationId);
 const count = await client.getEndorsementCount(attestationId);
 ```
 
+### Delegations
+
+```typescript
+// List all delegations granted by a delegator (paginated)
+const delegations = await client.listDelegationsByDelegator(delegatorAddress, 0, 20);
+// delegations[0].delegate, delegations[0].claim_types, delegations[0].expires_at
+```
+
+### Whitelist
+
+```typescript
+// Check if an issuer has whitelist mode enabled
+const enabled = await client.isWhitelistEnabled(issuerAddress);
+
+// Check if a subject is on an issuer's whitelist
+const listed = await client.isWhitelisted(issuerAddress, subjectAddress);
+```
+
+### Templates
+
+```typescript
+// List attestation templates registered by an issuer (paginated)
+const templates = await client.listTemplates(issuerAddress, 0, 20);
+// templates[0].id, templates[0].name, templates[0].claim_type, templates[0].description
+```
+
 ### Contract Info
 
 ```typescript
@@ -144,8 +361,22 @@ await client.isPaused();
 await client.healthCheck();
 await client.getGlobalStats();
 await client.getContractMetadata();
-await client.getConfig();
+await client.getConfig();      // Returns ContractConfig: TTL, limits, and fee config in one call
 await client.getFeeConfig();
+```
+
+`getConfig()` returns a `ContractConfig` object combining TTL settings, storage limits, and fee
+configuration in a single RPC call — useful for admin dashboards that would otherwise need three
+separate calls:
+
+```typescript
+const config = await client.getConfig();
+// config.ttl_config.ttl_days                        — attestation TTL in days
+// config.limits.max_attestations_per_issuer         — issuer storage cap
+// config.limits.max_attestations_per_subject        — subject storage cap
+// config.fee_config.attestation_fee                 — fee amount (0 = disabled)
+// config.fee_config.fee_collector                   — collector address
+// config.fee_config.fee_token                       — fee token contract address or null
 ```
 
 ## TypeScript Types
@@ -185,6 +416,93 @@ TrustLinkError.AlreadyRevoked  // 6
 // ...
 ```
 
+## Error Handling
+
+```typescript
+import { TrustLinkClient, TrustLinkError } from "@trustlink/sdk";
+
+try {
+  const attestation = await client.getAttestation("invalid-id");
+} catch (error) {
+  if (error.code === TrustLinkError.NotFound) {
+    console.log("Attestation not found");
+  } else {
+    console.error("Unexpected error:", error);
+  }
+}
+```
+
+## Examples
+
+### Integration with React
+
+```typescript
+import { useState, useEffect } from 'react';
+import { TrustLinkClient } from '@trustlink/sdk';
+
+function UserVerificationStatus({ userAddress }: { userAddress: string }) {
+  const [hasKyc, setHasKyc] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const client = new TrustLinkClient({
+      contractId: process.env.REACT_APP_TRUSTLINK_CONTRACT_ID!,
+      network: "testnet",
+    });
+
+    client.hasValidClaim(userAddress, "KYC_PASSED")
+      .then(setHasKyc)
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [userAddress]);
+
+  if (loading) return <div>Checking verification status...</div>;
+  
+  return (
+    <div>
+      {hasKyc ? (
+        <span className="verified">✅ KYC Verified</span>
+      ) : (
+        <span className="unverified">❌ Not Verified</span>
+      )}
+    </div>
+  );
+}
+```
+
+### DeFi Integration
+
+```typescript
+import { TrustLinkClient } from '@trustlink/sdk';
+
+class LendingProtocol {
+  private trustlink: TrustLinkClient;
+
+  constructor(contractId: string) {
+    this.trustlink = new TrustLinkClient({
+      contractId,
+      network: "mainnet",
+    });
+  }
+
+  async canBorrow(userAddress: string, amount: bigint): Promise<boolean> {
+    // Check if user has required credentials
+    const hasKyc = await this.trustlink.hasValidClaim(userAddress, "KYC_PASSED");
+    
+    if (amount > 100_000n) {
+      // Large loans require accredited investor status
+      const isAccredited = await this.trustlink.hasValidClaim(
+        userAddress, 
+        "ACCREDITED_INVESTOR"
+      );
+      return hasKyc && isAccredited;
+    }
+    
+    return hasKyc;
+  }
+}
+```
+
 ## Building from Source
 
 ```bash
@@ -195,14 +513,20 @@ npm run build
 
 ## Publishing to npm
 
+The SDK is automatically published to npm when a new release is created on GitHub. To publish manually:
+
 ```bash
 cd sdk/typescript
 npm run build
 npm publish --access public
 ```
 
-> Ensure the `name` field in `package.json` matches your npm org scope (e.g. `@yourorg/trustlink-sdk`).
+> **Note:** Ensure you have the `NPM_TOKEN` secret configured in your repository settings for automated publishing.
+
+## Contributing
+
+See the main [CONTRIBUTING.md](../../CONTRIBUTING.md) for guidelines.
 
 ## License
 
-MIT
+MIT - see [LICENSE](../../LICENSE) for details.

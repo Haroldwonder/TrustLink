@@ -24,6 +24,35 @@ type Attestation {
   updatedAt: String!
 }
 
+type MultisigProposal {
+  id: String!
+  subject: String!
+  proposer: String!
+  claimType: String!
+  threshold: Int!
+  signers: [String!]!
+  signatureCount: Int!
+  finalized: Boolean!
+  expiresAt: String!
+  createdAt: String!
+  updatedAt: String!
+}
+
+type Issuer {
+  address: String!
+  name: String!
+  url: String
+  description: String
+  tier: String!
+  registeredAt: String!
+  updatedAt: String!
+}
+
+type IssuerList {
+  items: [Issuer!]!
+  total: Int!
+}
+
 type IssuerStats {
   issuer: String!
   total: Int!
@@ -32,15 +61,179 @@ type IssuerStats {
   claimTypes: [String!]!
 }
 
+"""Pagination info for cursor-based pagination"""
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
+
+"""Edge type for attestation connections"""
+type AttestationEdge {
+  node: Attestation!
+  cursor: String!
+}
+
+"""Connection type for paginated attestations"""
+type AttestationConnection {
+  edges: [AttestationEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type HealthStatus {
+  """ok or degraded"""
+  status: String!
+  """Last ledger sequence number processed by the indexer"""
+  lastLedger: Int
+  """ISO-8601 timestamp of this response"""
+  timestamp: String!
+}
+
 type Query {
-  """Query attestations with optional filters"""
-  attestations(subject: String, claimType: String, status: Status): [Attestation!]!
+  """Synthetic liveness probe — returns status ok when the indexer is healthy"""
+  healthCheck: HealthStatus!
+
+  """Query attestations with optional filters and pagination"""
+  attestations(
+    subject: String, 
+    claimType: String, 
+    status: Status,
+    first: Int,
+    after: String
+  ): AttestationConnection!
+
+  """Query attestations by issuer with pagination"""
+  attestationsByIssuer(
+    issuer: String!,
+    first: Int,
+    after: String
+  ): AttestationConnection!
+
+  """Get an issuer by address"""
+  issuer(address: String!): Issuer
+
+  """List all issuers with pagination"""
+  issuers(start: Int, limit: Int): IssuerList!
 
   """Get statistics for a specific issuer"""
   issuerStats(issuer: String!): IssuerStats!
+
+  """Get a multi-sig proposal by ID"""
+  proposal(id: String!): MultisigProposal
+
+  """List all multi-sig proposals"""
+  proposals(subject: String, finalized: Boolean): [MultisigProposal!]!
+
+  """Get a multi-sig proposal by ID"""
+  multiSigProposal(id: String!): MultisigProposal
+
+  """List open (non-finalized) multi-sig proposals for a subject"""
+  openProposals(subject: String!): [MultisigProposal!]!
+
+  """Get an attestation request by ID"""
+  attestationRequest(id: String!): AttestationRequest
+
+  """List pending attestation requests for an issuer"""
+  pendingRequests(issuer: String!): [AttestationRequest!]!
+
+  """List endorsements for an attestation"""
+  endorsements(attestationId: String!): [Endorsement!]!
+
+  """List attestation templates for an issuer"""
+  templates(issuer: String!): [Template!]!
+
+  """List delegations authorized by a delegator"""
+  delegationsByDelegator(delegator: String!): [Delegation!]!
+
+  """Check whether a subject is whitelisted by an issuer"""
+  isWhitelisted(issuer: String!, subject: String!): Boolean!
+
+  """List council governance actions, optionally filtered by execution status"""
+  councilActions(executed: Boolean): [CouncilAction!]!
 }
 
 type Subscription {
   """Subscribe to new attestation creation events, optionally filtered by subject"""
   onAttestationCreated(subject: String): Attestation!
+
+  """Subscribe to attestation revocation events, optionally filtered by issuer"""
+  onAttestationRevoked(issuer: String): AttestationRevoked!
+
+  """Subscribe to issuer registration events"""
+  onIssuerRegistered: IssuerRegistered!
+}
+
+type AttestationRevoked {
+  id: String!
+  issuer: String!
+  revokedAt: String!
+}
+
+type IssuerRegistered {
+  issuer: String!
+  registeredAt: String!
+}
+
+enum RequestStatus {
+  PENDING
+  FULFILLED
+  REJECTED
+}
+
+type AttestationRequest {
+  id: String!
+  subject: String!
+  issuer: String!
+  claimType: String!
+  requestedAt: String!
+  expiresAt: String!
+  status: RequestStatus!
+  fulfillmentId: String
+  rejectionReason: String
+  createdAt: String!
+  updatedAt: String!
+}
+
+type Endorsement {
+  id: String!
+  attestationId: String!
+  endorser: String!
+  timestamp: String!
+  createdAt: String!
+}
+
+type Template {
+  id: String!
+  templateId: String!
+  issuer: String!
+  claimType: String!
+  createdAt: String!
+}
+
+type Delegation {
+  id: String!
+  delegator: String!
+  delegate: String!
+  claimType: String!
+  expiresAt: String!
+  revoked: Boolean!
+  createdAt: String!
+}
+
+type WhitelistEntry {
+  id: String!
+  issuer: String!
+  subject: String!
+  createdAt: String!
+}
+
+type CouncilAction {
+  id: String!
+  actionId: String!
+  proposer: String!
+  approvals: [String!]!
+  executed: Boolean!
+  createdAt: String!
 }

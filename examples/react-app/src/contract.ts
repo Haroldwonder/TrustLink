@@ -85,6 +85,10 @@ export interface Attestation {
   metadata: string | null;
 }
 
+export async function getAttestation(id: string): Promise<Attestation> {
+  return simulate("get_attestation", str(id));
+}
+
 export async function getSubjectAttestations(subject: string): Promise<Attestation[]> {
   return simulate("get_subject_attestations", addr(subject), nativeToScVal(0, { type: "u32" }), nativeToScVal(50, { type: "u32" }));
 }
@@ -140,4 +144,377 @@ export async function revokeAttestation(
   reason: string | null
 ): Promise<void> {
   return invoke(issuer, "revoke_attestation", addr(issuer), str(attestationId), optStr(reason));
+}
+
+// ── attestation requests ─────────────────────────────────────────────────────
+
+export interface AttestationRequest {
+  id: string;
+  subject: string;
+  issuer: string;
+  claim_type: string;
+  status: "pending" | "fulfilled" | "rejected";
+  created_at: bigint;
+  fulfilled_at: bigint | null;
+}
+
+export async function submitAttestationRequest(
+  subject: string,
+  issuer: string,
+  claimType: string
+): Promise<void> {
+  return invoke(
+    subject,
+    "request_attestation",
+    addr(subject),
+    addr(issuer),
+    str(claimType)
+  );
+}
+
+export async function getSubjectRequests(subject: string): Promise<AttestationRequest[]> {
+  // The contract indexes pending requests by issuer; scan by fetching all requests
+  // submitted by this subject from the contract's pending list.
+  return simulate("get_pending_requests", addr(subject), nativeToScVal(0, { type: "u32" }), nativeToScVal(50, { type: "u32" }));
+}
+
+export async function getIssuerRequests(issuer: string): Promise<AttestationRequest[]> {
+  return simulate("get_pending_requests", addr(issuer), nativeToScVal(0, { type: "u32" }), nativeToScVal(50, { type: "u32" }));
+}
+
+export async function cancelRequest(subject: string, requestId: string): Promise<void> {
+  return invoke(subject, "cancel_request", addr(subject), str(requestId));
+}
+
+export async function fulfillRequest(
+  issuer: string,
+  requestId: string,
+  expiration: bigint | null
+): Promise<void> {
+  return invoke(
+    issuer,
+    "fulfill_request",
+    addr(issuer),
+    str(requestId),
+    optU64(expiration)
+  );
+}
+
+export async function rejectRequest(
+  issuer: string,
+  requestId: string,
+  reason: string | null
+): Promise<void> {
+  return invoke(
+    issuer,
+    "reject_request",
+    addr(issuer),
+    str(requestId),
+    optStr(reason)
+  );
+}
+
+// ── multi-sig proposals ──────────────────────────────────────────────────────
+
+export interface MultiSigProposal {
+  id: string;
+  proposer: string;
+  subject: string;
+  claim_type: string;
+  required_signers: string[];
+  signers: string[];
+  threshold: number;
+  expires_at: bigint;
+  finalized: boolean;
+}
+
+export async function proposeAttestation(
+  proposer: string,
+  subject: string,
+  claimType: string,
+  requiredSigners: string[],
+  threshold: number
+): Promise<string> {
+  return invoke(
+    proposer,
+    "propose_attestation",
+    addr(proposer),
+    addr(subject),
+    str(claimType),
+    nativeToScVal(requiredSigners.map((s) => Address.fromString(s).toScVal()), { type: "vec" }),
+    nativeToScVal(threshold, { type: "u32" })
+  );
+}
+
+export async function cosignAttestation(
+  signer: string,
+  proposalId: string
+): Promise<void> {
+  return invoke(
+    signer,
+    "cosign_attestation",
+    addr(signer),
+    str(proposalId)
+  );
+}
+
+export async function getMultiSigProposal(proposalId: string): Promise<MultiSigProposal> {
+  return simulate("get_multisig_proposal", str(proposalId));
+}
+
+export async function getMultisigTtl(): Promise<bigint> {
+  return simulate("get_multisig_ttl");
+}
+
+export async function getRequireRegisteredClaimType(): Promise<boolean> {
+  return simulate("get_require_registered_claim_type");
+}
+
+// ── delegation ────────────────────────────────────────────────────────────────
+
+export interface Delegation {
+  delegator: string;
+  delegate: string;
+  claim_type: string;
+  expiration: bigint | null;
+}
+
+export async function delegateClaimType(
+  issuer: string,
+  delegate: string,
+  claimType: string,
+  expiration: bigint | null
+): Promise<void> {
+  return invoke(issuer, "delegate_claim_type", addr(issuer), addr(delegate), str(claimType), optU64(expiration));
+}
+
+export async function revokeDelegation(
+  issuer: string,
+  delegate: string,
+  claimType: string
+): Promise<void> {
+  return invoke(issuer, "revoke_delegation", addr(issuer), addr(delegate), str(claimType));
+}
+
+export async function createAttestationAsDelegate(
+  delegate: string,
+  delegator: string,
+  subject: string,
+  claimType: string,
+  expiration: bigint | null,
+  metadata: string | null
+): Promise<void> {
+  return invoke(
+    delegate,
+    "create_attestation_as_delegate",
+    addr(delegate),
+    addr(delegator),
+    addr(subject),
+    str(claimType),
+    optU64(expiration),
+    optStr(metadata)
+  );
+}
+// ── global stats ─────────────────────────────────────────────────────────────
+
+export interface GlobalStats {
+  total_attestations: bigint;
+  total_revocations: bigint;
+  total_issuers: bigint;
+}
+
+export async function getGlobalStats(): Promise<GlobalStats> {
+  return simulate("get_global_stats");
+}
+
+// ── contract config ───────────────────────────────────────────────────────────
+
+export interface ContractConfig {
+  ttl_config: { ttl_days: number };
+  limits: { max_attestations_per_issuer: number; max_attestations_per_subject: number };
+  fee_config: { attestation_fee: bigint; fee_collector: string; fee_token: string | null };
+}
+
+export async function getConfig(): Promise<ContractConfig> {
+  return simulate("get_config");
+}
+
+// ── issuer stats ─────────────────────────────────────────────────────────────
+
+export interface IssuerStats {
+  total_issued: number;
+  active: number;
+  revoked: number;
+  expired: number;
+}
+
+// ── admin council ─────────────────────────────────────────────────────────────
+
+export async function getAdminCouncil(): Promise<string[]> {
+  return simulate("get_admin_council");
+}
+
+export async function addAdmin(caller: string, newAdmin: string): Promise<void> {
+  return invoke(caller, "add_admin", addr(caller), addr(newAdmin));
+}
+
+export async function removeAdmin(caller: string, adminToRemove: string): Promise<void> {
+  return invoke(caller, "remove_admin", addr(caller), addr(adminToRemove));
+}
+
+export async function getIssuerStats(issuer: string): Promise<IssuerStats> {
+  return simulate("get_issuer_stats", addr(issuer));
+}
+
+export async function getIssuerAttestations(
+  issuer: string,
+  start: number,
+  limit: number
+): Promise<Attestation[]> {
+  const ids: string[] = await simulate(
+    "get_issuer_attestations",
+    addr(issuer),
+    nativeToScVal(start, { type: "u32" }),
+    nativeToScVal(limit, { type: "u32" })
+  );
+  return Promise.all(ids.map((id) => simulate<Attestation>("get_attestation", str(id))));
+}
+
+export async function getExpiringAttestations(
+  issuer: string,
+  daysWindow: number
+): Promise<Attestation[]> {
+  return simulate(
+    "get_issuer_expiring_attestations",
+    addr(issuer),
+    nativeToScVal(daysWindow, { type: "u32" }),
+    nativeToScVal(0, { type: "u32" }),
+    nativeToScVal(50, { type: "u32" })
+  );
+}
+
+export type AuditAction = "Created" | "Revoked" | "Renewed" | "Updated" | "Transferred";
+
+export interface AuditEntry {
+  action: AuditAction;
+  actor: string;
+  timestamp: bigint;
+  details: string | null;
+}
+
+export async function getAuditLog(attestationId: string): Promise<AuditEntry[]> {
+  return simulate("get_audit_log", str(attestationId));
+}
+
+export async function renewAttestation(
+  issuer: string,
+  attestationId: string,
+  newExpiration: bigint | null
+): Promise<void> {
+  return invoke(
+    issuer,
+    "renew_attestation",
+    addr(issuer),
+    str(attestationId),
+    optU64(newExpiration)
+  );
+}
+
+// ── whitelist ─────────────────────────────────────────────────────────────────
+
+export async function setWhitelistEnabled(issuer: string, enabled: boolean): Promise<void> {
+  return invoke(issuer, "set_whitelist_enabled", addr(issuer), nativeToScVal(enabled, { type: "bool" }));
+}
+
+export async function isWhitelistEnabled(issuer: string): Promise<boolean> {
+  return simulate("is_whitelist_enabled", addr(issuer));
+}
+
+export async function addToWhitelist(issuer: string, subject: string): Promise<void> {
+  return invoke(issuer, "add_to_whitelist", addr(issuer), addr(subject));
+}
+
+export async function removeFromWhitelist(issuer: string, subject: string): Promise<void> {
+  return invoke(issuer, "remove_from_whitelist", addr(issuer), addr(subject));
+}
+
+export async function isWhitelisted(issuer: string, subject: string): Promise<boolean> {
+  return simulate("is_whitelisted", addr(issuer), addr(subject));
+}
+
+// ── attestation templates ─────────────────────────────────────────────────────
+
+export interface AttestationTemplate {
+  issuer: string;
+  template_id: string;
+  claim_type: string;
+  metadata: string | null;
+}
+
+export async function createTemplate(
+  issuer: string,
+  templateId: string,
+  claimType: string,
+  metadata: string | null
+): Promise<void> {
+  return invoke(
+    issuer,
+    "create_template",
+    addr(issuer),
+    str(templateId),
+    str(claimType),
+    optStr(metadata)
+  );
+}
+
+export async function deleteTemplate(
+  issuer: string,
+  templateId: string
+): Promise<void> {
+  return invoke(issuer, "delete_template", addr(issuer), str(templateId));
+}
+
+export async function getTemplate(
+  issuer: string,
+  templateId: string
+): Promise<AttestationTemplate> {
+  return simulate("get_template", addr(issuer), str(templateId));
+}
+
+export async function listTemplates(
+  issuer: string
+): Promise<AttestationTemplate[]> {
+  return simulate("list_templates", addr(issuer));
+}
+
+export async function createAttestationFromTemplate(
+  issuer: string,
+  templateId: string,
+  subject: string,
+  expiration: bigint | null
+): Promise<void> {
+  return invoke(
+    issuer,
+    "create_attestation_from_template",
+    addr(issuer),
+    str(templateId),
+    addr(subject),
+    optU64(expiration)
+  );
+}
+
+// ── rate limits ───────────────────────────────────────────────────────────────
+
+export interface RateLimit {
+  limit: number;
+  window_seconds: number;
+  current_count: number;
+}
+
+export async function getRateLimit(issuer: string): Promise<RateLimit> {
+  return simulate("get_rate_limit", addr(issuer));
+}
+
+export async function getRateLimitForClaimType(issuer: string, claimType: string): Promise<RateLimit> {
+  return simulate("get_rate_limit_for_claim_type", addr(issuer), str(claimType));
 }
