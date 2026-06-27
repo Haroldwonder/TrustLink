@@ -85,29 +85,35 @@ export default function MultiSigPanel({ address }: Props) {
     }
   }
 
+  const tabsToShow = isUserIssuer ? (["propose", "cosign"] as const) : (["cosign"] as const);
+
   return (
     <div className="panel">
       <h2>Multi-Sig Attestations</h2>
-      {status && <div className={`alert alert-${status.type}`}>{status.msg}</div>}
+      {status && (
+        <div role="alert" className={`alert alert-${status.type}`}>
+          {status.msg}
+        </div>
+      )}
 
-      <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem", borderBottom: "1px solid #2d3148", paddingBottom: "0.5rem" }}>
-        {isUserIssuer && (
+      <nav
+        role="tablist"
+        aria-label="Multi-sig panel tabs"
+        style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem", borderBottom: "1px solid #2d3148", paddingBottom: "0.5rem" }}
+      >
+        {tabsToShow.map((t) => (
           <button
-            className={`tab ${tab === "propose" ? "active" : ""}`}
-            onClick={() => setTab("propose")}
-            style={{ flex: 1, textAlign: "center", padding: "0.5rem" }}
+            key={t}
+            role="tab"
+            aria-selected={tab === t}
+            className={`tab ${tab === t ? "active" : ""}`}
+            onClick={() => setTab(t)}
+            style={{ flex: 1, textAlign: "center", padding: "0.5rem", textTransform: "capitalize" }}
           >
-            Propose
+            {t === "propose" ? "Propose" : "Co-Sign"}
           </button>
-        )}
-        <button
-          className={`tab ${tab === "cosign" ? "active" : ""}`}
-          onClick={() => setTab("cosign")}
-          style={{ flex: 1, textAlign: "center", padding: "0.5rem" }}
-        >
-          Co-Sign
-        </button>
-      </div>
+        ))}
+      </nav>
 
       {tab === "propose" && isUserIssuer && (
         <div className="card">
@@ -116,24 +122,27 @@ export default function MultiSigPanel({ address }: Props) {
             Create a multi-signature proposal requiring multiple issuers to co-sign before the attestation is finalized.
           </p>
           <div className="field">
-            <label>Subject Address</label>
+            <label htmlFor="ms-subject">Subject Address</label>
             <input
+              id="ms-subject"
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
               placeholder="G..."
             />
           </div>
           <div className="field">
-            <label>Claim Type</label>
+            <label htmlFor="ms-claim-type">Claim Type</label>
             <input
+              id="ms-claim-type"
               value={claimType}
               onChange={(e) => setClaimType(e.target.value)}
               placeholder="ACCREDITED_INVESTOR, etc."
             />
           </div>
           <div className="field">
-            <label>Required Signers (comma-separated)</label>
+            <label htmlFor="ms-signers">Required Signers (comma-separated)</label>
             <textarea
+              id="ms-signers"
               value={signers}
               onChange={(e) => setSigners(e.target.value)}
               placeholder="G..., G..., G..."
@@ -141,8 +150,9 @@ export default function MultiSigPanel({ address }: Props) {
             />
           </div>
           <div className="field">
-            <label>Signature Threshold</label>
+            <label htmlFor="ms-threshold">Signature Threshold</label>
             <input
+              id="ms-threshold"
               type="number"
               value={threshold}
               onChange={(e) => setThreshold(e.target.value)}
@@ -154,6 +164,7 @@ export default function MultiSigPanel({ address }: Props) {
             className="btn btn-primary"
             disabled={loading || !subject || !claimType || !signers || !threshold}
             onClick={handlePropose}
+            aria-disabled={loading || !subject || !claimType || !signers || !threshold}
           >
             Propose
           </button>
@@ -168,17 +179,23 @@ export default function MultiSigPanel({ address }: Props) {
               Review and co-sign pending multi-signature proposals.
             </p>
             <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
+              <label htmlFor="ms-proposal-id" className="visually-hidden">
+                Proposal ID
+              </label>
               <input
+                id="ms-proposal-id"
                 className="field"
                 style={{ flex: 1, background: "#0f1117", border: "1px solid #2d3148", borderRadius: "0.5rem", padding: "0.5rem 0.75rem", color: "#e2e8f0" }}
                 value={proposalId}
                 onChange={(e) => setProposalId(e.target.value)}
                 placeholder="Proposal ID"
+                aria-label="Proposal ID"
               />
               <button
                 className="btn btn-outline"
                 disabled={loading || !proposalId}
                 onClick={handleLoadProposal}
+                aria-disabled={loading || !proposalId}
               >
                 Load
               </button>
@@ -199,7 +216,14 @@ export default function MultiSigPanel({ address }: Props) {
                   <span style={{ marginLeft: "0.5rem" }}>
                     {proposal.signers.length} / {proposal.threshold}
                   </span>
-                  <div style={{ width: "100%", background: "#1e293b", borderRadius: "0.25rem", height: "0.5rem", marginTop: "0.25rem", overflow: "hidden" }}>
+                  <div
+                    style={{ width: "100%", background: "#1e293b", borderRadius: "0.25rem", height: "0.5rem", marginTop: "0.25rem", overflow: "hidden" }}
+                    role="progressbar"
+                    aria-valuenow={proposal.signers.length}
+                    aria-valuemin={0}
+                    aria-valuemax={proposal.threshold}
+                    aria-label={`${proposal.signers.length} of ${proposal.threshold} signatures collected`}
+                  >
                     <div
                       style={{
                         width: `${(proposal.signers.length / proposal.threshold) * 100}%`,
@@ -221,20 +245,20 @@ export default function MultiSigPanel({ address }: Props) {
                 </div>
                 <div style={{ marginBottom: "0.75rem" }}>
                   <span style={{ color: "#94a3b8", fontSize: "0.8rem" }}>Signers:</span>
-                  <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", fontFamily: "monospace" }}>
+                  <ul style={{ marginTop: "0.5rem", fontSize: "0.8rem", fontFamily: "monospace", listStyle: "none", padding: 0 }}>
                     {proposal.signers.map((s) => (
-                      <div key={s} style={{ color: "#10b981", marginBottom: "0.25rem" }}>
+                      <li key={s} style={{ color: "#10b981", marginBottom: "0.25rem" }}>
                         ✓ {s}
-                      </div>
+                      </li>
                     ))}
                     {proposal.required_signers
                       .filter((s) => !proposal.signers.includes(s))
                       .map((s) => (
-                        <div key={s} style={{ color: "#64748b", marginBottom: "0.25rem" }}>
+                        <li key={s} style={{ color: "#64748b", marginBottom: "0.25rem" }}>
                           ○ {s}
-                        </div>
+                        </li>
                       ))}
-                  </div>
+                  </ul>
                 </div>
               </div>
             )}
@@ -244,6 +268,7 @@ export default function MultiSigPanel({ address }: Props) {
                 className="btn btn-primary"
                 disabled={loading || proposal.finalized || proposal.signers.includes(address)}
                 onClick={handleCosign}
+                aria-disabled={loading || proposal.finalized || proposal.signers.includes(address)}
               >
                 {proposal.signers.includes(address) ? "Already Signed" : "Co-Sign"}
               </button>

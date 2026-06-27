@@ -10,6 +10,8 @@ TrustLink is a Soroban smart contract that provides a reusable trust layer for t
 
 TrustLink solves the problem of decentralized identity verification and trust establishment on-chain. Instead of each application building its own KYC/verification system, TrustLink provides a shared attestation infrastructure that can be queried by any smart contract or dApp.
 
+**New here? Start with the [5-Minute Quickstart](docs/quickstart.md)** — go from zero to verifying a testnet attestation using only the TypeScript SDK, in under 15 commands.
+
 ### Key Features
 
 - **Authorized Issuers**: Admin-controlled registry of trusted attestation issuers
@@ -867,6 +869,8 @@ For the pre-mainnet line-by-line authorization audit, see
 - **Governance**: Validate voter eligibility
 - **Marketplaces**: Confirm seller reputation
 - **Insurance**: Verify policyholder identity — see [examples/insurance/README.md](examples/insurance/README.md)
+- **Real-Estate Title**: Long-lived title and lien attestation flow — see [examples/real-estate/README.md](examples/real-estate/README.md)
+- **Healthcare Credentials**: Privacy-sensitive provider licensing and vaccination verification — see [examples/healthcare/README.md](examples/healthcare/README.md)
 - **Stellar Anchors**: End-to-end anchor KYC attestation flow example in [examples/anchor-integration/README.md](examples/anchor-integration/README.md)
 - **Soroban Tokens**: KYC-restricted token transfer example in [examples/kyc-token/README.md](examples/kyc-token/README.md)
 - **DAO Governance**: Voter eligibility-gated voting example in [examples/governance/README.md](examples/governance/README.md)
@@ -1016,6 +1020,8 @@ A companion written guide with all commands and code snippets is available at [d
 ## Integration Guide
 
 For a step-by-step walkthrough covering Rust cross-contract patterns, JavaScript/TypeScript usage, error handling, and testnet testing, see [docs/integration-guide.md](docs/integration-guide.md).
+
+New to TrustLink? Start with the [5-Minute Quickstart](docs/quickstart.md) for the fastest path to verifying your first attestation on testnet.
 
 ## Storage Layout
 
