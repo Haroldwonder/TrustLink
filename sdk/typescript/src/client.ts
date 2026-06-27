@@ -707,137 +707,43 @@ export class TrustLinkClient {
     return this.simulate("get_multisig_proposal", this.str(proposalId));
   }
 
-  /** Returns the configurable proposal TTL in ledgers. Use this to inform proposers of the available co-signature window. */
-  async getMultisigTtl(): Promise<bigint> {
+  async getMultisigTtl(): Promise<number> {
     return this.simulate("get_multisig_ttl");
   }
 
-  async proposeAttestation(
-    proposer: string,
+  async listOpenProposals(
     subject: string,
-    claimType: string,
-    requiredSigners: string[],
-    threshold: number
-  ): Promise<SorobanRpc.Api.SimulateTransactionResponse> {
-    const account = new Account(proposer, "0");
-    const tx = new TransactionBuilder(account, {
-      fee: BASE_FEE,
-      networkPassphrase: this.networkPassphrase,
-    })
-      .addOperation(
-        this.contract.call(
-          "propose_attestation",
-          this.addr(proposer),
-          this.addr(subject),
-          this.str(claimType),
-          nativeToScVal(requiredSigners.map((s) => Address.fromString(s).toScVal()), { type: "array" }),
-          this.u32(threshold)
-        )
-      )
-      .setTimeout(30)
-      .build();
-    return this.server.simulateTransaction(tx);
+    start: number,
+    limit: number
+  ): Promise<MultiSigProposal[]> {
+    return this.simulate(
+      "list_open_proposals",
+      this.addr(subject),
+      this.u32(start),
+      this.u32(limit)
+    );
   }
 
-  async cosignAttestation(
-    issuer: string,
+  async cancelMultisigProposal(
+    proposer: string,
     proposalId: string
   ): Promise<SorobanRpc.Api.SimulateTransactionResponse> {
-    const account = new Account(issuer, "0");
-    const tx = new TransactionBuilder(account, {
-      fee: BASE_FEE,
-      networkPassphrase: this.networkPassphrase,
-    })
-      .addOperation(
-        this.contract.call("cosign_attestation", this.addr(issuer), this.str(proposalId))
-      )
-      .setTimeout(30)
-      .build();
-    return this.server.simulateTransaction(tx);
-  }
-
-  // ── Attestation Requests ───────────────────────────────────────────────────
-
-  async requestAttestation(
-    subject: string,
-    issuer: string,
-    claimType: string
-  ): Promise<SorobanRpc.Api.SimulateTransactionResponse> {
-    const account = new Account(subject, "0");
+    const dummySource = proposer;
+    const account = new Account(dummySource, "0");
     const tx = new TransactionBuilder(account, {
       fee: BASE_FEE,
       networkPassphrase: this.networkPassphrase,
     })
       .addOperation(
         this.contract.call(
-          "request_attestation",
-          this.addr(subject),
-          this.addr(issuer),
-          this.str(claimType)
+          "cancel_multisig_proposal",
+          this.addr(proposer),
+          this.str(proposalId)
         )
       )
       .setTimeout(30)
       .build();
     return this.server.simulateTransaction(tx);
-  }
-
-  async fulfillRequest(
-    issuer: string,
-    requestId: string,
-    expiration?: bigint
-  ): Promise<SorobanRpc.Api.SimulateTransactionResponse> {
-    const account = new Account(issuer, "0");
-    const tx = new TransactionBuilder(account, {
-      fee: BASE_FEE,
-      networkPassphrase: this.networkPassphrase,
-    })
-      .addOperation(
-        this.contract.call(
-          "fulfill_request",
-          this.addr(issuer),
-          this.str(requestId),
-          this.optU64(expiration ?? null)
-        )
-      )
-      .setTimeout(30)
-      .build();
-    return this.server.simulateTransaction(tx);
-  }
-
-  async rejectRequest(
-    issuer: string,
-    requestId: string,
-    reason?: string
-  ): Promise<SorobanRpc.Api.SimulateTransactionResponse> {
-    const account = new Account(issuer, "0");
-    const tx = new TransactionBuilder(account, {
-      fee: BASE_FEE,
-      networkPassphrase: this.networkPassphrase,
-    })
-      .addOperation(
-        this.contract.call(
-          "reject_request",
-          this.addr(issuer),
-          this.str(requestId),
-          this.optStr(reason ?? null)
-        )
-      )
-      .setTimeout(30)
-      .build();
-    return this.server.simulateTransaction(tx);
-  }
-
-  async getAttestationRequest(requestId: string): Promise<AttestationRequest> {
-    return this.simulate("get_attestation_request", this.str(requestId));
-  }
-
-  /**
-   * Returns the raw low-level request state for a given request ID.
-   * Distinct from getAttestationRequest(), which returns the high-level processed object.
-   * Use this to inspect raw on-chain request state before processing.
-   */
-  async getRequest(requestId: string): Promise<AttestationRequest> {
-    return this.simulate("get_request", this.str(requestId));
   }
 
   // ── Endorsements ──────────────────────────────────────────────────────────

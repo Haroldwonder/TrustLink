@@ -34,11 +34,10 @@ use soroban_sdk::{contract, contractimpl, Address, Env, String, Vec};
 use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::{
-    Attestation, AttestationRequest, AttestationStatus, AttestationTemplate,
-    AttestationVersionSnapshot, AuditEntry, CouncilOperation, CouncilProposal, DecayConfig,
-    Delegation, DisputeRecord, Error, ExpirationHook, FeeConfig, GlobalStats, HealthStatus,
-    IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, PendingAdminTransfer,
-    RateLimitConfig, StorageLimits,
+    Attestation, AttestationRequest, AttestationStatus, AuditAction, AuditEntry, ClaimTypeInfo,
+    ContractConfig, ContractMetadata, Endorsement, Error, FeeConfig, GlobalStats, HealthStatus,
+    IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, RateLimitConfig, RequestStatus,
+    StorageLimits, TtlConfig, ATTESTATION_REQUEST_TTL_SECS, MULTISIG_PROPOSAL_TTL_SECS,
 };
 
 #[contract]
@@ -637,7 +636,48 @@ impl TrustLinkContract {
         required_signers: Vec<Address>,
         threshold: u32,
     ) -> Result<String, Error> {
-        multisig::propose_attestation(&env, proposer, subject, claim_type, required_signers, threshold)
+        proposer.require_auth();
+        Validation::require_issuer(&env, &proposer)?;
+
+        // Validate all required signers are registered issuers.
+        for signer in required_signers.iter() {
+            Validation::require_issuer(&env, &signer)?;
+        }
+
+        let signer_count = required_signers.len();
+        if threshold == 0 || threshold > signer_count {
+            return Err(Error::InvalidThreshold);
+        }
+
+        let timestamp = env.ledger().timestamp();
+        let proposal_id =
+            MultiSigProposal::generate_id(&env, &proposer, &subject, &claim_type, timestamp);
+
+        // Proposer auto-signs on creation.
+        let mut signers = Vec::new(&env);
+        signers.push_back(proposer.clone());
+
+        let ttl_days = Storage::get_multisig_ttl(&env);
+        let ttl_secs = (ttl_days as u64) * SECS_PER_DAY;
+
+        let proposal = MultiSigProposal {
+            id: proposal_id.clone(),
+            proposer: proposer.clone(),
+            subject: subject.clone(),
+            claim_type,
+            required_signers,
+            threshold,
+            signers,
+            created_at: timestamp,
+            expires_at: timestamp + ttl_secs,
+            finalized: false,
+            cancelled: false,
+        };
+
+        Storage::set_multisig_proposal(&env, &proposal);
+        Storage::add_to_proposal_index(&env, &subject, &proposal_id);
+        Events::multisig_proposed(&env, &proposal_id, &proposer, &subject, threshold);
+        Ok(proposal_id)
     }
 
     pub fn cosign_attestation(env: Env, issuer: Address, proposal_id: String) -> Result<(), Error> {
@@ -654,9 +694,14 @@ impl TrustLinkContract {
         multisig::get_multisig_ttl(&env)
     }
 
-    // -----------------------------------------------------------------------
-    // Attestation request workflow
-    // -----------------------------------------------------------------------
+        if proposal.cancelled {
+            return Err(Error::ProposalExpired);
+        }
+
+        let current_time = env.ledger().timestamp();
+        if current_time >= proposal.expires_at {
+            return Err(Error::ProposalExpired);
+        }
 
     pub fn request_attestation(env: Env, subject: Address, issuer: Address, claim_type: String) -> Result<String, Error> {
         request::request_attestation(&env, subject, issuer, claim_type)
@@ -678,10 +723,122 @@ impl TrustLinkContract {
         request::get_request(&env, request_id)
     }
 
-    /// Alias for `get_request`.
-    pub fn get_attestation_request(env: Env, request_id: String) -> Result<AttestationRequest, Error> {
-        request::get_request(&env, request_id)
+    /// Return the configured multisig proposal TTL in days (default: 7).
+    pub fn get_multisig_ttl(env: Env) -> u32 {
+        Storage::get_multisig_ttl(&env)
     }
+
+    /// Set the multisig proposal TTL in days (admin only).
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — caller is not the admin.
+    pub fn set_multisig_ttl(env: Env, admin: Address, days: u32) -> Result<(), Error> {
+        admin.require_auth();
+        Validation::require_admin(&env, &admin)?;
+        Storage::set_multisig_ttl(&env, days);
+        Ok(())
+    }
+
+    /// Cancel an unfinalized multisig proposal.
+    ///
+    /// Only the original proposer may cancel. Cancelled proposals are excluded
+    /// from future `cosign_attestation` calls (returns `ProposalExpired`).
+    ///
+    /// # Errors
+    /// - [`Error::NotFound`] — proposal does not exist.
+    /// - [`Error::Unauthorized`] — caller is not the original proposer.
+    /// - [`Error::ProposalFinalized`] — proposal has already been finalized.
+    /// - [`Error::ProposalCancelled`] — proposal is already cancelled.
+    pub fn cancel_multisig_proposal(
+        env: Env,
+        proposer: Address,
+        proposal_id: String,
+    ) -> Result<(), Error> {
+        proposer.require_auth();
+
+        let mut proposal = Storage::get_multisig_proposal(&env, &proposal_id)?;
+
+        if proposal.proposer != proposer {
+            return Err(Error::Unauthorized);
+        }
+
+        if proposal.finalized {
+            return Err(Error::ProposalFinalized);
+        }
+
+        if proposal.cancelled {
+            return Err(Error::ProposalCancelled);
+        }
+
+        proposal.cancelled = true;
+        Storage::set_multisig_proposal(&env, &proposal);
+        Events::multisig_cancelled(&env, &proposal_id, &proposer);
+        Ok(())
+    }
+
+    /// List open (unfinalized, unexpired, uncancelled) proposals for a subject.
+    ///
+    /// Returns a paginated slice of proposals where `finalized == false`,
+    /// `cancelled == false`, and `expires_at > now`.
+    ///
+    /// # Parameters
+    /// - `subject` — the subject address whose proposals to query.
+    /// - `start` — zero-based offset into the filtered list.
+    /// - `limit` — maximum number of proposals to return.
+    pub fn list_open_proposals(
+        env: Env,
+        subject: Address,
+        start: u32,
+        limit: u32,
+    ) -> Vec<MultiSigProposal> {
+        let current_time = env.ledger().timestamp();
+        let index = Storage::get_proposal_index(&env, &subject);
+        let mut open: Vec<MultiSigProposal> = Vec::new(&env);
+
+        for proposal_id in index.iter() {
+            if let Ok(proposal) = Storage::get_multisig_proposal(&env, &proposal_id) {
+                if !proposal.finalized
+                    && !proposal.cancelled
+                    && current_time < proposal.expires_at
+                {
+                    open.push_back(proposal);
+                }
+            }
+        }
+
+        let total = open.len();
+        if start >= total {
+            return Vec::new(&env);
+        }
+        let end = (start + limit).min(total);
+        let mut result: Vec<MultiSigProposal> = Vec::new(&env);
+        for i in start..end {
+            if let Some(p) = open.get(i) {
+                result.push_back(p);
+            }
+        }
+        result
+    }
+
+    /// Endorse an existing attestation, adding a layer of social proof.
+    ///
+    /// Only registered issuers may endorse. An issuer cannot endorse their own
+    /// attestation, and cannot endorse a revoked attestation. Each issuer may
+    /// endorse a given attestation at most once.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — endorser is not a registered issuer.
+    /// - [`Error::NotFound`] — attestation does not exist.
+    /// - [`Error::CannotEndorseOwn`] — endorser is the attestation's issuer.
+    /// - [`Error::AlreadyRevoked`] — attestation has been revoked.
+    /// - [`Error::AlreadyEndorsed`] — endorser has already endorsed this attestation.
+    pub fn endorse_attestation(
+        env: Env,
+        endorser: Address,
+        attestation_id: String,
+    ) -> Result<(), Error> {
+        endorser.require_auth();
+        Validation::require_issuer(&env, &endorser)?;
 
     pub fn cancel_request(env: Env, subject: Address, request_id: String) -> Result<(), Error> {
         request::cancel_request(&env, subject, request_id)
@@ -772,10 +929,40 @@ impl TrustLinkContract {
         Validation::validate_claim_type(&template.claim_type)?;
         Validation::validate_metadata(&env, &template.metadata_template)?;
 
-        Storage::set_template(&env, &issuer, &template_id, &template);
-        Storage::add_to_template_registry(&env, &issuer, &template_id);
-        Events::template_created(&env, &issuer, &template_id);
-        Ok(())
+    pub fn get_contract_metadata(env: Env) -> Result<ContractMetadata, Error> {
+        let version = Storage::get_version(&env).ok_or(Error::NotInitialized)?;
+        Ok(ContractMetadata {
+            name: String::from_str(&env, "TrustLink"),
+            version,
+            description: String::from_str(
+                &env,
+                "On-chain attestation and verification system for the Stellar blockchain.",
+            ),
+        })
+    }
+
+    pub fn get_config(env: Env) -> ContractConfig {
+        let ttl_config = Storage::get_ttl_config(&env).unwrap_or(TtlConfig { ttl_days: 30 });
+
+        let fee_config = Storage::get_fee_config(&env).unwrap_or_else(|| FeeConfig {
+            attestation_fee: 0,
+            fee_collector: env.current_contract_address(),
+            fee_token: None,
+        });
+
+        let version = Storage::get_version(&env).unwrap_or_else(|| String::from_str(&env, ""));
+
+        ContractConfig {
+            ttl_config,
+            fee_config,
+            contract_name: String::from_str(&env, "TrustLink"),
+            contract_version: version,
+            contract_description: String::from_str(
+                &env,
+                "On-chain attestation and verification system for the Stellar blockchain.",
+            ),
+            multisig_ttl_days: Storage::get_multisig_ttl(&env),
+        }
     }
 
     /// Instantiate an attestation from a template, with optional field overrides.
@@ -832,16 +1019,14 @@ impl TrustLinkContract {
         // Delegate to the shared internal creation path.
         attestation::create_attestation_internal(
             &env,
-            issuer,
-            subject,
-            template.claim_type,
-            expiration,
-            metadata,
-            None,
-            None,
-            None,
-        )
-    }
+            &attestation_id,
+            &AuditEntry {
+                action: AuditAction::Transferred,
+                actor: admin.clone(),
+                timestamp,
+                details: None,
+            },
+        );
 
     /// Return the ordered list of template IDs registered for `issuer`.
     ///

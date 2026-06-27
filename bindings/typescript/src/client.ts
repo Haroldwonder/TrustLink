@@ -624,6 +624,44 @@ export class TrustLinkClient {
     return this.simulate("get_multisig_proposal", [str(proposalId)]) as Promise<MultiSigProposal>;
   }
 
+  /** Return the configured multisig proposal TTL in days (default: 7). */
+  async getMultisigTtl(): Promise<number> {
+    return this.simulate("get_multisig_ttl", []) as Promise<number>;
+  }
+
+  /** Set the multisig proposal TTL in days (admin only). */
+  async setMultisigTtl(admin: Keypair, days: number): Promise<string> {
+    return this.invoke("set_multisig_ttl", [addr(admin.publicKey()), u32(days)], admin);
+  }
+
+  /**
+   * Cancel an unfinalized multisig proposal.
+   * Only the original proposer may cancel.
+   */
+  async cancelMultisigProposal(proposer: Keypair, proposalId: string): Promise<string> {
+    return this.invoke(
+      "cancel_multisig_proposal",
+      [addr(proposer.publicKey()), str(proposalId)],
+      proposer
+    );
+  }
+
+  /**
+   * List open (unfinalized, unexpired, uncancelled) proposals for a subject.
+   * Returns a paginated slice.
+   */
+  async listOpenProposals(
+    subject: string,
+    start: number,
+    limit: number
+  ): Promise<MultiSigProposal[]> {
+    return this.simulate("list_open_proposals", [
+      addr(subject),
+      u32(start),
+      u32(limit),
+    ]) as Promise<MultiSigProposal[]>;
+  }
+
   // ─── Endorsements ────────────────────────────────────────────────────────────
 
   /** Endorse an existing attestation. Issuer only. */

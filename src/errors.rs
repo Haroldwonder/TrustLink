@@ -45,42 +45,14 @@ pub enum Error {
     ContractPaused = 24,
     /// Subject is not on the issuer's whitelist and the issuer has whitelist mode enabled.
     SubjectNotWhitelisted = 25,
-    /// No delegation found for the caller acting on behalf of this issuer and claim type.
-    DelegationNotFound = 26,
-    /// Delegation for this claim type has expired.
-    DelegationExpired = 27,
-    /// Cannot delegate attestation authority to self.
-    CannotDelegateToSelf = 28,
-    /// Cannot remove the last remaining admin from council
-    LastAdminCannotBeRemoved = 29,
-    /// Issuer is rate-limited and must wait before creating another attestation.
-    RateLimited = 30,
-    InvalidClaimType = 31,
-    InvalidJurisdiction = 32,
-    LimitExceeded = 33,
-    BatchTooLarge = 34,
-    /// Template claim_type is not registered in the registry (when require_registered_claim_type is enabled).
-    ClaimTypeNotRegistered = 35,
-    InvalidFeeToken = 36,
-    /// An attestation request with the same ID already exists.
-    DuplicateRequest = 37,
-    /// The request has already been fulfilled or rejected.
-    RequestAlreadyProcessed = 38,
-    /// The attestation request has expired.
-    RequestExpired = 39,
-    AlreadyApproved = 40,
-    CouncilProposalExists = 41,
-    CouncilProposalExecuted = 42,
-    CouncilProposalExpired = 43,
-    /// Metadata does not match the required 64-char hex hash pattern when
-    /// `metadata_hash_only` mode is enabled in ContractConfig.
-    InvalidMetadata = 44,
-    /// A council proposal has not yet passed its mandatory timelock delay.
-    TimelockNotReady = 45,
-    /// A dispute already exists for this attestation.
-    AlreadyDisputed = 46,
-    /// No active dispute found for this attestation.
-    NotDisputed = 47,
-    /// Attestation does not satisfy claim type constraints (e.g., metadata too short).
-    ConstraintViolation = 48,
+    /// Claim type string is empty, too long, or contains disallowed characters.
+    InvalidClaimType = 26,
+    /// Jurisdiction code is not a valid ISO 3166-1 alpha-2 code.
+    InvalidJurisdiction = 27,
+    /// Issuer has exceeded the minimum issuance interval (rate limit).
+    RateLimited = 28,
+    /// Storage limit exceeded for issuer or subject.
+    LimitExceeded = 29,
+    /// The proposal has been cancelled by the proposer.
+    ProposalCancelled = 30,
 }

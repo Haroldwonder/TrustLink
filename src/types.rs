@@ -61,6 +61,52 @@ impl IssuerTier {
     }
 }
 
+/// Per-issuer statistics.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IssuerStats {
+    pub total_issued: u64,
+}
+
+/// A registered expiration notification hook for a subject.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExpirationHook {
+    pub callback_contract: Address,
+    pub notify_days_before: u32,
+}
+
+/// A multi-signature attestation proposal.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MultiSigProposal {
+    pub id: String,
+    pub proposer: Address,
+    pub subject: Address,
+    pub claim_type: String,
+    pub required_signers: Vec<Address>,
+    pub threshold: u32,
+    pub signers: Vec<Address>,
+    pub created_at: u64,
+    pub expires_at: u64,
+    pub finalized: bool,
+    /// Set to true when the proposer cancels the proposal before finalization.
+    pub cancelled: bool,
+}
+
+/// Full contract configuration snapshot returned by `get_config`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractConfig {
+    pub ttl_config: TtlConfig,
+    pub fee_config: FeeConfig,
+    pub contract_name: String,
+    pub contract_version: String,
+    pub contract_description: String,
+    /// Configurable TTL for multisig proposals in days (default: 7).
+    pub multisig_ttl_days: u32,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractMetadata {

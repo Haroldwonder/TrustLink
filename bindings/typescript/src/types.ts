@@ -82,6 +82,7 @@ export interface ContractConfig {
   contract_name: string;
   contract_version: string;
   contract_description: string;
+  multisig_ttl_days: number;
 }
 
 export interface ContractMetadata {
@@ -141,6 +142,7 @@ export interface MultiSigProposal {
   created_at: bigint;
   expires_at: bigint;
   finalized: boolean;
+  cancelled: boolean;
 }
 
 export interface TtlConfig {
@@ -174,6 +176,12 @@ export enum ContractErrorCode {
   CannotEndorseOwn = 22,
   AlreadyEndorsed = 23,
   ContractPaused = 24,
+  SubjectNotWhitelisted = 25,
+  InvalidClaimType = 26,
+  InvalidJurisdiction = 27,
+  RateLimited = 28,
+  LimitExceeded = 29,
+  ProposalCancelled = 30,
 }
 
 export const CONTRACT_ERRORS: Record<number, string> = {
@@ -201,6 +209,12 @@ export const CONTRACT_ERRORS: Record<number, string> = {
   22: "CannotEndorseOwn",
   23: "AlreadyEndorsed",
   24: "ContractPaused",
+  25: "SubjectNotWhitelisted",
+  26: "InvalidClaimType",
+  27: "InvalidJurisdiction",
+  28: "RateLimited",
+  29: "LimitExceeded",
+  30: "ProposalCancelled",
 };
 
 // ─── XDR helpers ──────────────────────────────────────────────────────────────
