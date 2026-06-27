@@ -248,3 +248,71 @@ locals {
     ManagedBy   = "terraform"
   }
 }
+
+# ── Cost Monitoring ──────────────────────────────────────────────────────────
+
+data "aws_caller_identity" "current" {}
+
+resource "aws_budgets_budget" "trustlink" {
+  name              = "${var.name_prefix}-${var.environment}-monthly"
+  budget_type       = "MONTHLY"
+  limit_unit        = "USD"
+  limit_amount      = var.budget_threshold
+  time_period_start = "2024-01-01_00:00"
+  time_period_end   = "2099-12-31_23:59"
+
+  tags = local.common_tags
+}
+
+resource "aws_budgets_budget_action" "alert" {
+  budget_name        = aws_budgets_budget.trustlink.name
+  action_id          = "${var.name_prefix}-alert"
+  action_type        = "APPLY_SNS_NOTIFICATION"
+  approval_model     = "AUTOMATIC"
+  notification_type  = "FORECASTED"
+  threshold          = 90
+  threshold_type     = "PERCENTAGE"
+
+  execute_capability = "AFTER_FORECASTED_AMOUNT"
+
+  definition {
+    sns_action_definition {
+      topic_arn = aws_sns_topic.budget_alerts.arn
+    }
+  }
+
+  depends_on = [aws_sns_topic_policy.budget_alerts]
+}
+
+resource "aws_sns_topic" "budget_alerts" {
+  name = "${var.name_prefix}-budget-alerts"
+
+  tags = local.common_tags
+}
+
+resource "aws_sns_topic_subscription" "budget_alerts_email" {
+  topic_arn = aws_sns_topic.budget_alerts.arn
+  protocol  = "email"
+  endpoint  = var.alert_email
+}
+
+resource "aws_sns_topic_policy" "budget_alerts" {
+  arn = aws_sns_topic.budget_alerts.arn
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Service = "budgets.amazonaws.com"
+      }
+      Action   = "SNS:Publish"
+      Resource = aws_sns_topic.budget_alerts.arn
+      Condition = {
+        StringEquals = {
+          "aws:SourceAccount" = data.aws_caller_identity.current.account_id
+        }
+      }
+    }]
+  })
+}
