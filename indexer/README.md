@@ -2,6 +2,25 @@
 
 Off-chain indexer that listens to TrustLink contract events on Stellar, persists them to PostgreSQL, and exposes a REST API.
 
+## Docker Image Architectures
+
+The indexer Docker image is published as a **multi-architecture manifest** supporting both:
+
+- **linux/amd64** — Intel/AMD 64-bit (most servers, CI runners)
+- **linux/arm64** — ARM 64-bit (Apple Silicon, Graviton, etc.)
+
+When you pull `ghcr.io/haroldwonder/trustlink/indexer:latest`, Docker will automatically select the correct architecture for your platform.
+
+To explicitly specify an architecture:
+
+```bash
+# Pull for ARM (Apple Silicon / Graviton)
+docker pull --platform linux/arm64 ghcr.io/haroldwonder/trustlink/indexer:latest
+
+# Pull for x86-64 (Intel / AMD)
+docker pull --platform linux/amd64 ghcr.io/haroldwonder/trustlink/indexer:latest
+```
+
 ## Architecture
 
 ```
