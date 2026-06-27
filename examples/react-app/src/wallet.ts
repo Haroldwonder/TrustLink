@@ -1,6 +1,7 @@
 import {
   isConnected,
   getAddress,
+  getNetworkDetails,
   signTransaction,
 } from "@stellar/freighter-api";
 
@@ -39,6 +40,18 @@ export async function getWalletAddress(): Promise<string | null> {
 
 export async function disconnectWallet(): Promise<void> {
   localStorage.removeItem("wallet_address");
+}
+
+export async function getConnectedNetwork(): Promise<string | null> {
+  try {
+    const connected = await isConnected();
+    if (!connected) return null;
+    const details = await getNetworkDetails();
+    if (details.error) return null;
+    return details.networkPassphrase ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function sign(xdr: string, network: string): Promise<string> {

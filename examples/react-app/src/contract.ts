@@ -85,6 +85,10 @@ export interface Attestation {
   metadata: string | null;
 }
 
+export async function getAttestation(id: string): Promise<Attestation> {
+  return simulate("get_attestation", str(id));
+}
+
 export async function getSubjectAttestations(subject: string): Promise<Attestation[]> {
   return simulate("get_subject_attestations", addr(subject), nativeToScVal(0, { type: "u32" }), nativeToScVal(50, { type: "u32" }));
 }
@@ -490,4 +494,20 @@ export async function createAttestationFromTemplate(
     addr(subject),
     optU64(expiration)
   );
+}
+
+// ── rate limits ───────────────────────────────────────────────────────────────
+
+export interface RateLimit {
+  limit: number;
+  window_seconds: number;
+  current_count: number;
+}
+
+export async function getRateLimit(issuer: string): Promise<RateLimit> {
+  return simulate("get_rate_limit", addr(issuer));
+}
+
+export async function getRateLimitForClaimType(issuer: string, claimType: string): Promise<RateLimit> {
+  return simulate("get_rate_limit_for_claim_type", addr(issuer), str(claimType));
 }

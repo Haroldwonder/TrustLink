@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { connectWallet, getWalletAddress, disconnectWallet } from "./wallet";
+import { Networks } from "@stellar/stellar-sdk";
+import { connectWallet, getWalletAddress, getConnectedNetwork, disconnectWallet } from "./wallet";
 import { ErrorBoundary } from "./ErrorBoundary";
 import AdminPanel from "./panels/AdminPanel";
 import IssuerPanel from "./panels/IssuerPanel";
@@ -20,6 +21,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("user");
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [networkMismatch, setNetworkMismatch] = useState(false);
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     const stored = localStorage.getItem("trustlink-theme");
     return stored ? stored === "dark" : true;
@@ -35,12 +37,21 @@ export default function App() {
     getWalletAddress().then((addr) => { if (addr) setAddress(addr); });
   }, []);
 
+  useEffect(() => {
+    if (!address) { setNetworkMismatch(false); return; }
+    getConnectedNetwork().then((passphrase) => {
+      setNetworkMismatch(passphrase != null && passphrase !== Networks.TESTNET);
+    });
+  }, [address]);
+
   async function handleConnect() {
     setConnecting(true);
     setError(null);
     try {
       const addr = await connectWallet();
       setAddress(addr);
+      const passphrase = await getConnectedNetwork();
+      setNetworkMismatch(passphrase != null && passphrase !== Networks.TESTNET);
     } catch (e: unknown) {
       setError((e as Error).message);
     } finally {
@@ -113,6 +124,16 @@ export default function App() {
           </button>
         ))}
       </nav>
+
+      {networkMismatch && (
+        <div
+          className="alert alert-error"
+          style={{ margin: "1rem", borderRadius: "0.5rem", padding: "1rem 1.25rem", fontSize: "0.9rem" }}
+        >
+          <strong>Wrong network.</strong> Your Freighter wallet is connected to a different network than
+          this app (Stellar Testnet). Please switch your wallet network to Testnet and reconnect.
+        </div>
+      )}
 
       {tab === "user" && <ErrorBoundary><UserPanel address={address} /></ErrorBoundary>}
       {tab === "requests" && <ErrorBoundary><AttestationRequestPanel address={address} /></ErrorBoundary>}

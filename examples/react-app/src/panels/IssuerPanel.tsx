@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { createAttestation, revokeAttestation, getSubjectAttestations, listTemplates, createAttestationFromTemplate, Attestation, AttestationTemplate } from "../contract";
+import { createAttestation, revokeAttestation, getSubjectAttestations, listTemplates, createAttestationFromTemplate, getRateLimit, RateLimit, Attestation, AttestationTemplate } from "../contract";
 import { SkeletonAttestationList } from "../SkeletonList";
 import IssuerDashboard from "./IssuerDashboard";
 import TemplatePanel from "./TemplatePanel";
+import RateLimitPanel, { RATE_LIMIT_WARNING_THRESHOLD } from "./RateLimitPanel";
 
 interface Props { address: string; }
 
@@ -13,6 +14,17 @@ export default function IssuerPanel({ address }: Props) {
   const [metadata, setMetadata] = useState("");
   const [status, setStatus] = useState<{ type: "success" | "error"; msg: string } | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const [rateLimit, setRateLimit] = useState<RateLimit | null>(null);
+
+  useEffect(() => {
+    getRateLimit(address)
+      .then(setRateLimit)
+      .catch(() => { /* rate limit info is advisory; silently ignore fetch errors */ });
+  }, [address]);
+
+  const nearLimit = rateLimit != null && rateLimit.limit > 0
+    && (rateLimit.current_count / rateLimit.limit) >= RATE_LIMIT_WARNING_THRESHOLD;
 
   const [revokeId, setRevokeId] = useState("");
   const [revokeReason, setRevokeReason] = useState("");
@@ -115,6 +127,7 @@ export default function IssuerPanel({ address }: Props) {
     return (
       <div>
         <TabNav />
+        <RateLimitPanel address={address} />
         <IssuerDashboard address={address} />
       </div>
     );
@@ -149,6 +162,12 @@ export default function IssuerPanel({ address }: Props) {
       {tab === "create" && (
         <div className="card">
           <h3>Create Attestation</h3>
+          {nearLimit && (
+            <div className="alert alert-error" style={{ fontSize: "0.85rem" }}>
+              Warning: you are near your rate-limit ({rateLimit!.current_count}/{rateLimit!.limit} used).
+              This submission may be rejected with RateLimitExceeded.
+            </div>
+          )}
           <div className="field">
             <label htmlFor="issuer-subject">Subject Address</label>
             <input
