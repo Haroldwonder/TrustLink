@@ -1,0 +1,211 @@
+name: Canary Deploy Indexer
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to deploy as canary (e.g., v0.2.0)'
+        required: true
+        type: string
+      traffic_weight:
+        description: 'Initial traffic percentage for canary (5-20 recommended)'
+        required: false
+        default: '5'
+        type: choice
+        options:
+          - '5'
+          - '10'
+          - '20'
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  validate-version:
+    name: Validate version and prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Verify version exists
+        run: |
+          VERSION=${{ github.event.inputs.version }}
+          if ! git rev-parse "refs/tags/$VERSION" --quiet; then
+            echo "Error: Tag $VERSION does not exist"
+            exit 1
+          fi
+
+      - name: Check release notes
+        run: |
+          if ! grep -q "${{ github.event.inputs.version }}" CHANGELOG.md; then
+            echo "Warning: Version not found in CHANGELOG.md"
+          fi
+
+  deploy-canary:
+    name: Deploy canary ({{ inputs.traffic_weight }}% traffic)
+    runs-on: ubuntu-latest
+    needs: validate-version
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Configure kubectl
+        run: |
+          # Configure kubectl to connect to production cluster
+          # This would typically load credentials from secrets
+          echo "Configuring kubectl for production cluster..."
+          # kubectl config use-context production
+
+      - name: Deploy canary via Helm
+        run: |
+          helm upgrade trustlink-indexer indexer/helm \
+            -f indexer/helm/values.yaml \
+            -f indexer/helm/values-canary.yaml \
+            --set canary.enabled=true \
+            --set canary.weight=${{ github.event.inputs.traffic_weight }} \
+            --set canary.imageTag=${{ github.event.inputs.version }} \
+            --timeout 10m \
+            --wait
+
+      - name: Verify canary deployment
+        run: |
+          kubectl rollout status deployment/trustlink-indexer-canary --timeout=5m
+          echo "Canary pods:"
+          kubectl get pods -l deployment-type=canary
+
+      - name: Annotate deployment
+        run: |
+          kubectl annotate deployment/trustlink-indexer-canary \
+            canary-version=${{ github.event.inputs.version }} \
+            canary-traffic-weight=${{ github.event.inputs.traffic_weight }} \
+            canary-deployed-at=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+            canary-deployed-by=${{ github.actor }} \
+            --overwrite
+
+      - name: Notify deployment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.repos.createDispatchEvent({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              event_type: 'indexer_canary_deployed',
+              client_payload: {
+                version: '${{ github.event.inputs.version }}',
+                traffic_weight: '${{ github.event.inputs.traffic_weight }}',
+                timestamp: new Date().toISOString()
+              }
+            })
+
+  monitor-canary:
+    name: Monitor canary health
+    runs-on: ubuntu-latest
+    needs: deploy-canary
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Wait for stabilization
+        run: |
+          echo "Waiting 2 minutes for canary to stabilize..."
+          sleep 120
+
+      - name: Check canary health metrics
+        run: |
+          # Query Prometheus for canary metrics
+          # These are example queries; adjust to your metrics
+          
+          ERROR_RATE=$(curl -s \
+            'http://prometheus:9090/api/v1/query' \
+            --data-urlencode 'query=rate(indexer_errors_total{deployment_type="canary"}[1m])' \
+            | jq '.data.result[0].value[1] // "0"' | tr -d '"')
+          
+          LATENCY_P99=$(curl -s \
+            'http://prometheus:9090/api/v1/query' \
+            --data-urlencode 'query=histogram_quantile(0.99, rate(indexer_request_duration_seconds_bucket{deployment_type="canary"}[1m]))' \
+            | jq '.data.result[0].value[1] // "0"' | tr -d '"')
+          
+          LEDGER_LAG=$(curl -s \
+            'http://prometheus:9090/api/v1/query' \
+            --data-urlencode 'query=max(indexer_ledger_lag_blocks{deployment_type="canary"})' \
+            | jq '.data.result[0].value[1] // "0"' | tr -d '"')
+          
+          echo "Canary Metrics:"
+          echo "  Error Rate: $ERROR_RATE (threshold: 0.01)"
+          echo "  Latency P99: ${LATENCY_P99}s (threshold: 0.5s)"
+          echo "  Ledger Lag: ${LEDGER_LAG} blocks (threshold: 100)"
+          
+          # Check thresholds
+          if (( $(echo "$ERROR_RATE > 0.01" | bc -l) )); then
+            echo "❌ Error rate too high!"
+            exit 1
+          fi
+          
+          if (( $(echo "$LATENCY_P99 > 0.5" | bc -l) )); then
+            echo "⚠️  Latency elevated (warning, not critical)"
+          fi
+          
+          if (( $(echo "$LEDGER_LAG > 100" | bc -l) )); then
+            echo "❌ Ledger lag too high!"
+            exit 1
+          fi
+          
+          echo "✅ Canary metrics are healthy"
+
+      - name: Report canary status
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = '${{ job.status }}';
+            const version = '${{ github.event.inputs.version }}';
+            
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `
+              Canary Deployment Report
+              ========================
+              
+              Version: ${version}
+              Traffic: ${{ github.event.inputs.traffic_weight }}%
+              Status: ${status === 'success' ? '✅ Healthy' : '❌ Issues Detected'}
+              
+              Next Steps:
+              - If healthy, run promotion workflow to increase traffic
+              - If issues, investigate logs and rollback if necessary
+              `
+            })
+
+  # Optional: Automated promotion if metrics are good
+  promote-canary:
+    name: Promote canary (if healthy)
+    runs-on: ubuntu-latest
+    needs: [deploy-canary, monitor-canary]
+    if: success() && github.event_name == 'workflow_dispatch'
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Increase traffic to 25%
+        run: |
+          helm upgrade trustlink-indexer indexer/helm \
+            -f indexer/helm/values.yaml \
+            -f indexer/helm/values-canary.yaml \
+            --set canary.enabled=true \
+            --set canary.weight=25 \
+            --timeout 10m \
+            --wait
+
+      - name: Log promotion
+        run: |
+          echo "Promoted canary from ${{ github.event.inputs.traffic_weight }}% to 25%"
+          kubectl annotate deployment/trustlink-indexer-canary \
+            canary-traffic-weight=25 \
+            canary-promoted-at=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+            --overwrite
