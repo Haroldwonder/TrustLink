@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { createAttestation, revokeAttestation, getSubjectAttestations, listTemplates, createAttestationFromTemplate, getRateLimit, getRequireRegisteredClaimType, RateLimit, Attestation, AttestationTemplate } from "../contract";
 import { SkeletonAttestationList } from "../SkeletonList";
 import IssuerDashboard from "./IssuerDashboard";
@@ -8,6 +9,7 @@ import RateLimitPanel, { RATE_LIMIT_WARNING_THRESHOLD } from "./RateLimitPanel";
 interface Props { address: string; }
 
 export default function IssuerPanel({ address }: Props) {
+  const { t } = useTranslation();
   const [tab, setTab] = useState<"dashboard" | "create" | "revoke" | "lookup" | "templates">("dashboard");
   const [subject, setSubject] = useState("");
   const [claimType, setClaimType] = useState("");
@@ -20,7 +22,7 @@ export default function IssuerPanel({ address }: Props) {
   useEffect(() => {
     getRateLimit(address)
       .then(setRateLimit)
-      .catch(() => { /* rate limit info is advisory; silently ignore fetch errors */ });
+      .catch(() => { /* rate limit info is advisory */ });
   }, [address]);
 
   const nearLimit = rateLimit != null && rateLimit.limit > 0
@@ -54,7 +56,7 @@ export default function IssuerPanel({ address }: Props) {
     setStatus(null);
     try {
       await createAttestation(address, subject.trim(), claimType.trim(), null, metadata || null);
-      setStatus({ type: "success", msg: "Attestation created." });
+      setStatus({ type: "success", msg: t("issuer.attestation_created") });
       setSubject(""); setClaimType(""); setMetadata("");
     } catch (e: unknown) {
       setStatus({ type: "error", msg: (e as Error).message });
@@ -69,7 +71,7 @@ export default function IssuerPanel({ address }: Props) {
     setStatus(null);
     try {
       await revokeAttestation(address, revokeId.trim(), revokeReason || null);
-      setStatus({ type: "success", msg: "Attestation revoked." });
+      setStatus({ type: "success", msg: t("issuer.attestation_revoked") });
       setRevokeId(""); setRevokeReason("");
     } catch (e: unknown) {
       setStatus({ type: "error", msg: (e as Error).message });
@@ -84,7 +86,7 @@ export default function IssuerPanel({ address }: Props) {
     setStatus(null);
     try {
       await createAttestationFromTemplate(address, selectedTemplate, templateSubject.trim(), null);
-      setStatus({ type: "success", msg: "Attestation created from template." });
+      setStatus({ type: "success", msg: t("issuer.from_template_created") });
       setTemplateSubject("");
     } catch (e: unknown) {
       setStatus({ type: "error", msg: (e as Error).message });
@@ -108,22 +110,24 @@ export default function IssuerPanel({ address }: Props) {
     }
   }
 
+  const allTabs = ["dashboard", "create", "revoke", "lookup", "templates"] as const;
+
   const TabNav = () => (
     <nav
       role="tablist"
       aria-label="Issuer panel tabs"
       style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem", borderBottom: "1px solid #2d3148", paddingBottom: "0.5rem" }}
     >
-      {(["dashboard", "create", "revoke", "lookup"] as const).map((t) => (
+      {allTabs.map((tabId) => (
         <button
-          key={t}
+          key={tabId}
           role="tab"
-          aria-selected={tab === t}
-          className={`tab ${tab === t ? "active" : ""}`}
-          onClick={() => setTab(t)}
+          aria-selected={tab === tabId}
+          className={`tab ${tab === tabId ? "active" : ""}`}
+          onClick={() => setTab(tabId)}
           style={{ flex: 1, textAlign: "center", padding: "0.5rem", textTransform: "capitalize" }}
         >
-          {t.charAt(0).toUpperCase() + t.slice(1)}
+          {t(`issuer.tab_${tabId}`)}
         </button>
       ))}
     </nav>
@@ -142,13 +146,7 @@ export default function IssuerPanel({ address }: Props) {
   if (tab === "templates") {
     return (
       <div>
-        <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem", borderBottom: "1px solid #2d3148", paddingBottom: "0.5rem" }}>
-          {(["dashboard", "create", "revoke", "lookup", "templates"] as const).map((t) => (
-            <button key={t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)} style={{ flex: 1, textAlign: "center", padding: "0.5rem", textTransform: "capitalize" }}>
-              {t}
-            </button>
-          ))}
-        </div>
+        <TabNav />
         <TemplatePanel address={address} />
       </div>
     );
@@ -156,7 +154,7 @@ export default function IssuerPanel({ address }: Props) {
 
   return (
     <div className="panel">
-      <h2>Issuer Panel</h2>
+      <h2>{t("issuer.title")}</h2>
       <TabNav />
 
       {status && (
@@ -165,33 +163,21 @@ export default function IssuerPanel({ address }: Props) {
         </div>
       )}
 
-      {tab === "templates" && (
-        <div className="card">
-          <h3>Attestation Templates</h3>
-          {templatesLoading
-            ? <p className="empty">Loading templates…</p>
-            : templates.length === 0
-              ? <p className="empty">No templates found.</p>
-              : <TemplateList items={templates} />}
-        </div>
-      )}
-
       {tab === "create" && (
         <div className="card">
-          <h3>Create Attestation</h3>
+          <h3>{t("issuer.create_title")}</h3>
           {nearLimit && (
             <div className="alert alert-error" style={{ fontSize: "0.85rem" }}>
-              Warning: you are near your rate-limit ({rateLimit!.current_count}/{rateLimit!.limit} used).
-              This submission may be rejected with RateLimitExceeded.
+              {t("issuer.rate_limit_warning", { current: rateLimit!.current_count, limit: rateLimit!.limit })}
             </div>
           )}
           {requireRegisteredClaimType && (
             <div className="alert alert-error" style={{ marginBottom: "1rem", fontSize: "0.8rem" }}>
-              This contract requires claim types to be pre-registered. Free-text claim types will be rejected.
+              {t("issuer.claim_type_constraint")}
             </div>
           )}
           <div className="field">
-            <label htmlFor="issuer-subject">Subject Address</label>
+            <label htmlFor="issuer-subject">{t("issuer.subject_address")}</label>
             <input
               id="issuer-subject"
               value={subject}
@@ -200,7 +186,7 @@ export default function IssuerPanel({ address }: Props) {
             />
           </div>
           <div className="field">
-            <label htmlFor="issuer-claim-type">Claim Type</label>
+            <label htmlFor="issuer-claim-type">{t("issuer.claim_type")}</label>
             <input
               id="issuer-claim-type"
               value={claimType}
@@ -209,7 +195,7 @@ export default function IssuerPanel({ address }: Props) {
             />
           </div>
           <div className="field">
-            <label htmlFor="issuer-metadata">Metadata (optional)</label>
+            <label htmlFor="issuer-metadata">{t("issuer.metadata_optional")}</label>
             <input
               id="issuer-metadata"
               value={metadata}
@@ -223,28 +209,30 @@ export default function IssuerPanel({ address }: Props) {
             onClick={handleCreate}
             aria-disabled={loading || !subject || !claimType}
           >
-            Create
+            {t("issuer.create_title")}
           </button>
           {templates.length > 0 && (
             <div style={{ marginTop: "1.5rem", borderTop: "1px solid #2d3148", paddingTop: "1rem" }}>
-              <h4 style={{ marginBottom: "0.75rem", color: "#94a3b8", fontSize: "0.85rem" }}>Or create from template</h4>
+              <h4 style={{ marginBottom: "0.75rem", color: "#94a3b8", fontSize: "0.85rem" }}>
+                {t("issuer.from_template_heading")}
+              </h4>
               <div className="field">
-                <label>Template</label>
+                <label>{t("issuer.template_select")}</label>
                 <select
                   value={selectedTemplate}
                   onChange={(e) => setSelectedTemplate(e.target.value)}
                   style={{ background: "#0f1117", border: "1px solid #2d3148", borderRadius: "0.5rem", padding: "0.5rem 0.75rem", color: "#e2e8f0", width: "100%" }}
                 >
-                  <option value="">Select a template…</option>
-                  {templates.map((t) => (
-                    <option key={t.template_id} value={t.template_id}>
-                      {t.template_id} — {t.claim_type}
+                  <option value="">{t("issuer.template_placeholder")}</option>
+                  {templates.map((tmpl) => (
+                    <option key={tmpl.template_id} value={tmpl.template_id}>
+                      {tmpl.template_id} — {tmpl.claim_type}
                     </option>
                   ))}
                 </select>
               </div>
               <div className="field">
-                <label>Subject Address</label>
+                <label>{t("issuer.subject_address")}</label>
                 <input
                   value={templateSubject}
                   onChange={(e) => setTemplateSubject(e.target.value)}
@@ -256,7 +244,7 @@ export default function IssuerPanel({ address }: Props) {
                 disabled={templateLoading || !selectedTemplate || !templateSubject}
                 onClick={handleFromTemplate}
               >
-                {templateLoading ? "Creating…" : "Create from Template"}
+                {templateLoading ? t("common.creating") : t("issuer.create_from_template")}
               </button>
             </div>
           )}
@@ -265,9 +253,9 @@ export default function IssuerPanel({ address }: Props) {
 
       {tab === "revoke" && (
         <div className="card">
-          <h3>Revoke Attestation</h3>
+          <h3>{t("issuer.revoke_title")}</h3>
           <div className="field">
-            <label htmlFor="revoke-id">Attestation ID</label>
+            <label htmlFor="revoke-id">{t("issuer.attestation_id")}</label>
             <input
               id="revoke-id"
               value={revokeId}
@@ -276,7 +264,7 @@ export default function IssuerPanel({ address }: Props) {
             />
           </div>
           <div className="field">
-            <label htmlFor="revoke-reason">Reason (optional)</label>
+            <label htmlFor="revoke-reason">{t("issuer.reason_optional")}</label>
             <input
               id="revoke-reason"
               value={revokeReason}
@@ -290,14 +278,14 @@ export default function IssuerPanel({ address }: Props) {
             onClick={handleRevoke}
             aria-disabled={loading || !revokeId}
           >
-            Revoke
+            {t("common.revoke")}
           </button>
         </div>
       )}
 
       {tab === "lookup" && (
         <div className="card">
-          <h3>My Issued Attestations</h3>
+          <h3>{t("issuer.lookup_title")}</h3>
           <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.75rem" }}>
             <label htmlFor="issuer-lookup-addr" className="visually-hidden">
               Subject address to look up
@@ -308,7 +296,7 @@ export default function IssuerPanel({ address }: Props) {
               style={{ flex: 1, background: "#0f1117", border: "1px solid #2d3148", borderRadius: "0.5rem", padding: "0.5rem 0.75rem", color: "#e2e8f0" }}
               value={lookupAddr}
               onChange={(e) => setLookupAddr(e.target.value)}
-              placeholder="Subject address G..."
+              placeholder={t("issuer.subject_placeholder")}
               aria-label="Subject address"
             />
             <button
@@ -317,13 +305,13 @@ export default function IssuerPanel({ address }: Props) {
               onClick={handleLookup}
               aria-disabled={loading || !lookupAddr}
             >
-              Load
+              {t("common.load")}
             </button>
           </div>
           {lookupLoading
             ? <SkeletonAttestationList />
             : attestations.length === 0
-              ? <p className="empty">No attestations found.</p>
+              ? <p className="empty">{t("common.none_found")}</p>
               : <AttestationList items={attestations} />}
         </div>
       )}
@@ -332,6 +320,7 @@ export default function IssuerPanel({ address }: Props) {
 }
 
 function AttestationList({ items }: { items: Attestation[] }) {
+  const { t } = useTranslation();
   return (
     <ul className="att-list" aria-label="Attestation list">
       {items.map((a) => (
@@ -339,30 +328,13 @@ function AttestationList({ items }: { items: Attestation[] }) {
           <div className="row">
             <span className="claim">{a.claim_type}</span>
             <span className={`badge ${a.revoked ? "badge-revoked" : "badge-valid"}`}>
-              {a.revoked ? "Revoked" : "Valid"}
+              {a.revoked ? t("common.revoked") : t("common.valid")}
             </span>
           </div>
-          <span className="meta">Subject: {a.subject}</span>
-          <span className="meta">ID: {a.id}</span>
+          <span className="meta">{t("common.subject", { value: a.subject })}</span>
+          <span className="meta">{t("common.id", { id: a.id })}</span>
         </li>
       ))}
     </ul>
-  );
-}
-
-function TemplateList({ items }: { items: Template[] }) {
-  return (
-    <div className="att-list">
-      {items.map((t) => (
-        <div key={t.id} className="att-item">
-          <div className="row">
-            <span className="claim">{t.name}</span>
-            <span className="badge badge-valid">{t.claim_type}</span>
-          </div>
-          {t.description && <span className="meta">{t.description}</span>}
-          <span className="meta">ID: {t.id}</span>
-        </div>
-      ))}
-    </div>
   );
 }
