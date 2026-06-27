@@ -1,6 +1,9 @@
 #![no_std]
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
 
+#[cfg(test)]
+extern crate std;
+
 mod admin;
 mod attestation;
 mod errors;
@@ -31,9 +34,11 @@ use soroban_sdk::{contract, contractimpl, Address, Env, String, Vec};
 use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::{
-    Attestation, AttestationRequest, AttestationStatus, AttestationTemplate, AuditEntry, Error,
-    ExpirationHook, FeeConfig, GlobalStats, HealthStatus, IssuerMetadata, IssuerStats, IssuerTier,
-    MultiSigProposal, PendingAdminTransfer, RateLimitConfig, StorageLimits,
+    Attestation, AttestationRequest, AttestationStatus, AttestationTemplate,
+    AttestationVersionSnapshot, AuditEntry, CouncilOperation, CouncilProposal, DecayConfig,
+    Delegation, DisputeRecord, Error, ExpirationHook, FeeConfig, GlobalStats, HealthStatus,
+    IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, PendingAdminTransfer,
+    RateLimitConfig, StorageLimits,
 };
 
 #[contract]
@@ -82,6 +87,11 @@ impl TrustLinkContract {
         admin::get_admin(&env)
     }
 
+    #[must_use]
+    pub fn get_admin_council(env: Env) -> Result<Vec<Address>, Error> {
+        admin::get_admin_council(&env)
+    }
+
     // -----------------------------------------------------------------------
     // Issuer management
     // -----------------------------------------------------------------------
@@ -123,6 +133,15 @@ impl TrustLinkContract {
 
     pub fn get_confidence_score(env: Env, attestation_id: String) -> Option<u32> {
         admin::get_confidence_score(&env, attestation_id)
+    }
+
+    pub fn set_decay_config(env: Env, admin: Address, config: DecayConfig) -> Result<(), Error> {
+        admin::set_decay_config(&env, admin, config)
+    }
+
+    #[must_use]
+    pub fn get_decay_config(env: Env) -> DecayConfig {
+        admin::get_decay_config(&env)
     }
 
     pub fn get_issuer_metadata(env: Env, issuer: Address) -> Option<IssuerMetadata> {
@@ -290,6 +309,20 @@ impl TrustLinkContract {
         admin::revoke_delegation(&env, issuer, delegate, claim_type)
     }
 
+    pub fn revoke_delegation_all(env: Env, delegator: Address) -> Result<(), Error> {
+        admin::revoke_delegation_all(&env, delegator)
+    }
+
+    #[must_use]
+    pub fn get_delegation(env: Env, delegator: Address, delegate: Address, claim_type: String) -> Option<Delegation> {
+        query::get_delegation(&env, delegator, delegate, claim_type)
+    }
+
+    #[must_use]
+    pub fn list_delegations_by_delegator(env: Env, delegator: Address, start: u32, limit: u32) -> Vec<Delegation> {
+        admin::list_delegations_by_delegator(&env, delegator, start, limit)
+    }
+
     // -----------------------------------------------------------------------
     // Expiration hooks
     // -----------------------------------------------------------------------
@@ -404,6 +437,15 @@ impl TrustLinkContract {
 
     pub fn request_deletion(env: Env, subject: Address, attestation_id: String) -> Result<(), Error> {
         attestation::request_deletion(&env, subject, attestation_id)
+    }
+
+    pub fn amend_attestation(
+        env: Env,
+        issuer: Address,
+        attestation_id: String,
+        new_metadata: Option<String>,
+    ) -> Result<(), Error> {
+        attestation::amend_attestation(&env, issuer, attestation_id, new_metadata)
     }
 
     pub fn endorse_attestation(env: Env, endorser: Address, attestation_id: String) -> Result<(), Error> {
@@ -532,6 +574,29 @@ impl TrustLinkContract {
         query::get_global_stats(&env)
     }
 
+    #[must_use]
+    pub fn get_attestation_history(env: Env, attestation_id: String) -> Vec<AttestationVersionSnapshot> {
+        query::get_attestation_history(&env, attestation_id)
+    }
+
+    pub fn dispute_attestation(
+        env: Env,
+        subject: Address,
+        attestation_id: String,
+        reason: String,
+    ) -> Result<(), Error> {
+        query::dispute_attestation(&env, subject, attestation_id, reason)
+    }
+
+    #[must_use]
+    pub fn get_dispute(env: Env, attestation_id: String) -> Option<DisputeRecord> {
+        query::get_dispute(&env, attestation_id)
+    }
+
+    pub fn resolve_dispute(env: Env, resolver: Address, attestation_id: String) -> Result<(), Error> {
+        admin::resolve_dispute(&env, resolver, attestation_id)
+    }
+
     // -----------------------------------------------------------------------
     // Multi-sig
     // -----------------------------------------------------------------------
@@ -590,6 +655,10 @@ impl TrustLinkContract {
         request::get_request(&env, request_id)
     }
 
+    pub fn cancel_request(env: Env, subject: Address, request_id: String) -> Result<(), Error> {
+        request::cancel_request(&env, subject, request_id)
+    }
+
     // -----------------------------------------------------------------------
     // Misc
     // -----------------------------------------------------------------------
@@ -602,6 +671,52 @@ impl TrustLinkContract {
     #[must_use]
     pub fn health_check(env: Env) -> HealthStatus {
         admin::health_check(&env)
+    }
+
+    // -----------------------------------------------------------------------
+    // Council actions with timelock (Issue #790)
+    // -----------------------------------------------------------------------
+
+    pub fn create_council_proposal(
+        env: Env,
+        proposer: Address,
+        operation: CouncilOperation,
+    ) -> Result<u32, Error> {
+        admin::create_council_proposal(&env, proposer, operation)
+    }
+
+    pub fn approve_council_proposal(
+        env: Env,
+        approver: Address,
+        proposal_id: u32,
+    ) -> Result<(), Error> {
+        admin::approve_council_proposal(&env, approver, proposal_id)
+    }
+
+    pub fn execute_council_action(
+        env: Env,
+        executor: Address,
+        proposal_id: u32,
+    ) -> Result<(), Error> {
+        admin::execute_council_action(&env, executor, proposal_id)
+    }
+
+    #[must_use]
+    pub fn get_council_proposal(env: Env, proposal_id: u32) -> Option<CouncilProposal> {
+        admin::get_council_proposal(&env, proposal_id)
+    }
+
+    pub fn set_council_timelock_delay(
+        env: Env,
+        admin: Address,
+        delay_seconds: u64,
+    ) -> Result<(), Error> {
+        admin::set_council_timelock_delay(&env, admin, delay_seconds)
+    }
+
+    #[must_use]
+    pub fn get_council_timelock_delay(env: Env) -> u64 {
+        admin::get_council_timelock_delay(&env)
     }
 
     // -----------------------------------------------------------------------
@@ -655,7 +770,6 @@ impl TrustLinkContract {
         expiration_override: Option<u64>,
         metadata_override: Option<String>,
     ) -> Result<String, Error> {
-        issuer.require_auth();
         Validation::require_issuer(&env, &issuer)?;
 
         let template = Storage::get_template(&env, &issuer, &template_id)

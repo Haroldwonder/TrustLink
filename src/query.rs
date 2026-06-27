@@ -3,7 +3,10 @@ use soroban_sdk::{Address, Env, String, Vec};
 use crate::attestation::maybe_trigger_expiration_hook;
 use crate::events::Events;
 use crate::storage::Storage;
-use crate::types::{Attestation, AttestationStatus, AuditEntry, Delegation, Error, GlobalStats};
+use crate::types::{
+    Attestation, AttestationStatus, AttestationVersionSnapshot, AuditEntry, Delegation,
+    DisputeRecord, Error, GlobalStats,
+};
 
 /// Returns `true` if the subject holds at least one valid attestation for `claim_type`.
 ///
@@ -401,4 +404,60 @@ pub fn get_valid_claim_count(env: &Env, subject: Address) -> u32 {
 
 pub fn get_global_stats(env: &Env) -> GlobalStats {
     Storage::get_global_stats(env)
+}
+
+/// Return all prior versions of an attestation's metadata, in the order they
+/// were superseded. The current (latest) metadata lives on the attestation
+/// itself and is NOT included here.
+pub fn get_attestation_history(
+    env: &Env,
+    attestation_id: String,
+) -> Vec<AttestationVersionSnapshot> {
+    Storage::get_attestation_history(env, &attestation_id)
+}
+
+/// Return the active dispute record for an attestation, or `None` if there
+/// is no open dispute.
+pub fn get_dispute(env: &Env, attestation_id: String) -> Option<DisputeRecord> {
+    Storage::get_dispute(env, &attestation_id)
+}
+
+/// Submit a dispute against an attestation. Only the subject of the
+/// attestation may call this. The disputed flag is informational and does
+/// not affect validity queries.
+pub fn dispute_attestation(
+    env: &Env,
+    subject: Address,
+    attestation_id: String,
+    reason: String,
+) -> Result<(), Error> {
+    use crate::errors::Error as E;
+    use crate::events::Events;
+
+    subject.require_auth();
+
+    let attestation = Storage::get_attestation(env, &attestation_id)?;
+    if attestation.subject != subject {
+        return Err(E::Unauthorized);
+    }
+    if attestation.deleted {
+        return Err(E::NotFound);
+    }
+    if Storage::get_dispute(env, &attestation_id).is_some() {
+        return Err(E::AlreadyDisputed);
+    }
+    if reason.len() > 256 {
+        return Err(E::MetadataTooLong);
+    }
+
+    let timestamp = env.ledger().timestamp();
+    let record = DisputeRecord {
+        attestation_id: attestation_id.clone(),
+        subject: subject.clone(),
+        reason: reason.clone(),
+        disputed_at: timestamp,
+    };
+    Storage::set_dispute(env, &attestation_id, &record);
+    Events::dispute_raised(env, &attestation_id, &subject, &reason, timestamp);
+    Ok(())
 }

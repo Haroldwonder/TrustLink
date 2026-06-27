@@ -72,4 +72,10 @@ pub enum Error {
     CouncilProposalExists = 41,
     CouncilProposalExecuted = 42,
     CouncilProposalExpired = 43,
+    /// A council proposal has not yet passed its mandatory timelock delay.
+    TimelockNotReady = 45,
+    /// A dispute already exists for this attestation.
+    AlreadyDisputed = 46,
+    /// No active dispute found for this attestation.
+    NotDisputed = 47,
 }

@@ -73,15 +73,22 @@ proptest! {
                 id
             }
             AttestationState::Expired => {
-                // Expiration in the past.
-                let exp = now - 1;
-                client.create_attestation(&issuer, &subject, &claim_type, &Some(exp), &None, &None)
+                // Create at a past timestamp with an expiration that is already
+                // in the past at query time (now=10_000). The contract rejects
+                // exp <= current_time, so we temporarily lower the ledger.
+                let saved = env.ledger().timestamp();
+                env.ledger().with_mut(|l| l.timestamp = 5_000);
+                let id = client.create_attestation(
+                    &issuer, &subject, &claim_type, &Some(9_000), &None, &None,
+                );
+                env.ledger().with_mut(|l| l.timestamp = saved);
+                id
             }
             AttestationState::Pending => {
                 // valid_from in the future.
                 let valid_from = now + 10_000;
                 client.create_attestation_valid_from(
-                    &issuer, &subject, &claim_type, &None, &Some(valid_from), &None,
+                    &issuer, &subject, &claim_type, &None, &None, &None, &valid_from,
                 )
             }
         };
@@ -94,7 +101,7 @@ proptest! {
         prop_assert_eq!(
             has_valid,
             status_is_valid,
-            "has_valid_claim={has_valid} but status={status:?}"
+            "has_valid_claim={} but status={:?}", has_valid, status
         );
     }
 
@@ -135,13 +142,24 @@ proptest! {
                     id
                 }
                 AttestationState::Expired => {
-                    let exp = now - 1;
-                    client.create_attestation(&issuer, &subject, &claim_type, &Some(exp), &None, &None)
+                    // Derive a unique past timestamp from `ts` so that repeated
+                    // Expired entries don't collide on (issuer, subject, claim_type,
+                    // timestamp). create_ts is in (5000, 5005] and exp is in
+                    // (9000, 9005], both always < now (10_000).
+                    let saved = env.ledger().timestamp();
+                    let create_ts = saved - 5_000; // unique per iteration tick
+                    let exp = saved - 1_000;       // < now (10_000) → always expired
+                    env.ledger().with_mut(|l| l.timestamp = create_ts);
+                    let id = client.create_attestation(
+                        &issuer, &subject, &claim_type, &Some(exp), &None, &None,
+                    );
+                    env.ledger().with_mut(|l| l.timestamp = saved);
+                    id
                 }
                 AttestationState::Pending => {
                     let valid_from = ts + 10_000;
                     client.create_attestation_valid_from(
-                        &issuer, &subject, &claim_type, &None, &Some(valid_from), &None,
+                        &issuer, &subject, &claim_type, &None, &None, &None, &valid_from,
                     )
                 }
             };
@@ -160,7 +178,7 @@ proptest! {
         prop_assert_eq!(
             has_valid,
             any_valid,
-            "has_valid_claim={has_valid} but expected any_valid={any_valid} (states={states:?})"
+            "has_valid_claim={} but expected any_valid={} (states={:?})", has_valid, any_valid, states
         );
     }
 }
