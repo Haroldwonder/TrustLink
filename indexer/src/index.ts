@@ -261,7 +261,7 @@ async function main() {
   const typeDefs = readFileSync(join(__dirname, "schema.graphql"), "utf-8");
   const schema = makeExecutableSchema({
     typeDefs,
-    resolvers: buildResolvers(db),
+    resolvers: buildResolvers(db, getLastLedger),
   });
 
   // 1. Create WS server (noServer — we handle the upgrade event manually)

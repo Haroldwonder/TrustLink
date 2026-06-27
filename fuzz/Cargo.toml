@@ -2,9 +2,25 @@
 name = "trustlink-fuzz"
 version = "0.1.0"
 edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
 
 [dependencies]
 trustlink = { path = ".." }
 soroban-sdk = { version = "=21.7.7", features = ["testutils"] }
 libfuzzer-sys = "0.4"
-arbitrary = "1.0"
+arbitrary = { version = "1.0", features = ["derive"] }
+
+[[bin]]
+name = "fuzz_validate_claim_type"
+path = "fuzz_targets/fuzz_validate_claim_type.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_multisig_lifecycle"
+path = "fuzz_targets/fuzz_multisig_lifecycle.rs"
+test = false
+doc = false

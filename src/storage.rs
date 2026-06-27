@@ -4,10 +4,10 @@
 
 use crate::constants::{DAY_IN_LEDGERS, DEFAULT_INSTANCE_LIFETIME};
 use crate::types::{
-    AdminCouncil, Attestation, AttestationRequest, AttestationTemplate, AuditEntry, ClaimTypeInfo,
-    Endorsement, Error, ExpirationHook, FeeConfig, GlobalStats, IssuerMetadata, IssuerStats,
-    IssuerTier, MultiSigProposal, PendingAdminTransfer, RateLimitConfig, StorageLimits, TtlConfig,
-    CouncilProposal,
+    AdminCouncil, Attestation, AttestationRequest, AttestationTemplate, AttestationVersionSnapshot,
+    AuditEntry, ClaimTypeInfo, CouncilProposal, DecayConfig, DisputeRecord, Endorsement, Error,
+    ExpirationHook, FeeConfig, GlobalStats, IssuerMetadata, IssuerStats, IssuerTier,
+    MultiSigProposal, PendingAdminTransfer, RateLimitConfig, StorageLimits, TtlConfig,
 };
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
@@ -36,14 +36,12 @@ pub enum StorageKey {
     GlobalStats,
     ExpirationHook(Address),
     Endorsements(String),
-    Limits,
     StorageLimits,
     RateLimitConfig,
-    LastIssuance(Address),
     LastIssuanceTime(Address),
-    IssuerWhitelistEnabled(Address),
-    /// Whitelist mode flag (alias for IssuerWhitelistEnabled).
     IssuerWhitelistMode(Address),
+    /// Version history for an attestation (Vec<AttestationVersionSnapshot>).
+    AttestationHistory(String),
     /// Whitelist entry for a (issuer, subject) pair.
     IssuerWhitelist(Address, Address),
     /// Audit log entries for an attestation.
@@ -53,12 +51,10 @@ pub enum StorageKey {
     /// An attestation request record.
     AttestationRequest(String),
     IssuerPendingRequests(Address),
-    PendingRequests(Address),
     /// Contract paused flag.
     Paused,
     /// Council proposal by numeric ID.
     CouncilProposal(u32),
-    CouncilProposalStr(String),
     ProposalCounter,
     PendingAdminTransfer,
     AttestationTemplate(Address, String),
@@ -76,6 +72,26 @@ pub enum StorageKey {
     EndorserIndex(Address),
     /// Count of issued attestations by claim type.
     ClaimTypeCount(String),
+    /// Configurable decay parameters for issuer confidence score.
+    DecayConfig,
+    /// Active dispute record for an attestation (absent if no active dispute).
+    Dispute(String),
+    /// Minimum delay in seconds between a council proposal reaching quorum
+    /// and when it may be executed.
+    CouncilTimelockDelay,
+    /// Cumulative revocation count per issuer (separate from IssuerStats to
+    /// avoid breaking the existing struct's XDR schema).
+    IssuerRevocations(Address),
+}
+
+/// Composite key for per-issuer-per-claim-type last issuance timestamps.
+/// Stored as a separate `contracttype` struct so it doesn't count against
+/// the `StorageKey` enum variant limit.
+#[contracttype]
+#[derive(Clone)]
+pub struct ClaimTypeIssuanceKey {
+    pub issuer: Address,
+    pub claim_type: String,
 }
 
 fn get_ttl_lifetime(env: &Env) -> u32 {
@@ -824,9 +840,11 @@ impl Storage {
         let key = StorageKey::AttestationTemplateList(issuer.clone());
         let ttl = get_ttl_lifetime(env);
         let mut list: Vec<String> = env.storage().persistent().get(&key).unwrap_or(Vec::new(env));
-        list.push_back(template_id.clone());
-        env.storage().persistent().set(&key, &list);
-        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+        if !list.contains(template_id) {
+            list.push_back(template_id.clone());
+            env.storage().persistent().set(&key, &list);
+            env.storage().persistent().extend_ttl(&key, ttl, ttl);
+        }
     }
 
     pub fn get_template_registry(env: &Env, issuer: &Address) -> Vec<String> {
@@ -909,6 +927,124 @@ impl Storage {
         let current = Self::get_claim_type_count(env, claim_type);
         env.storage().persistent().set(&key, &current.saturating_sub(1));
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // ── Attestation version history ───────────────────────────────────────────
+
+    pub fn get_attestation_history(env: &Env, attestation_id: &String) -> Vec<AttestationVersionSnapshot> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::AttestationHistory(attestation_id.clone()))
+            .unwrap_or(Vec::new(env))
+    }
+
+    pub fn push_attestation_version(env: &Env, attestation_id: &String, snapshot: &AttestationVersionSnapshot) {
+        let key = StorageKey::AttestationHistory(attestation_id.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut history = Self::get_attestation_history(env, attestation_id);
+        history.push_back(snapshot.clone());
+        env.storage().persistent().set(&key, &history);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn get_attestation_version_count(env: &Env, attestation_id: &String) -> u32 {
+        Self::get_attestation_history(env, attestation_id).len()
+    }
+
+    // ── Decay config ──────────────────────────────────────────────────────────
+
+    pub fn get_decay_config(env: &Env) -> Option<DecayConfig> {
+        env.storage().instance().get(&StorageKey::DecayConfig)
+    }
+
+    pub fn set_decay_config(env: &Env, config: &DecayConfig) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::DecayConfig, config);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    // ── Dispute records ───────────────────────────────────────────────────────
+
+    pub fn get_dispute(env: &Env, attestation_id: &String) -> Option<DisputeRecord> {
+        env.storage().persistent().get(&StorageKey::Dispute(attestation_id.clone()))
+    }
+
+    pub fn set_dispute(env: &Env, attestation_id: &String, record: &DisputeRecord) {
+        let key = StorageKey::Dispute(attestation_id.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, record);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn remove_dispute(env: &Env, attestation_id: &String) {
+        env.storage().persistent().remove(&StorageKey::Dispute(attestation_id.clone()));
+    }
+
+    // ── Council timelock delay ────────────────────────────────────────────────
+
+    pub fn get_council_timelock_delay(env: &Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&StorageKey::CouncilTimelockDelay)
+            .unwrap_or(0u64)
+    }
+
+    pub fn set_council_timelock_delay(env: &Env, delay_seconds: u64) {
+        let ttl = get_ttl_lifetime(env);
+        env.storage().instance().set(&StorageKey::CouncilTimelockDelay, &delay_seconds);
+        env.storage().instance().extend_ttl(ttl, ttl);
+    }
+
+    // ── Per-issuer revocation count ───────────────────────────────────────────
+
+    pub fn get_issuer_revocations(env: &Env, issuer: &Address) -> u64 {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::IssuerRevocations(issuer.clone()))
+            .unwrap_or(0u64)
+    }
+
+    pub fn increment_issuer_revocations(env: &Env, issuer: &Address, by: u64) {
+        let key = StorageKey::IssuerRevocations(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        let current = Self::get_issuer_revocations(env, issuer);
+        env.storage().persistent().set(&key, &current.saturating_add(by));
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // ── Per-claim-type last issuance time ─────────────────────────────────────
+
+    pub fn get_last_issuance_time_by_claim_type(env: &Env, issuer: &Address, claim_type: &String) -> Option<u64> {
+        let key = ClaimTypeIssuanceKey { issuer: issuer.clone(), claim_type: claim_type.clone() };
+        env.storage().persistent().get(&key)
+    }
+
+    pub fn set_last_issuance_time_by_claim_type(env: &Env, issuer: &Address, claim_type: &String, timestamp: u64) {
+        let key = ClaimTypeIssuanceKey { issuer: issuer.clone(), claim_type: claim_type.clone() };
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, &timestamp);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // ── Expiry-aware TTL extension ────────────────────────────────────────────
+
+    /// Extends the attestation's persistent TTL to cover the full duration until
+    /// `expiry`, if that is longer than the configured default TTL.
+    pub fn extend_attestation_ttl_for_expiry(env: &Env, attestation_id: &String, expiry: Option<u64>) {
+        let default_ttl = get_ttl_lifetime(env);
+        let target_ttl = if let Some(ts) = expiry {
+            let current = env.ledger().timestamp();
+            let secs = ts.saturating_sub(current);
+            let days = secs / crate::constants::SECS_PER_DAY;
+            let expiry_ledgers = (days as u32).saturating_mul(crate::constants::DAY_IN_LEDGERS);
+            expiry_ledgers.max(default_ttl)
+        } else {
+            default_ttl
+        };
+        if target_ttl > default_ttl {
+            let key = StorageKey::Attestation(attestation_id.clone());
+            env.storage().persistent().extend_ttl(&key, target_ttl, target_ttl);
+        }
     }
 }
 

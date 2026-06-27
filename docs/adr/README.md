@@ -15,6 +15,7 @@ the trade-offs accepted as a result.
 | [ADR-007](ADR-007-attestation-requests.md) | Pull-based attestation request workflow (subject-initiated, 7-day TTL, optional rejection reason) | Accepted |
 | [ADR-008](ADR-008-rate-limiting.md) | Rate limiting design — per-issuer last-issuance timestamp, known limitations | Accepted |
 | [ADR-009](ADR-009-delegation-model.md) | Delegation model and trust chain implications | Accepted |
+| [ADR-010](ADR-010-custom-validation-hooks.md) | Issuer-defined custom validation hooks for attestation creation (cross-contract) | Accepted |
 
 ## Template
 

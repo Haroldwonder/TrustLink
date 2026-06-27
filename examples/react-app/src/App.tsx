@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { connectWallet, getWalletAddress } from "./wallet";
+import { connectWallet, getWalletAddress, disconnectWallet } from "./wallet";
 import { ErrorBoundary } from "./ErrorBoundary";
 import AdminPanel from "./panels/AdminPanel";
 import IssuerPanel from "./panels/IssuerPanel";
@@ -8,8 +8,9 @@ import VerifierPanel from "./panels/VerifierPanel";
 import AttestationRequestPanel from "./panels/AttestationRequestPanel";
 import MultiSigPanel from "./panels/MultiSigPanel";
 import DelegationPanel from "./panels/DelegationPanel";
+import CouncilPanel from "./panels/CouncilPanel";
 
-type Tab = "admin" | "issuer" | "user" | "verifier" | "requests" | "multisig" | "delegation";
+type Tab = "admin" | "issuer" | "user" | "verifier" | "requests" | "multisig" | "delegation" | "council";
 
 export default function App() {
   const [address, setAddress] = useState<string | null>(null);
@@ -80,6 +81,7 @@ export default function App() {
     { id: "issuer", label: "Issuer" },
     { id: "verifier", label: "Verifier" },
     { id: "admin", label: "Admin" },
+    { id: "council", label: "Council" },
   ];
 
   return (
@@ -112,6 +114,7 @@ export default function App() {
       {tab === "issuer" && <ErrorBoundary><IssuerPanel address={address} /></ErrorBoundary>}
       {tab === "verifier" && <ErrorBoundary><VerifierPanel /></ErrorBoundary>}
       {tab === "admin" && <ErrorBoundary><AdminPanel address={address} /></ErrorBoundary>}
+      {tab === "council" && <ErrorBoundary><CouncilPanel address={address} /></ErrorBoundary>}
     </>
   );
 }

@@ -1,0 +1,60 @@
+# Canary deployment values for gradual rollout of indexer changes.
+#
+# Usage:
+#   helm upgrade trustlink-indexer . -f values.yaml -f values-canary.yaml --dry-run
+#   helm upgrade trustlink-indexer . -f values.yaml -f values-canary.yaml
+#
+# Workflow:
+#   1. Deploy with canary values (10% traffic)
+#   2. Monitor metrics (error_rate, latency, event_lag)
+#   3. If healthy, increase: helm upgrade ... --set canary.weight=50
+#   4. If issues, rollback: helm upgrade ... --set canary.weight=0
+
+# Canary deployment configuration
+canary:
+  # Enable canary deployment (default: false for safety)
+  enabled: false
+  
+  # Percentage of traffic to route to canary (0-100)
+  # Start at 5-10%, increase gradually
+  weight: 10
+  
+  # Number of replicas for canary deployment
+  # Usually smaller than main deployment for cost efficiency
+  replicaCount: 1
+  
+  # Image tag for canary (can be different from main)
+  # E.g., "v0.2.0-rc1" while main runs "v0.1.0"
+  imageTag: latest
+
+# Main (stable) deployment configuration
+main:
+  # Number of replicas for main deployment
+  replicaCount: 3
+  
+  # Image tag for main (stable version)
+  imageTag: v0.1.0
+
+# Service configuration for canary routing
+service:
+  type: ClusterIP
+  port: 3000
+  
+  # Enable weighted routing between main and canary
+  # (Requires KuberneteS 1.27+ with support for weighted endpoints)
+  sessionAffinity: None
+
+# Monitoring thresholds for canary validation
+# If canary exceeds these, automatic rollback is triggered
+monitoring:
+  # Alert if error rate exceeds 1%
+  errorRateThreshold: "0.01"
+  
+  # Alert if p99 latency exceeds 500ms
+  latencyP99Threshold: "500ms"
+  
+  # Alert if indexer lags behind chain by more than 100 blocks
+  ledgerLagThreshold: "100"
+  
+  # Window for collecting metrics (to avoid noise)
+  evaluationWindow: "5m"
