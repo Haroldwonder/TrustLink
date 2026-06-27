@@ -8,8 +8,9 @@ import VerifierPanel from "./panels/VerifierPanel";
 import AttestationRequestPanel from "./panels/AttestationRequestPanel";
 import MultiSigPanel from "./panels/MultiSigPanel";
 import CouncilPanel from "./panels/CouncilPanel";
+import DelegationPanel from "./panels/DelegationPanel";
 
-type Tab = "admin" | "issuer" | "user" | "verifier" | "requests" | "multisig" | "council";
+type Tab = "admin" | "issuer" | "user" | "verifier" | "requests" | "multisig" | "council" | "delegation";
 
 export default function App() {
   const [address, setAddress] = useState<string | null>(null);
@@ -76,6 +77,7 @@ export default function App() {
     { id: "user", label: "My Attestations" },
     { id: "requests", label: "Requests" },
     { id: "multisig", label: "Multi-Sig" },
+    { id: "delegation", label: "Delegation" },
     { id: "issuer", label: "Issuer" },
     { id: "verifier", label: "Verifier" },
     { id: "admin", label: "Admin" },
@@ -108,6 +110,7 @@ export default function App() {
       {tab === "user" && <ErrorBoundary><UserPanel address={address} /></ErrorBoundary>}
       {tab === "requests" && <ErrorBoundary><AttestationRequestPanel address={address} /></ErrorBoundary>}
       {tab === "multisig" && <ErrorBoundary><MultiSigPanel address={address} /></ErrorBoundary>}
+      {tab === "delegation" && <ErrorBoundary><DelegationPanel address={address} /></ErrorBoundary>}
       {tab === "issuer" && <ErrorBoundary><IssuerPanel address={address} /></ErrorBoundary>}
       {tab === "verifier" && <ErrorBoundary><VerifierPanel /></ErrorBoundary>}
       {tab === "admin" && <ErrorBoundary><AdminPanel address={address} /></ErrorBoundary>}
