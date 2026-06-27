@@ -11,13 +11,15 @@ from stellar_sdk import (
     BASE_FEE,
     xdr,
 )
-from stellar_sdk.operation import InvokeHostFunction
-from stellar_sdk.utils import parse_transaction_envelope_from_xdr
 
 from .types import (
     Attestation,
     AttestationStatus,
+    AttestationTemplate,
     ClaimTypeInfo,
+    ContractConfig,
+    ContractMetadata,
+    Delegation,
     GlobalStats,
     IssuerStats,
     MultiSigProposal,
@@ -25,6 +27,7 @@ from .types import (
     ContractError,
     CONTRACT_ERRORS,
 )
+from . import _base
 
 
 class TrustLinkClient:
@@ -226,6 +229,127 @@ class TrustLinkClient:
         """
         return self._simulate("is_issuer", self._addr(address))
 
+    def get_template(self, issuer: str, template_id: str) -> AttestationTemplate:
+        """Get a named attestation template.
+
+        Args:
+            issuer: Issuer address
+            template_id: Template identifier
+
+        Returns:
+            AttestationTemplate record
+        """
+        return self._simulate(
+            "get_template", self._addr(issuer), self._str(template_id)
+        )
+
+    def list_templates(self, issuer: str, start: int = 0, limit: int = 50) -> List[str]:
+        """List template IDs registered for an issuer.
+
+        Args:
+            issuer: Issuer address
+            start: Pagination offset
+            limit: Pagination limit
+
+        Returns:
+            List of template IDs
+        """
+        return self._simulate(
+            "list_templates",
+            self._addr(issuer),
+            self._u32(start),
+            self._u32(limit),
+        )
+
+    def get_delegation(
+        self, delegator: str, delegate: str, claim_type: str
+    ) -> Optional[Delegation]:
+        """Get a delegation record.
+
+        Args:
+            delegator: Delegating issuer address
+            delegate: Delegate address
+            claim_type: Delegated claim type
+
+        Returns:
+            Delegation record, or None if not found
+        """
+        return self._simulate(
+            "get_delegation",
+            self._addr(delegator),
+            self._addr(delegate),
+            self._str(claim_type),
+        )
+
+    def get_valid_claims(self, subject: str) -> List[str]:
+        """Get all valid claim IDs for a subject.
+
+        Args:
+            subject: Subject address
+
+        Returns:
+            List of valid claim IDs
+        """
+        return self._simulate("get_valid_claims", self._addr(subject))
+
+    def get_valid_claim_count(self, subject: str) -> int:
+        """Get count of valid claims for a subject.
+
+        Args:
+            subject: Subject address
+
+        Returns:
+            Number of valid (non-revoked, non-expired) claims
+        """
+        return self._simulate("get_valid_claim_count", self._addr(subject))
+
+    def get_config(self) -> ContractConfig:
+        """Get contract configuration.
+
+        Returns:
+            Contract configuration including admin address and flags
+        """
+        return self._simulate("get_config")
+
+    def get_contract_metadata(self) -> ContractMetadata:
+        """Get contract metadata.
+
+        Returns:
+            Contract metadata including name, description, and version
+        """
+        return self._simulate("get_contract_metadata")
+
+    def get_version(self) -> str:
+        """Get contract version string.
+
+        Returns:
+            Semantic version string (e.g. "0.1.0")
+        """
+        return self._simulate("get_version")
+
+    def get_multisig_proposal(self, proposal_id: str) -> MultiSigProposal:
+        """Get multi-sig attestation proposal.
+
+        Args:
+            proposal_id: Proposal ID
+
+        Returns:
+            MultiSigProposal with cosigner count and finalization status
+        """
+        return self._simulate("get_multisig_proposal", self._str(proposal_id))
+
+    def is_whitelisted(self, issuer: str, subject: str) -> bool:
+        """Check if subject is whitelisted by issuer.
+
+        Args:
+            issuer: Issuer address
+            subject: Subject address
+
+        Returns:
+            True if subject is whitelisted
+        """
+        return self._simulate("is_whitelisted", self._addr(issuer), self._addr(subject))
+
     # ─── Write Operations ──────────────────────────────────────────────────────
 
     def create_attestation(
@@ -353,6 +477,39 @@ class TrustLinkClient:
             self._str(proposal_id),
         )
 
+    def add_to_whitelist(self, issuer_secret: str, subject: str) -> None:
+        """Add subject to issuer's whitelist.
+
+        Args:
+            issuer_secret: Issuer secret key
+            subject: Subject address to whitelist
+        """
+        issuer_addr = Keypair.from_secret(issuer_secret).public_key
+        self._invoke(
+            issuer_secret,
+            "add_to_whitelist",
+            self._addr(issuer_addr),
+            self._addr(subject),
+        )
+
+    def enable_whitelist_mode(self, issuer_secret: str, enabled: bool) -> None:
+        """Toggle whitelist mode for issuer.
+
+        Args:
+            issuer_secret: Issuer secret key
+            enabled: True to enable whitelist mode, False to disable
+        """
+        issuer_addr = Keypair.from_secret(issuer_secret).public_key
+        self._invoke(
+            issuer_secret,
+            "enable_whitelist_mode",
+            self._addr(issuer_addr),
+            xdr.SCVal(
+                type=xdr.SCValType.SC_VAL_TYPE_BOOL,
+                b=enabled,
+            ),
+        )
+
     # ─── Internal Helpers ──────────────────────────────────────────────────────
 
     def _simulate(self, method: str, *args: Any) -> Any:
@@ -436,72 +593,14 @@ class TrustLinkClient:
 
         return response
 
-    @staticmethod
-    def _str(s: str) -> xdr.SCVal:
-        """Convert string to SCVal."""
-        return xdr.SCVal(type=xdr.SCValType.SC_VAL_TYPE_SYMBOL, sym=s.encode())
+    # ─── SCVal Helpers (delegate to _base) ────────────────────────────────────
 
-    @staticmethod
-    def _addr(a: str) -> xdr.SCVal:
-        """Convert address to SCVal."""
-        return xdr.SCVal(
-            type=xdr.SCValType.SC_VAL_TYPE_ADDRESS,
-            address=xdr.SCAddress(
-                type=xdr.SCAddressType.SC_ADDRESS_TYPE_ACCOUNT,
-                account_id=xdr.AccountID(
-                    type=xdr.PublicKeyType.PUBLIC_KEY_TYPE_ED25519,
-                    ed25519=xdr.Uint256(Keypair.from_public_key(a).raw_public_key()),
-                ),
-            ),
-        )
-
-    @staticmethod
-    def _u32(n: int) -> xdr.SCVal:
-        """Convert u32 to SCVal."""
-        return xdr.SCVal(type=xdr.SCValType.SC_VAL_TYPE_U32, u32=xdr.Uint32(n))
-
-    @staticmethod
-    def _u64(n: int) -> xdr.SCVal:
-        """Convert u64 to SCVal."""
-        return xdr.SCVal(type=xdr.SCValType.SC_VAL_TYPE_U64, u64=xdr.Uint64(n))
-
-    @staticmethod
-    def _opt_str(s: Optional[str]) -> xdr.SCVal:
-        """Convert optional string to SCVal."""
-        if s is None:
-            return xdr.SCVal(type=xdr.SCValType.SC_VAL_TYPE_VEC, vec=[])
-        return xdr.SCVal(
-            type=xdr.SCValType.SC_VAL_TYPE_VEC,
-            vec=[xdr.SCVal(type=xdr.SCValType.SC_VAL_TYPE_SYMBOL, sym=s.encode())],
-        )
-
-    @staticmethod
-    def _opt_u64(n: Optional[int]) -> xdr.SCVal:
-        """Convert optional u64 to SCVal."""
-        if n is None:
-            return xdr.SCVal(type=xdr.SCValType.SC_VAL_TYPE_VEC, vec=[])
-        return xdr.SCVal(
-            type=xdr.SCValType.SC_VAL_TYPE_VEC,
-            vec=[xdr.SCVal(type=xdr.SCValType.SC_VAL_TYPE_U64, u64=xdr.Uint64(n))],
-        )
-
-    @staticmethod
-    def _vec_str(strs: List[str]) -> xdr.SCVal:
-        """Convert list of strings to SCVal."""
-        return xdr.SCVal(
-            type=xdr.SCValType.SC_VAL_TYPE_VEC,
-            vec=[xdr.SCVal(type=xdr.SCValType.SC_VAL_TYPE_SYMBOL, sym=s.encode()) for s in strs],
-        )
-
-    @staticmethod
-    def _vec_addr(addrs: List[str]) -> xdr.SCVal:
-        """Convert list of addresses to SCVal."""
-        return xdr.SCVal(
-            type=xdr.SCValType.SC_VAL_TYPE_VEC,
-            vec=[TrustLinkClient._addr(a) for a in addrs],
-        )
-
-    @staticmethod
-    def _null() -> xdr.SCVal:
-        """Return null SCVal."""
-        return xdr.SCVal(type=xdr.SCValType.SC_VAL_TYPE_VEC, vec=[])
+    _str = staticmethod(_base.sc_str)
+    _addr = staticmethod(_base.sc_addr)
+    _u32 = staticmethod(_base.sc_u32)
+    _u64 = staticmethod(_base.sc_u64)
+    _opt_str = staticmethod(_base.sc_opt_str)
+    _opt_u64 = staticmethod(_base.sc_opt_u64)
+    _vec_str = staticmethod(_base.sc_vec_str)
+    _vec_addr = staticmethod(_base.sc_vec_addr)
+    _null = staticmethod(_base.sc_null)

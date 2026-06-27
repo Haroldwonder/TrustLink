@@ -7,6 +7,8 @@
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
     "test": "jest",
+    "test:load": "k6 run k6-load-test.js",
+    "test:load:smoke": "k6 run --vus 1 --duration 10s k6-load-test.js",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy"
   },

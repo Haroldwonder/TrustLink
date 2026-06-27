@@ -122,6 +122,11 @@ async def check_kyc(address: str) -> dict:
 - `list_claim_types(offset, limit)` - List registered claim types
 - `get_global_stats()` - Get contract-wide statistics
 - `is_issuer(address)` - Check if address is registered issuer
+- `get_config()` - Get contract configuration (admin, flags)
+- `get_contract_metadata()` - Get contract name, description, and version
+- `get_version()` - Get contract semantic version string
+- `get_multisig_proposal(proposal_id)` - Get multi-sig proposal details
+- `is_whitelisted(issuer, subject)` - Check if subject is on issuer's whitelist
 
 ### Write Operations
 
@@ -131,6 +136,82 @@ async def check_kyc(address: str) -> dict:
 - `remove_issuer(admin_secret, issuer)` - Remove issuer (admin only)
 - `propose_attestation(issuer_secret, subject, claim_type, required_signers, threshold)` - Propose multi-sig attestation
 - `cosign_attestation(issuer_secret, proposal_id)` - Co-sign multi-sig proposal
+- `add_to_whitelist(issuer_secret, subject)` - Add subject to issuer's whitelist
+- `enable_whitelist_mode(issuer_secret, enabled)` - Toggle whitelist mode
+
+## Health Check
+
+Use `get_config()`, `get_contract_metadata()`, and `get_version()` to verify the contract is reachable and properly initialised:
+
+```python
+from trustlink import TrustLinkClient
+
+client = TrustLinkClient(
+    contract_id="C...",
+    rpc_url="https://soroban-testnet.stellar.org",
+)
+
+def health_check() -> dict:
+    meta = client.get_contract_metadata()
+    config = client.get_config()
+    version = client.get_version()
+    return {
+        "name": meta["name"],
+        "version": version,
+        "initialized": config["initialized"],
+        "admin": config["admin"],
+    }
+
+print(health_check())
+# {'name': 'TrustLink', 'version': '0.1.0', 'initialized': True, 'admin': 'GXXXXX'}
+```
+
+## Async Client (FastAPI / async services)
+
+Use `AsyncTrustLinkClient` in async services to avoid blocking the event loop:
+
+```python
+from fastapi import FastAPI
+from trustlink import AsyncTrustLinkClient
+
+app = FastAPI()
+client = AsyncTrustLinkClient(
+    contract_id="C...",
+    rpc_url="https://soroban-testnet.stellar.org",
+)
+
+@app.post("/attest")
+async def create(issuer_secret: str, subject: str, claim_type: str):
+    await client.create_attestation(issuer_secret, subject, claim_type)
+    return {"status": "ok"}
+
+@app.get("/proposal/{proposal_id}")
+async def get_proposal(proposal_id: str):
+    return await client.get_multisig_proposal(proposal_id)
+```
+
+## Whitelist Onboarding
+
+Use whitelist methods to restrict which subjects an issuer can attest:
+
+```python
+from trustlink import TrustLinkClient
+
+client = TrustLinkClient(contract_id="C...", rpc_url="https://soroban-testnet.stellar.org")
+
+ISSUER_SECRET = "SXXXXXX"
+SUBJECT = "GXXXXXX"
+
+# Enable whitelist mode so only pre-approved subjects can receive attestations
+client.enable_whitelist_mode(ISSUER_SECRET, enabled=True)
+
+# Add subject during onboarding
+client.add_to_whitelist(ISSUER_SECRET, SUBJECT)
+
+# Verify before issuing
+if client.is_whitelisted(ISSUER_SECRET, SUBJECT):
+    client.create_attestation(ISSUER_SECRET, SUBJECT, "KYC_PASSED")
+```
 
 ## Type Hints
 

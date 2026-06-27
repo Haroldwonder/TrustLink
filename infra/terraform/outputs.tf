@@ -12,3 +12,13 @@ output "ecs_cluster_name" {
   description = "ECS cluster name"
   value       = aws_ecs_cluster.this.name
 }
+
+output "budget_alert_topic_arn" {
+  description = "SNS topic ARN for budget alerts"
+  value       = aws_sns_topic.budget_alerts.arn
+}
+
+output "budget_threshold_usd" {
+  description = "Monthly budget threshold in USD"
+  value       = var.budget_threshold
+}

@@ -1,0 +1,88 @@
+## Summary
+
+This PR implements batch query functionality for claim verification across multiple subjects in a single contract call, addressing performance concerns for bulk operations like airdrops, marketplace eligibility checks, and cross-contract verification.
+
+## Problem Statement
+
+Previously, verifying claim validity for multiple subjects required individual `has_valid_claim` calls for each address. For use cases like:
+- Airdrop allowlist verification (checking 100+ addresses)
+- Bulk permission checks before operations
+- Cross-contract verification loops
+- Marketplace user eligibility batching
+
+This resulted in N contract invocations, which is expensive at scale and creates unnecessary latency.
+
+## Solution
+
+Introduces `has_valid_claim_batch()` function that:
+- Accepts a vector of addresses and a single claim type
+- Returns a vector of boolean values (one per subject)
+- Executes in a single contract call
+- Uses existing `has_valid_claim` logic internally
+- Maintains OR-logic across issuers for each subject
+
+## Changes
+
+### Implementation Details
+
+**src/query.rs**:
+```rust
+pub fn has_valid_claim_batch(env: &Env, subjects: Vec<Address>, claim_type: String) -> Vec<bool> {
+    let mut results = Vec::new(env);
+    for subject in subjects.iter() {
+        let has_claim = has_valid_claim(env, subject.clone(), claim_type.clone());
+        results.push_back(has_claim);
+    }
+    results
+}
+```
+
+**src/lib.rs**:
+```rust
+#[must_use]
+pub fn has_valid_claim_batch(env: Env, subjects: Vec<Address>, claim_type: String) -> Vec<bool> {
+    query::has_valid_claim_batch(&env, subjects, claim_type)
+}
+```
+
+### Usage Example
+
+```rust
+// Before: Multiple expensive calls
+let kyc1 = contract.has_valid_claim(&subject1, "KYC_PASSED");
+let kyc2 = contract.has_valid_claim(&subject2, "KYC_PASSED");
+let kyc3 = contract.has_valid_claim(&subject3, "KYC_PASSED");
+
+// After: Single efficient call
+let results = contract.has_valid_claim_batch(
+    vec![subject1, subject2, subject3],
+    "KYC_PASSED"
+);
+// results[0] = kyc1, results[1] = kyc2, results[2] = kyc3
+```
+
+## Technical Details
+
+- **OR-logic Preservation**: Each subject's claim validity maintains multi-issuer OR-logic semantics
+- **Storage Access**: Leverages existing storage patterns (no new storage keys)
+- **Error Handling**: No validation errors; returns bool array (consistent with single-subject version)
+- **Backwards Compatible**: Fully backwards compatible, no breaking changes
+- **Performance**: Reduces network calls from N to 1 for bulk operations
+
+## Testing
+
+Verified:
+- ✅ Library compiles without errors
+- ✅ Function signature correct
+- ✅ No new dependencies
+- ✅ Follows project conventions
+- ✅ Cargo build --lib passes
+
+## Files Modified
+
+- `src/query.rs`: +14 lines (batch query logic)
+- `src/lib.rs`: +6 lines (public function wrapper)
+
+## Closes
+
+#796

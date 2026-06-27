@@ -1,3 +1,4 @@
+/** Attestation recorded on-chain. */
 /**
  * TypeScript types mirroring the TrustLink Soroban contract data structures.
  */
@@ -7,6 +8,20 @@ export interface Attestation {
   issuer: string;
   subject: string;
   claim_type: string;
+  timestamp: number;
+  expiration?: number;
+  revoked: boolean;
+  metadata?: string;
+  valid_from?: number;
+  imported: boolean;
+  bridged: boolean;
+  source_chain?: string;
+  source_tx?: string;
+  tags?: string[];
+}
+
+export type AttestationStatus = "Valid" | "Expired" | "Revoked" | "Pending";
+
   timestamp: bigint;
   expiration: bigint | null;
   revoked: boolean;
@@ -47,6 +62,7 @@ export interface IssuerMetadata {
 export interface FeeConfig {
   attestation_fee: bigint;
   fee_collector: string;
+  fee_token?: string;
   fee_token: string | null;
 }
 
@@ -97,6 +113,59 @@ export interface MultiSigProposal {
   required_signers: string[];
   threshold: number;
   signers: string[];
+  created_at: number;
+  expires_at: number;
+  finalized: boolean;
+}
+
+/** Admin-council workflow types (issues #742). */
+export interface Council {
+  members: string[];
+  threshold: number;
+  created_at: number;
+}
+
+export interface CouncilProposal {
+  id: string;
+  proposer: string;
+  action: string;
+  payload: string;
+  approvals: string[];
+  threshold: number;
+  created_at: number;
+  expires_at: number;
+  executed: boolean;
+}
+
+/** Storage limits for the contract (issue #743). */
+export interface StorageLimits {
+  max_attestations_per_subject: number;
+  max_attestations_per_issuer: number;
+  max_tags_per_attestation: number;
+  max_tag_length: number;
+  max_metadata_length: number;
+}
+
+export type TrustLinkError =
+  | "AlreadyInitialized"
+  | "NotInitialized"
+  | "Unauthorized"
+  | "NotFound"
+  | "DuplicateAttestation"
+  | "AlreadyRevoked"
+  | "Expired"
+  | "InvalidExpiration"
+  | "InvalidTimestamp"
+  | "InvalidFee"
+  | "FeeTokenRequired"
+  | "TooManyTags"
+  | "TagTooLong"
+  | "MetadataTooLong"
+  | "InvalidThreshold"
+  | "NotRequiredSigner"
+  | "AlreadySigned"
+  | "ProposalFinalized"
+  | "ProposalExpired";
   created_at: bigint;
   expires_at: bigint;
   finalized: boolean;
@@ -106,6 +175,21 @@ export interface Endorsement {
   attestation_id: string;
   endorser: string;
   timestamp: bigint;
+}
+
+export interface Delegation {
+  delegator: string;
+  delegate: string;
+  claim_types: string[] | null;
+  expires_at: bigint | null;
+}
+
+export interface Template {
+  id: string;
+  issuer: string;
+  name: string;
+  claim_type: string;
+  description: string | null;
 }
 
 export type AuditAction = "Created" | "Revoked" | "Renewed" | "Updated" | "Transferred";
@@ -286,6 +370,35 @@ export function parseTrustLinkError(errorMessage: string): TrustLinkError | null
     if (errorMessage.includes(name)) return new Cls();
   }
   return null;
+}
+
+/**
+ * Structured export of all data held about a subject, suitable for a
+ * GDPR/CCPA data-portability response.  Produced by TrustLinkClient.exportSubjectData().
+ */
+export interface SubjectDataExport {
+  subject: string;
+  /** ISO 8601 timestamp of when the export was generated. */
+  exportedAt: string;
+  attestations: Array<{
+    attestation: Attestation;
+    auditLog: AuditEntry[];
+    endorsements: Endorsement[];
+  }>;
+  /**
+   * Attestation requests the subject submitted.  Populated only when the
+   * caller passes known request IDs via options.requestIds — the contract
+   * does not expose a per-subject request index.
+   */
+  requestHistory: AttestationRequest[];
+  summary: {
+    totalAttestations: number;
+    activeAttestations: number;
+    revokedAttestations: number;
+    deletedAttestations: number;
+    totalEndorsements: number;
+    totalAuditEntries: number;
+  };
 }
 
 /** Attestation template created by an issuer. */

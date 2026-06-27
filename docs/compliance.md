@@ -147,6 +147,65 @@ Integrators should avoid placing personal data (names, email addresses, document
 numbers) in the `metadata` field. Use off-chain storage for sensitive personal
 data and store only a reference or hash in `metadata`.
 
+### Metadata Best Practices (GDPR Article 5(1)(c))
+
+GDPR's data minimisation principle requires that only data that is necessary for
+the stated purpose is stored. Because the `metadata` field is written to a
+public, immutable blockchain, the following practices are mandatory for GDPR
+compliance:
+
+**Store references or hashes — not PII.**
+
+| Compliant | Non-compliant |
+|-----------|---------------|
+| `"ref:kyc-db:a3f9..."` — opaque reference to an off-chain record | `"John Smith, passport GB123456"` |
+| `"sha256:e3b0c44298fc..."` — SHA-256 hash of the underlying document | `"dob:1985-03-12, addr:London"` |
+| `"tier:3,region:eu"` — non-personal classification labels | `"email:user@example.com"` |
+
+**Recommended metadata pattern for KYC attestations:**
+
+```
+sha256:<64-char hex hash of off-chain KYC record>
+```
+
+This lets auditors verify that a specific off-chain record was the basis for
+the attestation without exposing any personal data on-chain.
+
+### metadata_hash_only Mode
+
+`ContractConfig` exposes a `metadata_hash_only` flag. When enabled, the contract
+rejects any `create_attestation` call whose `metadata` field does not match a
+64-character lowercase hexadecimal string (a SHA-256 hash).
+
+**Enabling hash-only enforcement (admin only):**
+
+```rust
+// Enable: all future attestations must use a 64-char hex hash as metadata
+contract.set_metadata_hash_only(&admin, &true);
+
+// Disable: free-form metadata is accepted again
+contract.set_metadata_hash_only(&admin, &false);
+```
+
+**Effect on `create_attestation`:**
+
+- `metadata: None` — always accepted (metadata is optional).
+- `metadata: Some("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")` — accepted (64-char hex).
+- `metadata: Some("John Smith")` — rejected with `Error::InvalidMetadata` when `metadata_hash_only` is `true`.
+
+**Checking the current setting:**
+
+```rust
+let config = contract.get_config();
+if config.metadata_hash_only {
+    // Only SHA-256 hashes accepted in metadata
+}
+```
+
+This mode is the recommended configuration for production deployments handling
+EU/EEA subjects, as it provides a technical control that enforces the
+data-minimisation principle at the contract level.
+
 ## Lawful Basis for Processing
 
 TrustLink itself does not determine the lawful basis for processing — that
@@ -263,6 +322,90 @@ compliance record.
 | Effect on queries  | Expired = invalid in all query fns     | No effect on validity; entry is archived |
 | Compliance role    | Primary retention policy control       | Infrastructure cache-lifetime only       |
 | Default            | None (no expiry unless set)            | 30 days                                  |
+
+## Data Portability — GDPR Article 20 / CCPA
+
+GDPR Article 20 and CCPA grant data subjects the right to receive a copy of
+all personal data held about them in a structured, machine-readable format.
+
+### `TrustLinkClient.exportSubjectData(subject, options?)`
+
+The TypeScript SDK provides a helper that aggregates all on-chain data for a
+subject into a single JSON object without requiring any new contract methods:
+
+```typescript
+import { TrustLinkClient } from "@trustlink/sdk";
+
+const client = new TrustLinkClient({ contractId, network: "mainnet" });
+
+const export = await client.exportSubjectData(
+  "GBEXAMPLE...",
+  { requestIds: ["req_abc", "req_def"] } // optional: known request IDs
+);
+
+console.log(JSON.stringify(export, null, 2));
+```
+
+The returned `SubjectDataExport` object contains:
+
+```typescript
+{
+  subject: string;           // subject's Stellar address
+  exportedAt: string;        // ISO 8601 timestamp of export generation
+  attestations: Array<{
+    attestation: Attestation;   // full attestation record
+    auditLog: AuditEntry[];     // all actions on this attestation
+    endorsements: Endorsement[]; // issuers who endorsed this attestation
+  }>;
+  requestHistory: AttestationRequest[];  // requests submitted by the subject
+  summary: {
+    totalAttestations: number;
+    activeAttestations: number;
+    revokedAttestations: number;
+    deletedAttestations: number;
+    totalEndorsements: number;
+    totalAuditEntries: number;
+  };
+}
+```
+
+The helper calls only existing read functions (`get_subject_attestations`,
+`get_audit_log`, `get_endorsements`, `get_attestation_request`) — no new
+contract methods are required.
+
+### Request history
+
+The contract stores attestation requests but does not expose a per-subject
+request index. To include request history in the export, pass the subject's
+known request IDs via `options.requestIds`. These can be retrieved from:
+
+- Your application's database (where you stored the ID when the subject called
+  `request_attestation`).
+- The indexer's `pendingRequests` GraphQL query filtered by subject.
+
+### Operator workflow for data-portability responses
+
+| Step | Action |
+|------|--------|
+| 1 | Verify the requester is the subject (authenticate via signature or session). |
+| 2 | Call `exportSubjectData(subject, { requestIds })`. |
+| 3 | Merge the on-chain export with any off-chain personal data your system holds. |
+| 4 | Deliver the combined export to the subject in a machine-readable format (JSON). |
+| 5 | Log the request and response in your compliance audit trail. |
+
+### Export constraints
+
+- **Deleted attestations**: Attestations flagged `deleted: true` remain in
+  the on-chain export (they are still stored on the ledger). Soft-deleted
+  records are included in `attestations` with `attestation.deleted === true`.
+  Off-chain systems that received `DeletionRequested` events and purged their
+  copies should omit those records from any off-chain component of the export.
+- **Historical ledger data**: Raw ledger history is immutable and accessible
+  to anyone who has the attestation ID; this is a property of public
+  blockchains and is disclosed in your privacy notice.
+- **Off-chain data**: `exportSubjectData` covers only on-chain TrustLink
+  records. Operators who store additional personal data in off-chain systems
+  must independently include that data in the portability export.
 
 ## Summary of GDPR-Relevant Contract Functions
 

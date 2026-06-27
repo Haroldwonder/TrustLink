@@ -82,7 +82,19 @@ type AttestationConnection {
   totalCount: Int!
 }
 
+type HealthStatus {
+  """ok or degraded"""
+  status: String!
+  """Last ledger sequence number processed by the indexer"""
+  lastLedger: Int
+  """ISO-8601 timestamp of this response"""
+  timestamp: String!
+}
+
 type Query {
+  """Synthetic liveness probe — returns status ok when the indexer is healthy"""
+  healthCheck: HealthStatus!
+
   """Query attestations with optional filters and pagination"""
   attestations(
     subject: String, 
@@ -128,6 +140,18 @@ type Query {
 
   """List endorsements for an attestation"""
   endorsements(attestationId: String!): [Endorsement!]!
+
+  """List attestation templates for an issuer"""
+  templates(issuer: String!): [Template!]!
+
+  """List delegations authorized by a delegator"""
+  delegationsByDelegator(delegator: String!): [Delegation!]!
+
+  """Check whether a subject is whitelisted by an issuer"""
+  isWhitelisted(issuer: String!, subject: String!): Boolean!
+
+  """List council governance actions, optionally filtered by execution status"""
+  councilActions(executed: Boolean): [CouncilAction!]!
 }
 
 type Subscription {
@@ -177,5 +201,39 @@ type Endorsement {
   attestationId: String!
   endorser: String!
   timestamp: String!
+  createdAt: String!
+}
+
+type Template {
+  id: String!
+  templateId: String!
+  issuer: String!
+  claimType: String!
+  createdAt: String!
+}
+
+type Delegation {
+  id: String!
+  delegator: String!
+  delegate: String!
+  claimType: String!
+  expiresAt: String!
+  revoked: Boolean!
+  createdAt: String!
+}
+
+type WhitelistEntry {
+  id: String!
+  issuer: String!
+  subject: String!
+  createdAt: String!
+}
+
+type CouncilAction {
+  id: String!
+  actionId: String!
+  proposer: String!
+  approvals: [String!]!
+  executed: Boolean!
   createdAt: String!
 }

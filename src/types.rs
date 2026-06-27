@@ -137,6 +137,10 @@ pub struct ContractConfig {
     pub fee_config: FeeConfig,
     pub ttl_config: TtlConfig,
     pub require_registered_claim_type: bool,
+    /// When `true`, the `metadata` field on new attestations must be either
+    /// `None` or a 64-character lowercase hexadecimal string (SHA-256 hash).
+    /// Enables enforcement of GDPR data-minimisation at the contract level.
+    pub metadata_hash_only: bool,
 }
 
 #[contracttype]
@@ -144,6 +148,15 @@ pub struct ContractConfig {
 pub struct ClaimTypeInfo {
     pub claim_type: String,
     pub description: String,
+}
+
+/// Constraints for a specific claim type enforced during attestation creation.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClaimTypeConstraints {
+    pub min_metadata_len: Option<u32>,
+    pub max_metadata_len: Option<u32>,
+    pub require_metadata: bool,
 }
 
 /// Operations that require council quorum approval.
@@ -162,6 +175,10 @@ pub struct CouncilProposal {
     pub proposer: Address,
     pub approvals: Vec<Address>,
     pub executed: bool,
+    /// Ledger timestamp at which the proposal reached quorum.
+    /// `None` means quorum has not been reached yet. Used by the timelock
+    /// guard in `execute_council_action`.
+    pub quorum_reached_at: Option<u64>,
 }
 
 /// Describes how an attestation entered the system.
@@ -214,6 +231,7 @@ pub enum AuditAction {
     Updated,
     Transferred,
     Deleted,
+    Amended,
 }
 
 /// A single immutable entry in an attestation's audit log.
@@ -297,14 +315,57 @@ pub struct PendingAdminTransfer {
 /// Admin council: ordered list of admin addresses.
 pub type AdminCouncil = Vec<Address>;
 
+/// A point-in-time snapshot of an attestation's mutable fields, saved before
+/// each amendment so callers can reconstruct the full version history.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AttestationVersionSnapshot {
+    pub version: u32,
+    pub metadata: Option<String>,
+    pub amended_at: u64,
+    pub amended_by: Address,
+}
+
+/// Configurable parameters for issuer reputation decay, applied at read time
+/// inside `get_confidence_score`. Stored on-chain so they are adjustable
+/// without a contract upgrade.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DecayConfig {
+    /// Number of days of inactivity after which the score is halved.
+    /// Set to 0 to disable inactivity decay entirely.
+    pub half_life_days: u32,
+    /// Scaling factor (0–100) applied to the revocation ratio before
+    /// subtracting from the score. 100 means a 100 % revocation rate
+    /// would zero out the score entirely.
+    pub revocation_weight: u32,
+}
+
+impl Default for DecayConfig {
+    fn default() -> Self {
+        Self {
+            half_life_days: 90,
+            revocation_weight: 50,
+        }
+    }
+}
+
+/// An active dispute raised by a subject against one of their attestations.
+/// The record is removed when the dispute is resolved.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeRecord {
+    pub attestation_id: String,
+    pub subject: Address,
+    pub reason: String,
+    pub disputed_at: u64,
+}
+
 /// A named attestation template owned by an issuer.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AttestationTemplate {
-    pub issuer: Address,
-    pub template_id: String,
     pub claim_type: String,
-    pub metadata: Option<String>,
     pub metadata_template: Option<String>,
     pub default_expiration_days: Option<u32>,
 }

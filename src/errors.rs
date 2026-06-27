@@ -72,4 +72,15 @@ pub enum Error {
     CouncilProposalExists = 41,
     CouncilProposalExecuted = 42,
     CouncilProposalExpired = 43,
+    /// Metadata does not match the required 64-char hex hash pattern when
+    /// `metadata_hash_only` mode is enabled in ContractConfig.
+    InvalidMetadata = 44,
+    /// A council proposal has not yet passed its mandatory timelock delay.
+    TimelockNotReady = 45,
+    /// A dispute already exists for this attestation.
+    AlreadyDisputed = 46,
+    /// No active dispute found for this attestation.
+    NotDisputed = 47,
+    /// Attestation does not satisfy claim type constraints (e.g., metadata too short).
+    ConstraintViolation = 48,
 }

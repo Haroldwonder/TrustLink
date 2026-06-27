@@ -71,7 +71,7 @@ fn test_global_stats_reflects_mixed_operations() {
     for i in 0..total_revocations {
         client.revoke_attestation(
             &issuer_a,
-            &attestation_ids.get(i as usize).unwrap(),
+            &attestation_ids.get(i as u32).unwrap(),
             &None,
         );
     }
