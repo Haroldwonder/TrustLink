@@ -291,6 +291,20 @@ export interface IssuerStats {
   expired: number;
 }
 
+// ── admin council ─────────────────────────────────────────────────────────────
+
+export async function getAdminCouncil(): Promise<string[]> {
+  return simulate("get_admin_council");
+}
+
+export async function addAdmin(caller: string, newAdmin: string): Promise<void> {
+  return invoke(caller, "add_admin", addr(caller), addr(newAdmin));
+}
+
+export async function removeAdmin(caller: string, adminToRemove: string): Promise<void> {
+  return invoke(caller, "remove_admin", addr(caller), addr(adminToRemove));
+}
+
 export async function getIssuerStats(issuer: string): Promise<IssuerStats> {
   return simulate("get_issuer_stats", addr(issuer));
 }
