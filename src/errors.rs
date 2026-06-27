@@ -78,4 +78,6 @@ pub enum Error {
     AlreadyDisputed = 46,
     /// No active dispute found for this attestation.
     NotDisputed = 47,
+    /// Attestation does not satisfy claim type constraints (e.g., metadata too short).
+    ConstraintViolation = 48,
 }

@@ -242,6 +242,7 @@ pub fn create_attestation_internal(
     Validation::validate_claim_type(&claim_type)?;
     Validation::require_registered_claim_type(env, &claim_type)?;
     Validation::validate_metadata(env, &metadata)?;
+    Validation::validate_claim_constraints(env, &claim_type, &metadata)?;
     validate_jurisdiction(env, &jurisdiction)?;
     validate_tags(&tags)?;
     validate_native_expiration(env, expiration)?;

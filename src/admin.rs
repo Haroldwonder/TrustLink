@@ -462,6 +462,18 @@ pub fn list_claim_types(env: &Env, start: u32, limit: u32) -> Vec<String> {
     crate::storage::paginate(env, &Storage::get_claim_type_list(env), start, limit)
 }
 
+pub fn set_claim_type_constraints(env: &Env, admin: Address, claim_type: String, constraints: crate::types::ClaimTypeConstraints) -> Result<(), Error> {
+    admin.require_auth();
+    Validation::require_admin(env, &admin)?;
+    Validation::validate_claim_type(&claim_type)?;
+    Storage::set_claim_type_constraints(env, &claim_type, &constraints);
+    Ok(())
+}
+
+pub fn get_claim_type_constraints(env: &Env, claim_type: String) -> Option<crate::types::ClaimTypeConstraints> {
+    Storage::get_claim_type_constraints(env, &claim_type)
+}
+
 // -----------------------------------------------------------------------
 // Delegation
 // -----------------------------------------------------------------------
