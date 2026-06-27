@@ -43,4 +43,14 @@ pub enum Error {
     ContractPaused = 24,
     /// Subject is not on the issuer's whitelist and the issuer has whitelist mode enabled.
     SubjectNotWhitelisted = 25,
+    /// Claim type string is empty, too long, or contains disallowed characters.
+    InvalidClaimType = 26,
+    /// Jurisdiction code is not a valid ISO 3166-1 alpha-2 code.
+    InvalidJurisdiction = 27,
+    /// Issuer has exceeded the minimum issuance interval (rate limit).
+    RateLimited = 28,
+    /// Storage limit exceeded for issuer or subject.
+    LimitExceeded = 29,
+    /// The proposal has been cancelled by the proposer.
+    ProposalCancelled = 30,
 }

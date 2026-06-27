@@ -51,6 +51,7 @@ export interface ContractConfig {
   contract_name: string;
   contract_version: string;
   contract_description: string;
+  multisig_ttl_days: number;
 }
 
 export interface ContractMetadata {
@@ -88,6 +89,7 @@ export interface MultiSigProposal {
   created_at: bigint;
   expires_at: bigint;
   finalized: boolean;
+  cancelled: boolean;
 }
 
 export interface Endorsement {
@@ -136,6 +138,12 @@ export enum TrustLinkError {
   CannotEndorseOwn = 22,
   AlreadyEndorsed = 23,
   ContractPaused = 24,
+  SubjectNotWhitelisted = 25,
+  InvalidClaimType = 26,
+  InvalidJurisdiction = 27,
+  RateLimited = 28,
+  LimitExceeded = 29,
+  ProposalCancelled = 30,
 }
 
 /** Network presets supported by TrustLinkClient. */

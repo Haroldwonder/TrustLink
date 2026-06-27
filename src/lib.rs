@@ -18,8 +18,8 @@ use crate::storage::Storage;
 use crate::types::{
     Attestation, AttestationRequest, AttestationStatus, AuditAction, AuditEntry, ClaimTypeInfo,
     ContractConfig, ContractMetadata, Endorsement, Error, FeeConfig, GlobalStats, HealthStatus,
-    IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, RequestStatus, TtlConfig,
-    ATTESTATION_REQUEST_TTL_SECS, MULTISIG_PROPOSAL_TTL_SECS,
+    IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, RateLimitConfig, RequestStatus,
+    StorageLimits, TtlConfig, ATTESTATION_REQUEST_TTL_SECS, MULTISIG_PROPOSAL_TTL_SECS,
 };
 use crate::validation::Validation;
 
@@ -1426,6 +1426,9 @@ impl TrustLinkContract {
         let mut signers = Vec::new(&env);
         signers.push_back(proposer.clone());
 
+        let ttl_days = Storage::get_multisig_ttl(&env);
+        let ttl_secs = (ttl_days as u64) * SECS_PER_DAY;
+
         let proposal = MultiSigProposal {
             id: proposal_id.clone(),
             proposer: proposer.clone(),
@@ -1435,11 +1438,13 @@ impl TrustLinkContract {
             threshold,
             signers,
             created_at: timestamp,
-            expires_at: timestamp + MULTISIG_PROPOSAL_TTL_SECS,
+            expires_at: timestamp + ttl_secs,
             finalized: false,
+            cancelled: false,
         };
 
         Storage::set_multisig_proposal(&env, &proposal);
+        Storage::add_to_proposal_index(&env, &subject, &proposal_id);
         Events::multisig_proposed(&env, &proposal_id, &proposer, &subject, threshold);
         Ok(proposal_id)
     }
@@ -1463,6 +1468,10 @@ impl TrustLinkContract {
 
         if proposal.finalized {
             return Err(Error::ProposalFinalized);
+        }
+
+        if proposal.cancelled {
+            return Err(Error::ProposalExpired);
         }
 
         let current_time = env.ledger().timestamp();
@@ -1541,6 +1550,103 @@ impl TrustLinkContract {
     /// Retrieve a multi-sig proposal by ID.
     pub fn get_multisig_proposal(env: Env, proposal_id: String) -> Result<MultiSigProposal, Error> {
         Storage::get_multisig_proposal(&env, &proposal_id)
+    }
+
+    /// Return the configured multisig proposal TTL in days (default: 7).
+    pub fn get_multisig_ttl(env: Env) -> u32 {
+        Storage::get_multisig_ttl(&env)
+    }
+
+    /// Set the multisig proposal TTL in days (admin only).
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — caller is not the admin.
+    pub fn set_multisig_ttl(env: Env, admin: Address, days: u32) -> Result<(), Error> {
+        admin.require_auth();
+        Validation::require_admin(&env, &admin)?;
+        Storage::set_multisig_ttl(&env, days);
+        Ok(())
+    }
+
+    /// Cancel an unfinalized multisig proposal.
+    ///
+    /// Only the original proposer may cancel. Cancelled proposals are excluded
+    /// from future `cosign_attestation` calls (returns `ProposalExpired`).
+    ///
+    /// # Errors
+    /// - [`Error::NotFound`] — proposal does not exist.
+    /// - [`Error::Unauthorized`] — caller is not the original proposer.
+    /// - [`Error::ProposalFinalized`] — proposal has already been finalized.
+    /// - [`Error::ProposalCancelled`] — proposal is already cancelled.
+    pub fn cancel_multisig_proposal(
+        env: Env,
+        proposer: Address,
+        proposal_id: String,
+    ) -> Result<(), Error> {
+        proposer.require_auth();
+
+        let mut proposal = Storage::get_multisig_proposal(&env, &proposal_id)?;
+
+        if proposal.proposer != proposer {
+            return Err(Error::Unauthorized);
+        }
+
+        if proposal.finalized {
+            return Err(Error::ProposalFinalized);
+        }
+
+        if proposal.cancelled {
+            return Err(Error::ProposalCancelled);
+        }
+
+        proposal.cancelled = true;
+        Storage::set_multisig_proposal(&env, &proposal);
+        Events::multisig_cancelled(&env, &proposal_id, &proposer);
+        Ok(())
+    }
+
+    /// List open (unfinalized, unexpired, uncancelled) proposals for a subject.
+    ///
+    /// Returns a paginated slice of proposals where `finalized == false`,
+    /// `cancelled == false`, and `expires_at > now`.
+    ///
+    /// # Parameters
+    /// - `subject` — the subject address whose proposals to query.
+    /// - `start` — zero-based offset into the filtered list.
+    /// - `limit` — maximum number of proposals to return.
+    pub fn list_open_proposals(
+        env: Env,
+        subject: Address,
+        start: u32,
+        limit: u32,
+    ) -> Vec<MultiSigProposal> {
+        let current_time = env.ledger().timestamp();
+        let index = Storage::get_proposal_index(&env, &subject);
+        let mut open: Vec<MultiSigProposal> = Vec::new(&env);
+
+        for proposal_id in index.iter() {
+            if let Ok(proposal) = Storage::get_multisig_proposal(&env, &proposal_id) {
+                if !proposal.finalized
+                    && !proposal.cancelled
+                    && current_time < proposal.expires_at
+                {
+                    open.push_back(proposal);
+                }
+            }
+        }
+
+        let total = open.len();
+        if start >= total {
+            return Vec::new(&env);
+        }
+        let end = (start + limit).min(total);
+        let mut result: Vec<MultiSigProposal> = Vec::new(&env);
+        for i in start..end {
+            if let Some(p) = open.get(i) {
+                result.push_back(p);
+            }
+        }
+        result
     }
 
     /// Endorse an existing attestation, adding a layer of social proof.
@@ -1692,6 +1798,7 @@ impl TrustLinkContract {
                 &env,
                 "On-chain attestation and verification system for the Stellar blockchain.",
             ),
+            multisig_ttl_days: Storage::get_multisig_ttl(&env),
         }
     }
 
@@ -1745,10 +1852,7 @@ impl TrustLinkContract {
                 action: AuditAction::Transferred,
                 actor: admin.clone(),
                 timestamp,
-                details: Some(format!(
-                    "{}",
-                    new_issuer.to_string()
-                )),
+                details: None,
             },
         );
 

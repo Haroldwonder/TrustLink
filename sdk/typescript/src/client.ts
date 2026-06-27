@@ -335,6 +335,45 @@ export class TrustLinkClient {
     return this.simulate("get_multisig_proposal", this.str(proposalId));
   }
 
+  async getMultisigTtl(): Promise<number> {
+    return this.simulate("get_multisig_ttl");
+  }
+
+  async listOpenProposals(
+    subject: string,
+    start: number,
+    limit: number
+  ): Promise<MultiSigProposal[]> {
+    return this.simulate(
+      "list_open_proposals",
+      this.addr(subject),
+      this.u32(start),
+      this.u32(limit)
+    );
+  }
+
+  async cancelMultisigProposal(
+    proposer: string,
+    proposalId: string
+  ): Promise<SorobanRpc.Api.SimulateTransactionResponse> {
+    const dummySource = proposer;
+    const account = new Account(dummySource, "0");
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(
+        this.contract.call(
+          "cancel_multisig_proposal",
+          this.addr(proposer),
+          this.str(proposalId)
+        )
+      )
+      .setTimeout(30)
+      .build();
+    return this.server.simulateTransaction(tx);
+  }
+
   // ── Endorsements ──────────────────────────────────────────────────────────
 
   async getEndorsements(attestationId: string): Promise<Endorsement[]> {
