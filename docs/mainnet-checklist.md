@@ -44,6 +44,51 @@
 | 3.3 | Optimized WASM size recorded and within acceptable limits (<100KB recommended) | [ ] PASS / [ ] FAIL / [ ] N/A | Size: _______ KB |
 | 3.4 | WASM hash/checksum recorded for deployment verification | [ ] PASS / [ ] FAIL / [ ] N/A | SHA256: _______ |
 | 3.5 | WASM artifact stored in a versioned, immutable location | [ ] PASS / [ ] FAIL / [ ] N/A | |
+| 3.6 | Reproducible build verified — `scripts/verify_wasm_hash.sh <KNOWN_HASH>` exits 0 | [ ] PASS / [ ] FAIL / [ ] N/A | |
+
+### Reproducible Build Environment
+
+All WASM artifacts must be built in the following canonical environment to
+ensure hash reproducibility:
+
+| Parameter | Required value |
+|-----------|---------------|
+| Rust toolchain | `stable` (see `rust-toolchain.toml`) |
+| Build target | `wasm32-unknown-unknown` |
+| Build profile | `release` |
+| Optimiser | `stellar contract optimize` or `wasm-opt -Oz` |
+| OS | Linux x86_64 (use Docker for cross-platform builds) |
+
+**Record the reference hash after the first trusted build:**
+
+```bash
+# First build — prints the hash; no comparison performed
+./scripts/verify_wasm_hash.sh
+
+# Subsequent builds — verify the hash matches
+KNOWN="<hash from first build>"
+./scripts/verify_wasm_hash.sh "$KNOWN"
+```
+
+**Verify the deployed WASM hash matches the reproducible build:**
+
+After deploying to mainnet, fetch the on-chain WASM and compare its hash to
+the known-good value produced by `verify_wasm_hash.sh`:
+
+```bash
+# Download the deployed WASM via Stellar CLI
+stellar contract fetch --id "$CONTRACT_ID" --network mainnet \
+  --out deployed.wasm
+
+# Hash it
+sha256sum deployed.wasm
+
+# Compare to the known-good hash from verify_wasm_hash.sh
+```
+
+A mismatch between the deployed hash and the reproducible build hash means the
+deployed contract does not match the audited source code. Do not proceed until
+the discrepancy is explained.
 
 ---
 

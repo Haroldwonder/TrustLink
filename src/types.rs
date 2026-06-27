@@ -137,6 +137,10 @@ pub struct ContractConfig {
     pub fee_config: FeeConfig,
     pub ttl_config: TtlConfig,
     pub require_registered_claim_type: bool,
+    /// When `true`, the `metadata` field on new attestations must be either
+    /// `None` or a 64-character lowercase hexadecimal string (SHA-256 hash).
+    /// Enables enforcement of GDPR data-minimisation at the contract level.
+    pub metadata_hash_only: bool,
 }
 
 #[contracttype]

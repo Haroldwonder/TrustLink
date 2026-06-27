@@ -555,6 +555,8 @@ requires the following metrics to be exported by your TrustLink event indexer:
 | Metric | Type | Description |
 |---|---|---|
 | `trustlink_contract_paused` | Gauge | `1` when the contract is paused, `0` otherwise |
+| `trustlink_admin_added_total` | Counter | Cumulative count of `adm_add` events |
+| `trustlink_admin_removed_total` | Counter | Cumulative count of `adm_rem` events |
 | `trustlink_issuer_removed_total` | Counter | Cumulative count of `iss_rem` events |
 | `trustlink_attestation_revoked_total` | Counter | Cumulative count of `revoked` events |
 | `trustlink_latest_ledger` | Gauge | Current chain tip ledger sequence |
@@ -815,6 +817,11 @@ Adjust thresholds to match your expected traffic volume.
 | `TrustLinkHighRevocationRate` | `revoked` events > 10 in any 5-minute window (all issuers) | High | 5 minutes |
 | `TrustLinkIssuerRevocationSpike` | Any single issuer exceeds 10 `revoked` events in 5 min | High | 5 minutes |
 | `TrustLinkIndexerLag` | Indexer > 100 ledgers behind chain tip for 2 min (SLO-2 breach) | High | 5 minutes |
+| `admin_added` | Any `adm_add` event | Critical | Immediate page |
+| `admin_removed` | Any `adm_rem` event | Critical | Immediate page |
+| `admin_transfer` | Any `adm_xfer` event | Critical | Immediate page |
+| `issuer_removed` | Any `iss_rem` event | Critical | Immediate page |
+| `revocation_spike` | `revoked` events > 10 in any 5-minute window | High | 5 minutes |
 | `bridge_anomaly` | `bridged` events from an unrecognised `source_chain` | High | 5 minutes |
 | `issuer_deregistered_with_active_attestations` | `iss_rem` where issuer has > 0 active attestations | High | 15 minutes |
 | `multisig_proposal_expired` | `ms_prop` with no `ms_actv` within 7 days | Medium | Next business day |
@@ -830,9 +837,54 @@ baseline after one week of observation.
 one week of baseline traffic. A `revocation_spike` threshold that fires daily is
 too sensitive; one that never fires may be too loose.
 
+The `admin_added` and `admin_removed` rules require the following additional
+metrics to be exported by your indexer:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `trustlink_admin_added_total` | Counter | Cumulative count of `adm_add` events, labelled with `actor` and `timestamp` |
+| `trustlink_admin_removed_total` | Counter | Cumulative count of `adm_rem` events, labelled with `actor` and `timestamp` |
+
 ---
 
 ## 7. On-Call Runbook for Common Alerts
+
+### `admin_added` — Admin council member added
+
+**What happened:** A new address was added to the admin council via an `adm_add` event.
+
+1. Confirm the change was planned — cross-reference with your deployment log or
+   scheduled admin rotation ticket.
+2. Verify the actor address (the admin who performed the addition) is a known,
+   authorized admin.
+3. Verify the new admin address is the expected key (not a compromised or unknown address).
+4. If unplanned:
+   - Notify the security lead immediately.
+   - Freeze application-layer operations (block UI/API gateway) while investigating.
+   - Identify the transaction on the Stellar explorer and determine which key signed it.
+   - If the addition was unauthorized, remove the rogue admin with `remove_admin` from a
+     known-good admin account and follow the incident response plan in `docs/security.md`.
+5. If planned, update `DEPLOYMENT.md` with the new admin's address and role.
+
+---
+
+### `admin_removed` — Admin council member removed
+
+**What happened:** An address was removed from the admin council via an `adm_rem` event.
+
+1. Confirm the removal was intentional — check the admin activity log and deployment history.
+2. Verify the actor address (the admin who performed the removal) is authorized.
+3. Check that at least one admin remains in the council:
+   ```bash
+   stellar contract invoke --id "$CONTRACT_ID" --network mainnet -- get_admin_council
+   ```
+   If the council is now empty, the contract is unmanageable — escalate immediately.
+4. If unplanned, treat as a potential account takeover:
+   - Notify the security lead.
+   - Verify remaining admins can still authenticate and operate the contract.
+   - Follow the incident response plan in `docs/security.md`.
+
+---
 
 ### `admin_transfer` — Admin key changed
 

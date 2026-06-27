@@ -266,6 +266,20 @@ impl TrustLinkContract {
         admin::get_require_registered_claim_type(&env)
     }
 
+    /// Enable or disable `metadata_hash_only` mode.
+    ///
+    /// When enabled, the `metadata` field on new attestations must be either
+    /// `None` or a 64-character lowercase hex string (SHA-256 hash). This
+    /// enforces GDPR data-minimisation (Article 5(1)(c)) at the contract level.
+    pub fn set_metadata_hash_only(env: Env, admin: Address, enabled: bool) -> Result<(), Error> {
+        admin::set_metadata_hash_only(&env, admin, enabled)
+    }
+
+    #[must_use]
+    pub fn get_metadata_hash_only(env: Env) -> bool {
+        admin::get_metadata_hash_only(&env)
+    }
+
     // -----------------------------------------------------------------------
     // Limits
     // -----------------------------------------------------------------------
