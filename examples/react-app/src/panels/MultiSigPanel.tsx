@@ -3,6 +3,7 @@ import {
   proposeAttestation,
   cosignAttestation,
   getMultiSigProposal,
+  getMultisigTtl,
   MultiSigProposal,
   isIssuer,
 } from "../contract";
@@ -21,10 +22,22 @@ export default function MultiSigPanel({ address }: Props) {
   const [proposalId, setProposalId] = useState("");
   const [proposal, setProposal] = useState<MultiSigProposal | null>(null);
   const [isUserIssuer, setIsUserIssuer] = useState(false);
+  const [multisigTtl, setMultisigTtl] = useState<bigint | null>(null);
 
   useEffect(() => {
     isIssuer(address).then(setIsUserIssuer);
+    getMultisigTtl().then(setMultisigTtl).catch(() => null);
   }, [address]);
+
+  function formatCountdown(expiresAt: bigint): string {
+    const nowSec = BigInt(Math.floor(Date.now() / 1000));
+    const remaining = expiresAt - nowSec;
+    if (remaining <= 0n) return "Expired";
+    const h = remaining / 3600n;
+    const m = (remaining % 3600n) / 60n;
+    const s = remaining % 60n;
+    return `${h}h ${m}m ${s}s remaining`;
+  }
 
   async function handlePropose() {
     if (!subject || !claimType || !signers || !threshold) return;
@@ -120,6 +133,11 @@ export default function MultiSigPanel({ address }: Props) {
           <h3>Propose Multi-Sig Attestation</h3>
           <p style={{ fontSize: "0.8rem", color: "#94a3b8", marginBottom: "1rem" }}>
             Create a multi-signature proposal requiring multiple issuers to co-sign before the attestation is finalized.
+            {multisigTtl != null && (
+              <span style={{ display: "block", marginTop: "0.25rem", color: "#7c6af7" }}>
+                Proposals expire after {multisigTtl.toString()} ledgers (~{Math.round(Number(multisigTtl) * 5 / 60)} min).
+              </span>
+            )}
           </p>
           <div className="field">
             <label htmlFor="ms-subject">Subject Address</label>
@@ -243,6 +261,14 @@ export default function MultiSigPanel({ address }: Props) {
                     )}
                   </span>
                 </div>
+                {!proposal.finalized && proposal.expires_at != null && (
+                  <div style={{ marginBottom: "0.75rem" }}>
+                    <span style={{ color: "#94a3b8", fontSize: "0.8rem" }}>Expires:</span>
+                    <span style={{ marginLeft: "0.5rem", color: proposal.expires_at - BigInt(Math.floor(Date.now() / 1000)) < 3600n ? "#f87171" : "#e2e8f0", fontSize: "0.85rem" }}>
+                      {formatCountdown(proposal.expires_at)}
+                    </span>
+                  </div>
+                )}
                 <div style={{ marginBottom: "0.75rem" }}>
                   <span style={{ color: "#94a3b8", fontSize: "0.8rem" }}>Signers:</span>
                   <ul style={{ marginTop: "0.5rem", fontSize: "0.8rem", fontFamily: "monospace", listStyle: "none", padding: 0 }}>

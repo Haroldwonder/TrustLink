@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { createAttestation, revokeAttestation, getSubjectAttestations, listTemplates, createAttestationFromTemplate, getRateLimit, RateLimit, Attestation, AttestationTemplate } from "../contract";
+import { createAttestation, revokeAttestation, getSubjectAttestations, listTemplates, createAttestationFromTemplate, getRateLimit, getRequireRegisteredClaimType, RateLimit, Attestation, AttestationTemplate } from "../contract";
 import { SkeletonAttestationList } from "../SkeletonList";
 import IssuerDashboard from "./IssuerDashboard";
 import TemplatePanel from "./TemplatePanel";
@@ -25,6 +25,12 @@ export default function IssuerPanel({ address }: Props) {
 
   const nearLimit = rateLimit != null && rateLimit.limit > 0
     && (rateLimit.current_count / rateLimit.limit) >= RATE_LIMIT_WARNING_THRESHOLD;
+
+  const [requireRegisteredClaimType, setRequireRegisteredClaimType] = useState(false);
+
+  useEffect(() => {
+    getRequireRegisteredClaimType().then(setRequireRegisteredClaimType).catch(() => null);
+  }, []);
 
   const [revokeId, setRevokeId] = useState("");
   const [revokeReason, setRevokeReason] = useState("");
@@ -166,6 +172,11 @@ export default function IssuerPanel({ address }: Props) {
             <div className="alert alert-error" style={{ fontSize: "0.85rem" }}>
               Warning: you are near your rate-limit ({rateLimit!.current_count}/{rateLimit!.limit} used).
               This submission may be rejected with RateLimitExceeded.
+            </div>
+          )}
+          {requireRegisteredClaimType && (
+            <div className="alert alert-error" style={{ marginBottom: "1rem", fontSize: "0.8rem" }}>
+              This contract requires claim types to be pre-registered. Free-text claim types will be rejected.
             </div>
           )}
           <div className="field">

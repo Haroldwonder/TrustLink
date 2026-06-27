@@ -262,6 +262,14 @@ export async function getMultiSigProposal(proposalId: string): Promise<MultiSigP
   return simulate("get_multisig_proposal", str(proposalId));
 }
 
+export async function getMultisigTtl(): Promise<bigint> {
+  return simulate("get_multisig_ttl");
+}
+
+export async function getRequireRegisteredClaimType(): Promise<boolean> {
+  return simulate("get_require_registered_claim_type");
+}
+
 // ── delegation ────────────────────────────────────────────────────────────────
 
 export interface Delegation {
@@ -307,7 +315,6 @@ export async function createAttestationAsDelegate(
     optStr(metadata)
   );
 }
-
 // ── global stats ─────────────────────────────────────────────────────────────
 
 export interface GlobalStats {
