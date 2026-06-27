@@ -29,6 +29,7 @@ import type {
   IssuerTier,
   MultiSigProposal,
   Network,
+  SubjectDataExport,
   TrustLinkClientOptions,
 } from "./types";
 import { parseTrustLinkError } from "./types";
@@ -589,5 +590,67 @@ export class TrustLinkClient {
       if (page.length < pageSize) break;
       start += page.length;
     }
+  }
+
+  // ── Data Portability ───────────────────────────────────────────────────────
+
+  /**
+   * Export all data held about a subject in a single structured JSON object,
+   * suitable for a GDPR Article 20 / CCPA data-portability response.
+   *
+   * Aggregates:
+   *  - All attestations via iterateSubjectAttestations
+   *  - Audit log for each attestation via getAuditLog
+   *  - Endorsements for each attestation via getEndorsements
+   *  - Optional request history (pass known request IDs in options.requestIds)
+   *
+   * The contract does not expose a per-subject request index, so request
+   * history is only included when the caller supplies known request IDs
+   * (e.g. from an off-chain database or the indexer).
+   */
+  async exportSubjectData(
+    subject: string,
+    options?: { requestIds?: string[] }
+  ): Promise<SubjectDataExport> {
+    const attestations: Attestation[] = [];
+    for await (const att of this.iterateSubjectAttestations(subject)) {
+      attestations.push(att);
+    }
+
+    const attestationData = await Promise.all(
+      attestations.map(async (att) => {
+        const [auditLog, endorsements] = await Promise.all([
+          this.getAuditLog(att.id),
+          this.getEndorsements(att.id),
+        ]);
+        return { attestation: att, auditLog, endorsements };
+      })
+    );
+
+    const requestHistory: AttestationRequest[] = [];
+    if (options?.requestIds?.length) {
+      const requests = await Promise.all(
+        options.requestIds.map((id) => this.getAttestationRequest(id))
+      );
+      requestHistory.push(...requests);
+    }
+
+    const allEndorsements = attestationData.flatMap((d) => d.endorsements);
+    const allAuditEntries = attestationData.flatMap((d) => d.auditLog);
+
+    return {
+      subject,
+      exportedAt: new Date().toISOString(),
+      attestations: attestationData,
+      requestHistory,
+      summary: {
+        totalAttestations: attestations.length,
+        activeAttestations: attestations.filter((a) => !a.revoked && !a.deleted).length,
+        revokedAttestations: attestations.filter((a) => a.revoked).length,
+        deletedAttestations: attestations.filter((a) => a.deleted).length,
+        totalEndorsements: allEndorsements.length,
+        totalAuditEntries: allAuditEntries.length,
+      },
+    };
   }
 }
