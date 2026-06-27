@@ -1,6 +1,11 @@
 import { PrismaClient } from "@prisma/client";
 import { rpc as SorobanRpc, scValToNative } from "@stellar/stellar-sdk";
-import { pubsub, ATTESTATION_CREATED, ATTESTATION_REVOKED, ISSUER_REGISTERED } from "./graphql";
+import {
+  pubsub,
+  ATTESTATION_CREATED,
+  ATTESTATION_REVOKED,
+  ISSUER_REGISTERED,
+} from "./graphql";
 import {
   attestationsTotal,
   revocationsTotal,
@@ -11,14 +16,31 @@ import {
   EventTypes,
 } from "./metrics";
 import { dispatchWebhooks } from "./webhooks";
+import { scheduleArchivalJob } from "./archival";
 
 const CONTRACT_ID = process.env.CONTRACT_ID!;
 const RPC_URL = process.env.RPC_URL ?? "https://soroban-testnet.stellar.org";
-const START_LEDGER = process.env.START_LEDGER ? parseInt(process.env.START_LEDGER, 10) : undefined;
+const START_LEDGER = process.env.START_LEDGER
+  ? parseInt(process.env.START_LEDGER, 10)
+  : undefined;
 const PAGE_LIMIT = 200;
 const POLL_MS = 5_000;
 
-const WATCHED = new Set(["created", "revoked", "imported", "bridged", "ms_prop", "ms_sign", "ms_actv", "iss_reg", "issuer_tier_updated", "att_req", "req_ful", "req_rej", "att_endorsed"]);
+const WATCHED = new Set([
+  "created",
+  "revoked",
+  "imported",
+  "bridged",
+  "ms_prop",
+  "ms_sign",
+  "ms_actv",
+  "iss_reg",
+  "issuer_tier_updated",
+  "att_req",
+  "req_ful",
+  "req_rej",
+  "att_endorsed",
+]);
 
 let lastLedger = 0;
 
@@ -26,10 +48,13 @@ export function getLastLedger(): number {
   return lastLedger;
 }
 
-export async function reindex(db: PrismaClient, fromLedger: number): Promise<void> {
+export async function reindex(
+  db: PrismaClient,
+  fromLedger: number,
+): Promise<void> {
   const rpc = new SorobanRpc.Server(RPC_URL, { allowHttp: true });
   const { sequence: tip } = await rpc.getLatestLedger();
-  
+
   console.log(`Reindexing from ledger ${fromLedger} to ${tip}…`);
   await processRange(db, rpc, fromLedger, tip);
   console.log(`Reindex complete`);
@@ -38,10 +63,18 @@ export async function reindex(db: PrismaClient, fromLedger: number): Promise<voi
 export async function startIndexer(db: PrismaClient): Promise<void> {
   const rpc = new SorobanRpc.Server(RPC_URL, { allowHttp: true });
 
+  // Initialize archival scheduler (runs every 6 hours, configurable)
+  const ARCHIVAL_INTERVAL_HOURS = parseInt(
+    process.env.ARCHIVAL_INTERVAL_HOURS ?? "6",
+    10,
+  );
+  scheduleArchivalJob(db, ARCHIVAL_INTERVAL_HOURS);
+
   // ── Backfill ───────────────────────────────────────────────────────────────
   const checkpoint = await db.checkpoint.findUnique({ where: { id: 1 } });
   // START_LEDGER env var overrides stored checkpoint
-  let cursor = START_LEDGER ?? (checkpoint ? checkpoint.ledger + 1 : GENESIS_LEDGER);
+  let cursor =
+    START_LEDGER ?? (checkpoint ? checkpoint.ledger + 1 : GENESIS_LEDGER);
 
   const { sequence: tip } = await rpc.getLatestLedger();
   if (cursor <= tip) {
@@ -72,14 +105,14 @@ async function processRange(
   db: PrismaClient,
   rpc: SorobanRpc.Server,
   from: number,
-  to: number
+  to: number,
 ): Promise<number> {
   let startLedger = from;
   let processedCount = 0;
 
   while (startLedger <= to) {
     const endLedger = Math.min(startLedger + PAGE_LIMIT - 1, to);
-    
+
     try {
       const response = await rpc.getEvents({
         startLedger,
@@ -89,7 +122,9 @@ async function processRange(
       });
 
       for (const ev of response.events) {
-        const topicStr = ev.topic[0] ? scValToNative(ev.topic[0]) as string : "unknown";
+        const topicStr = ev.topic[0]
+          ? (scValToNative(ev.topic[0]) as string)
+          : "unknown";
         try {
           await handleEvent(db, ev);
           processedCount++;
@@ -122,10 +157,15 @@ async function processRange(
       });
 
       if (processedCount % 100 === 0) {
-        console.log(`Processed ${processedCount} events, checkpoint: ${lastProcessed}`);
+        console.log(
+          `Processed ${processedCount} events, checkpoint: ${lastProcessed}`,
+        );
       }
     } catch (err) {
-      console.error(`Error fetching events from ledger ${startLedger} to ${endLedger}:`, err);
+      console.error(
+        `Error fetching events from ledger ${startLedger} to ${endLedger}:`,
+        err,
+      );
       // Retry with exponential backoff
       await sleep(1000);
       continue;
@@ -146,7 +186,9 @@ async function processRange(
     });
   }
 
-  console.log(`Completed processing range ${from}–${to}, total events: ${processedCount}`);
+  console.log(
+    `Completed processing range ${from}–${to}, total events: ${processedCount}`,
+  );
   return to + 1;
 }
 
@@ -154,7 +196,7 @@ async function processRange(
 
 async function handleEvent(
   db: PrismaClient,
-  ev: SorobanRpc.Api.EventResponse
+  ev: SorobanRpc.Api.EventResponse,
 ): Promise<void> {
   if (!ev.topic.length) return;
 
@@ -232,7 +274,8 @@ async function handleEvent(
   if (topicStr === "att_req") {
     // topics: ["att_req", subject_address]  data: (request_id, issuer, claim_type, requested_at, expires_at)
     const subject = ev.topic[1] ? String(scValToNative(ev.topic[1])) : "";
-    const [requestId, issuer, claimType, rawRequestedAt, rawExpiresAt] = data as [string, string, string, bigint | number, bigint | number];
+    const [requestId, issuer, claimType, rawRequestedAt, rawExpiresAt] =
+      data as [string, string, string, bigint | number, bigint | number];
     await db.attestationRequest.upsert({
       where: { id: String(requestId) },
       update: {},
@@ -275,7 +318,12 @@ async function handleEvent(
     const endorser = ev.topic[1] ? String(scValToNative(ev.topic[1])) : "";
     const [attestationId, rawTs] = data as [string, bigint | number];
     await db.endorsement.upsert({
-      where: { attestationId_endorser: { attestationId: String(attestationId), endorser } },
+      where: {
+        attestationId_endorser: {
+          attestationId: String(attestationId),
+          endorser,
+        },
+      },
       update: {},
       create: {
         attestationId: String(attestationId),
@@ -291,13 +339,15 @@ async function handleEvent(
     const attestation = await db.attestation.findUnique({
       where: { id: attestationId },
     });
-    
+
     await db.attestation.updateMany({
       where: { id: attestationId },
       data: { isRevoked: true },
     });
     revocationsTotal.inc();
-    dispatchWebhooks(db, "attestation.revoked", { id: attestationId }).catch(() => {});
+    dispatchWebhooks(db, "attestation.revoked", { id: attestationId }).catch(
+      () => {},
+    );
 
     // Publish to GraphQL subscription
     pubsub.publish(ATTESTATION_REVOKED, {
@@ -355,7 +405,12 @@ async function handleEvent(
 
   // "created" | "imported" | "bridged"
   const subject = ev.topic[1] ? String(scValToNative(ev.topic[1])) : "";
-  const [id, issuer, claimType, rawTs] = data as [string, string, string, bigint | number];
+  const [id, issuer, claimType, rawTs] = data as [
+    string,
+    string,
+    string,
+    bigint | number,
+  ];
   const timestamp = BigInt(rawTs);
 
   let extra: Record<string, unknown> = {};
@@ -391,7 +446,8 @@ async function handleEvent(
   dispatchWebhooks(db, `attestation.${topicStr}`, {
     ...attestation,
     timestamp: String(attestation.timestamp),
-    expiration: attestation.expiration != null ? String(attestation.expiration) : null,
+    expiration:
+      attestation.expiration != null ? String(attestation.expiration) : null,
   }).catch(() => {});
 
   // Publish to GraphQL subscriptions
@@ -399,7 +455,8 @@ async function handleEvent(
     onAttestationCreated: {
       ...attestation,
       timestamp: String(attestation.timestamp),
-      expiration: attestation.expiration != null ? String(attestation.expiration) : null,
+      expiration:
+        attestation.expiration != null ? String(attestation.expiration) : null,
       createdAt: attestation.createdAt.toISOString(),
       updatedAt: attestation.updatedAt.toISOString(),
     },
@@ -413,23 +470,23 @@ function sleep(ms: number): Promise<void> {
 // Map raw event topics to normalized event type labels
 function normalizeEventType(topic: string): string | null {
   const mapping: Record<string, string> = {
-    "created": EventTypes.CREATED,
-    "imported": EventTypes.IMPORTED,
-    "bridged": EventTypes.BRIDGED,
-    "revoked": EventTypes.REVOKED,
-    "renewed": EventTypes.RENEWED,
-    "updated": EventTypes.UPDATED,
-    "expired": EventTypes.EXPIRED,
-    "endorsed": EventTypes.ENDORSED,
-    "iss_reg": EventTypes.ISSUER_REGISTERED,
-    "iss_tier": EventTypes.ISSUER_TIER,
-    "iss_rem": EventTypes.ISSUER_REMOVED,
-    "clmtype": EventTypes.CLAIM_TYPE,
-    "ms_prop": EventTypes.MULTISIG_PROPOSED,
-    "ms_sign": EventTypes.MULTISIG_COSIGNED,
-    "ms_actv": EventTypes.MULTISIG_ACTIVATED,
-    "adm_init": EventTypes.ADMIN_INIT,
-    "adm_xfer": EventTypes.ADMIN_TRANSFER,
+    created: EventTypes.CREATED,
+    imported: EventTypes.IMPORTED,
+    bridged: EventTypes.BRIDGED,
+    revoked: EventTypes.REVOKED,
+    renewed: EventTypes.RENEWED,
+    updated: EventTypes.UPDATED,
+    expired: EventTypes.EXPIRED,
+    endorsed: EventTypes.ENDORSED,
+    iss_reg: EventTypes.ISSUER_REGISTERED,
+    iss_tier: EventTypes.ISSUER_TIER,
+    iss_rem: EventTypes.ISSUER_REMOVED,
+    clmtype: EventTypes.CLAIM_TYPE,
+    ms_prop: EventTypes.MULTISIG_PROPOSED,
+    ms_sign: EventTypes.MULTISIG_COSIGNED,
+    ms_actv: EventTypes.MULTISIG_ACTIVATED,
+    adm_init: EventTypes.ADMIN_INIT,
+    adm_xfer: EventTypes.ADMIN_TRANSFER,
   };
   return mapping[topic] ?? null;
 }

@@ -45,3 +45,38 @@ readinessProbe:
     path: /health
     port: http
   periodSeconds: 5
+
+# Database backup configuration
+backup:
+  enabled: false # Enable automated backups
+  schedule: "0 2 * * *" # Cron schedule (daily at 2 AM UTC)
+
+  # Storage backend: local, s3, or gcs
+  storage: local
+
+  # Local storage (requires PVC)
+  localPath: /backups
+
+  # S3 configuration
+  s3Bucket: "" # Required if storage=s3
+  s3Prefix: trustlink-db-backups
+  awsProfile: default
+  awsAccessKeyId: "" # Optional, uses IAM role if not set
+  awsSecretAccessKey: ""
+
+  # GCS configuration
+  gcsBucket: "" # Required if storage=gcs
+  gcServiceAccountJson: "" # Base64-encoded service account JSON
+
+  # Backup settings
+  retentionDays: 30
+  compressionEnabled: true
+
+  # Resource limits for backup job
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
