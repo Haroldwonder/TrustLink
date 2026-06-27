@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { connectWallet, getWalletAddress } from "./wallet";
+import { connectWallet, getWalletAddress, disconnectWallet } from "./wallet";
 import { ErrorBoundary } from "./ErrorBoundary";
 import AdminPanel from "./panels/AdminPanel";
 import IssuerPanel from "./panels/IssuerPanel";

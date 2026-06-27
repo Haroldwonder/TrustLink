@@ -6,7 +6,7 @@
   --border: #2d3148;
   --text-primary: #e2e8f0;
   --text-secondary: #94a3b8;
-  --text-muted: #64748b;
+  --text-muted: #94a3b8;
   --accent: #7c6af7;
   --accent-light: #c4b5fd;
   --accent-soft: #a78bfa;
@@ -96,6 +96,10 @@ body {
   transition: color 0.15s;
 }
 .tab:hover { color: var(--text-primary); }
+.tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
 .panel { padding: 2rem; max-width: 860px; }
@@ -124,7 +128,8 @@ body {
   width: 100%;
 }
 .field input:focus, .field select:focus, .field textarea:focus {
-  outline: none;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
   border-color: var(--accent);
 }
 
@@ -139,6 +144,10 @@ body {
   transition: opacity 0.15s;
 }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 .btn-primary { background: var(--accent); color: #fff; }
 .btn-primary:hover:not(:disabled) { opacity: 0.85; }
 .btn-danger { background: #ef4444; color: #fff; }
@@ -196,7 +205,7 @@ body {
 .connect-screen h2 { font-size: 1.5rem; color: var(--accent-light); }
 .connect-screen p { color: var(--text-muted); max-width: 360px; }
 
-.empty { color: #64748b; font-size: 0.875rem; padding: 1rem 0; }
+.empty { color: var(--text-muted); font-size: 0.875rem; padding: 1rem 0; }
 /* Error Boundary */
 .error-boundary {
   display: flex;
@@ -215,4 +224,17 @@ body {
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
+}
+
+/* Visually hidden — accessible to screen readers, invisible on screen */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
