@@ -3,8 +3,9 @@ use soroban_sdk::{token::TokenClient, Address, Env, String, Vec};
 use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::{
-    AdminCouncil, ClaimTypeInfo, ContractConfig, Delegation, Error, ExpirationHook, FeeConfig, IssuerMetadata,
-    IssuerStats, IssuerTier, PendingAdminTransfer, RateLimitConfig, StorageLimits, TtlConfig,
+    AdminCouncil, ClaimTypeInfo, ContractConfig, CouncilOperation, CouncilProposal, DecayConfig,
+    Delegation, DisputeRecord, Error, ExpirationHook, FeeConfig, IssuerMetadata, IssuerStats,
+    IssuerTier, PendingAdminTransfer, RateLimitConfig, StorageLimits, TtlConfig,
 };
 use crate::validation::Validation;
 
@@ -185,6 +186,8 @@ pub fn set_issuer_tier(env: &Env, admin: Address, issuer: Address, tier: IssuerT
 }
 
 pub fn get_confidence_score(env: &Env, attestation_id: String) -> Option<u32> {
+    use crate::constants::SECS_PER_DAY;
+
     let attestation = Storage::get_attestation(env, &attestation_id).ok()?;
     let tier_score = match Storage::get_issuer_tier(env, &attestation.issuer) {
         Some(IssuerTier::Premium) => 90u32,
@@ -193,7 +196,56 @@ pub fn get_confidence_score(env: &Env, attestation_id: String) -> Option<u32> {
     };
     let endorsements = Storage::get_endorsements(env, &attestation_id);
     let endorsement_score = (endorsements.len() * 2).min(10);
-    Some(tier_score + endorsement_score)
+    let base_score = (tier_score + endorsement_score) as u64;
+
+    let cfg = Storage::get_decay_config(env).unwrap_or_default();
+
+    // Inactivity decay: score halves every `half_life_days` days.
+    // Linear approximation: penalty_bps = days_inactive * 5000 / half_life_days, capped at 10000.
+    let activity_factor_bps: u64 = if cfg.half_life_days == 0 {
+        10_000
+    } else {
+        let days_inactive = if let Some(last) = Storage::get_last_issuance_time(env, &attestation.issuer) {
+            env.ledger().timestamp().saturating_sub(last) / SECS_PER_DAY
+        } else {
+            0
+        };
+        let penalty = (days_inactive.saturating_mul(5_000) / cfg.half_life_days as u64).min(10_000);
+        10_000 - penalty
+    };
+
+    // Revocation-ratio decay: reduces score proportionally to how often the
+    // issuer revokes attestations, weighted by `revocation_weight` (0–100).
+    let reputation_factor_bps: u64 = if cfg.revocation_weight == 0 {
+        10_000
+    } else {
+        let stats = Storage::get_issuer_stats(env, &attestation.issuer);
+        if stats.total_issued == 0 {
+            10_000
+        } else {
+            let revocations = Storage::get_issuer_revocations(env, &attestation.issuer);
+            let ratio_bps = (revocations.saturating_mul(10_000) / stats.total_issued).min(10_000);
+            let penalty = (ratio_bps.saturating_mul(cfg.revocation_weight as u64) / 100).min(10_000);
+            10_000 - penalty
+        }
+    };
+
+    let decayed = (base_score
+        .saturating_mul(activity_factor_bps) / 10_000)
+        .saturating_mul(reputation_factor_bps) / 10_000;
+
+    Some(decayed as u32)
+}
+
+pub fn set_decay_config(env: &Env, admin: Address, config: DecayConfig) -> Result<(), Error> {
+    admin.require_auth();
+    Validation::require_admin(env, &admin)?;
+    Storage::set_decay_config(env, &config);
+    Ok(())
+}
+
+pub fn get_decay_config(env: &Env) -> DecayConfig {
+    Storage::get_decay_config(env).unwrap_or_default()
 }
 
 pub fn get_issuer_metadata(env: &Env, issuer: Address) -> Option<IssuerMetadata> {
@@ -454,6 +506,19 @@ pub fn revoke_delegation(
     Ok(())
 }
 
+pub fn revoke_delegation_all(env: &Env, delegator: Address) -> Result<(), Error> {
+    delegator.require_auth();
+    Validation::require_not_paused(env)?;
+    let index = Storage::get_delegator_index(env, &delegator);
+    for (delegate, claim_type) in index.iter() {
+        if Storage::get_delegation(env, &delegator, &delegate, &claim_type).is_some() {
+            Storage::remove_delegation(env, &delegator, &delegate, &claim_type);
+            Events::delegation_revoked(env, &delegator, &delegate, &claim_type);
+        }
+    }
+    Ok(())
+}
+
 pub fn list_delegations_by_delegator(
     env: &Env,
     delegator: Address,
@@ -524,6 +589,143 @@ pub fn health_check(env: &Env) -> crate::types::HealthStatus {
         issuer_count: stats.total_issuers,
         total_attestations: stats.total_attestations,
     }
+}
+
+// -----------------------------------------------------------------------
+// Council actions with timelock (Issue #790)
+// -----------------------------------------------------------------------
+
+pub fn create_council_proposal(
+    env: &Env,
+    proposer: Address,
+    operation: CouncilOperation,
+) -> Result<u32, Error> {
+    proposer.require_auth();
+    Validation::require_admin(env, &proposer)?;
+
+    let id = Storage::next_proposal_id(env);
+    let mut approvals: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(env);
+    approvals.push_back(proposer.clone());
+
+    let proposal = CouncilProposal {
+        id,
+        operation,
+        proposer: proposer.clone(),
+        approvals,
+        executed: false,
+        quorum_reached_at: None,
+    };
+    Storage::set_proposal(env, &proposal);
+    Events::proposal_created(env, id, &proposer);
+    Ok(id)
+}
+
+pub fn approve_council_proposal(
+    env: &Env,
+    approver: Address,
+    proposal_id: u32,
+) -> Result<(), Error> {
+    approver.require_auth();
+    Validation::require_admin(env, &approver)?;
+
+    let mut proposal = Storage::get_proposal(env, proposal_id).ok_or(Error::NotFound)?;
+    if proposal.executed {
+        return Err(Error::CouncilProposalExecuted);
+    }
+    for a in proposal.approvals.iter() {
+        if a == approver {
+            return Err(Error::AlreadyApproved);
+        }
+    }
+
+    proposal.approvals.push_back(approver.clone());
+    Events::proposal_approved(env, proposal_id, &approver);
+
+    // Simple-majority quorum among the current council.
+    let council = Storage::get_admin_council(env)?;
+    let quorum = council.len() / 2 + 1;
+
+    if proposal.approvals.len() >= quorum && proposal.quorum_reached_at.is_none() {
+        let ts = env.ledger().timestamp();
+        proposal.quorum_reached_at = Some(ts);
+        Events::council_timelock_started(env, proposal_id, ts);
+    }
+
+    Storage::set_proposal(env, &proposal);
+    Ok(())
+}
+
+pub fn execute_council_action(
+    env: &Env,
+    executor: Address,
+    proposal_id: u32,
+) -> Result<(), Error> {
+    executor.require_auth();
+    Validation::require_admin(env, &executor)?;
+
+    let mut proposal = Storage::get_proposal(env, proposal_id).ok_or(Error::NotFound)?;
+    if proposal.executed {
+        return Err(Error::CouncilProposalExecuted);
+    }
+    let quorum_at = proposal.quorum_reached_at.ok_or(Error::Unauthorized)?;
+
+    let delay = Storage::get_council_timelock_delay(env);
+    let now = env.ledger().timestamp();
+    if now < quorum_at.saturating_add(delay) {
+        return Err(Error::TimelockNotReady);
+    }
+
+    match proposal.operation.clone() {
+        CouncilOperation::RemoveIssuer(issuer) => {
+            Storage::remove_issuer(env, &issuer);
+            Storage::decrement_total_issuers(env);
+            Events::issuer_removed(env, &issuer, &executor, now);
+        }
+        CouncilOperation::PauseContract => {
+            Storage::set_paused(env, true);
+            Events::contract_paused(env, &executor, now);
+        }
+    }
+
+    proposal.executed = true;
+    Storage::set_proposal(env, &proposal);
+    Events::proposal_executed(env, proposal_id);
+    Ok(())
+}
+
+pub fn get_council_proposal(env: &Env, proposal_id: u32) -> Option<CouncilProposal> {
+    Storage::get_proposal(env, proposal_id)
+}
+
+pub fn set_council_timelock_delay(env: &Env, admin: Address, delay_seconds: u64) -> Result<(), Error> {
+    admin.require_auth();
+    Validation::require_admin(env, &admin)?;
+    Storage::set_council_timelock_delay(env, delay_seconds);
+    Ok(())
+}
+
+pub fn get_council_timelock_delay(env: &Env) -> u64 {
+    Storage::get_council_timelock_delay(env)
+}
+
+// -----------------------------------------------------------------------
+// Dispute resolution (Issue #791)
+// -----------------------------------------------------------------------
+
+pub fn resolve_dispute(env: &Env, resolver: Address, attestation_id: String) -> Result<(), Error> {
+    resolver.require_auth();
+
+    let attestation = Storage::get_attestation(env, &attestation_id)?;
+    if attestation.issuer != resolver && !Storage::is_admin(env, &resolver) {
+        return Err(Error::Unauthorized);
+    }
+    if Storage::get_dispute(env, &attestation_id).is_none() {
+        return Err(Error::NotDisputed);
+    }
+
+    Storage::remove_dispute(env, &attestation_id);
+    Events::dispute_resolved(env, &attestation_id, &resolver, env.ledger().timestamp());
+    Ok(())
 }
 
 // -----------------------------------------------------------------------

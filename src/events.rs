@@ -413,4 +413,42 @@ impl Events {
             template_id.clone(),
         );
     }
+
+    /// Emitted when an issuer amends the metadata of an existing attestation.
+    pub fn attestation_amended(env: &Env, attestation_id: &String, issuer: &Address, timestamp: u64) {
+        env.events().publish(
+            (symbol_short!("amended"), issuer.clone()),
+            (attestation_id.clone(), timestamp),
+        );
+    }
+
+    /// Emitted when a subject raises a dispute against one of their attestations.
+    pub fn dispute_raised(
+        env: &Env,
+        attestation_id: &String,
+        subject: &Address,
+        reason: &String,
+        timestamp: u64,
+    ) {
+        env.events().publish(
+            (symbol_short!("disputed"), subject.clone()),
+            (attestation_id.clone(), reason.clone(), timestamp),
+        );
+    }
+
+    /// Emitted when a dispute is resolved by the issuer or an admin.
+    pub fn dispute_resolved(env: &Env, attestation_id: &String, resolver: &Address, timestamp: u64) {
+        env.events().publish(
+            (symbol_short!("dsp_res"), resolver.clone()),
+            (attestation_id.clone(), timestamp),
+        );
+    }
+
+    /// Emitted the moment a council proposal reaches quorum, starting the timelock clock.
+    pub fn council_timelock_started(env: &Env, proposal_id: u32, quorum_reached_at: u64) {
+        env.events().publish(
+            (symbol_short!("tl_start"),),
+            (proposal_id, quorum_reached_at),
+        );
+    }
 }
