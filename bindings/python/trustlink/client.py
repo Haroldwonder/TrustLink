@@ -17,6 +17,8 @@ from .types import (
     AttestationStatus,
     AttestationTemplate,
     ClaimTypeInfo,
+    ContractConfig,
+    ContractMetadata,
     Delegation,
     GlobalStats,
     IssuerStats,
@@ -301,6 +303,53 @@ class TrustLinkClient:
         """
         return self._simulate("get_valid_claim_count", self._addr(subject))
 
+    def get_config(self) -> ContractConfig:
+        """Get contract configuration.
+
+        Returns:
+            Contract configuration including admin address and flags
+        """
+        return self._simulate("get_config")
+
+    def get_contract_metadata(self) -> ContractMetadata:
+        """Get contract metadata.
+
+        Returns:
+            Contract metadata including name, description, and version
+        """
+        return self._simulate("get_contract_metadata")
+
+    def get_version(self) -> str:
+        """Get contract version string.
+
+        Returns:
+            Semantic version string (e.g. "0.1.0")
+        """
+        return self._simulate("get_version")
+
+    def get_multisig_proposal(self, proposal_id: str) -> MultiSigProposal:
+        """Get multi-sig attestation proposal.
+
+        Args:
+            proposal_id: Proposal ID
+
+        Returns:
+            MultiSigProposal with cosigner count and finalization status
+        """
+        return self._simulate("get_multisig_proposal", self._str(proposal_id))
+
+    def is_whitelisted(self, issuer: str, subject: str) -> bool:
+        """Check if subject is whitelisted by issuer.
+
+        Args:
+            issuer: Issuer address
+            subject: Subject address
+
+        Returns:
+            True if subject is whitelisted
+        """
+        return self._simulate("is_whitelisted", self._addr(issuer), self._addr(subject))
+
     # ─── Write Operations ──────────────────────────────────────────────────────
 
     def create_attestation(
@@ -426,6 +475,39 @@ class TrustLinkClient:
             "cosign_attestation",
             self._addr(issuer_addr),
             self._str(proposal_id),
+        )
+
+    def add_to_whitelist(self, issuer_secret: str, subject: str) -> None:
+        """Add subject to issuer's whitelist.
+
+        Args:
+            issuer_secret: Issuer secret key
+            subject: Subject address to whitelist
+        """
+        issuer_addr = Keypair.from_secret(issuer_secret).public_key
+        self._invoke(
+            issuer_secret,
+            "add_to_whitelist",
+            self._addr(issuer_addr),
+            self._addr(subject),
+        )
+
+    def enable_whitelist_mode(self, issuer_secret: str, enabled: bool) -> None:
+        """Toggle whitelist mode for issuer.
+
+        Args:
+            issuer_secret: Issuer secret key
+            enabled: True to enable whitelist mode, False to disable
+        """
+        issuer_addr = Keypair.from_secret(issuer_secret).public_key
+        self._invoke(
+            issuer_secret,
+            "enable_whitelist_mode",
+            self._addr(issuer_addr),
+            xdr.SCVal(
+                type=xdr.SCValType.SC_VAL_TYPE_BOOL,
+                b=enabled,
+            ),
         )
 
     # ─── Internal Helpers ──────────────────────────────────────────────────────

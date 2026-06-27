@@ -73,6 +73,20 @@ class Delegation(TypedDict):
     expiration: Optional[int]
 
 
+class ContractConfig(TypedDict):
+    """Contract configuration."""
+    admin: str
+    initialized: bool
+    whitelist_mode: bool
+
+
+class ContractMetadata(TypedDict):
+    """Contract metadata."""
+    name: str
+    description: str
+    version: str
+
+
 class TrustLinkError(Exception):
     """Base exception for TrustLink SDK errors."""
     pass
