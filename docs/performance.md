@@ -2,6 +2,195 @@
 
 Benchmarked using Soroban testutils Env (unlimited budget). Results are approximate averages from local runs (Soroban SDK test env).
 
+---
+
+## Public Function Compute-Unit Reference
+
+The table below maps every public function in `src/lib.rs` to its approximate
+compute-unit (CU) cost. Use it to budget transaction fees before deploying at scale.
+
+### Legend
+
+- **Measured** — derived from a benchmark in `benches/performance.rs`.
+- **Estimated** — derived from first-principles analysis (storage reads/writes × typical
+  per-operation CU) where no dedicated benchmark exists.
+- Stellar's effective CU limit per transaction is **75 M** base CU plus separate CPU and
+  memory sub-limits. All functions below are well under the per-transaction ceiling in
+  isolation; batch operations and high-volume index reads are the scenarios to watch.
+
+### Initialization & Admin
+
+| Function | Typical CU | Basis | Notes |
+| --- | --- | --- | --- |
+| `initialize` | ~10,000 | Estimated | 3 storage writes (admin, config, stats) |
+| `transfer_admin` | ~6,000 | Estimated | 1 read + 1 write; auth check |
+| `propose_admin_transfer` | ~7,000 | Estimated | 1 write (pending transfer record) |
+| `cancel_admin_transfer` | ~5,000 | Estimated | 1 delete |
+| `accept_admin_transfer` | ~8,000 | Estimated | 2 writes (admin key + clear pending) |
+| `get_pending_admin_transfer` | ~3,000 | Estimated | 1 read; no auth |
+| `add_admin` | ~6,000 | Estimated | 1 read + 1 write (council set) |
+| `remove_admin` | ~6,000 | Estimated | 1 read + 1 write; `LastAdminCannotBeRemoved` guard |
+| `get_admin` | ~2,500 | Estimated | 1 read |
+| `pause` | ~5,000 | Estimated | 1 write (pause flag) |
+| `unpause` | ~5,000 | Estimated | 1 write |
+| `is_paused` | ~2,000 | Estimated | 1 read |
+| `get_version` | ~2,000 | Estimated | 1 read (constant string) |
+| `health_check` | ~5,000 | Estimated | 3–4 reads (admin, paused, stats) |
+
+### Issuer management
+
+| Function | Typical CU | Basis | Notes |
+| --- | --- | --- | --- |
+| `register_issuer` | ~8,000 | Estimated | 2 writes (issuer flag + list append) |
+| `remove_issuer` | ~8,000 | Estimated | 2 writes |
+| `get_issuer_list` | ~5,000–15,000 | Estimated | Scales with `limit`; 1 read per page chunk |
+| `is_issuer` | ~2,500 | Estimated | 1 read |
+| `get_issuer_metadata` | ~3,000 | Estimated | 1 read |
+| `set_issuer_metadata` | ~6,000 | Estimated | 1 write |
+| `get_issuer_stats` | ~3,000 | Estimated | 1 read |
+| `get_issuer_tier` | ~2,500 | Estimated | 1 read |
+| `set_issuer_tier` | ~5,500 | Estimated | 1 write |
+| `get_confidence_score` | ~3,000 | Estimated | 1 attestation read + score calc |
+| `add_to_whitelist` | ~6,000 | Estimated | 1 read + 1 write (whitelist set) |
+| `remove_from_whitelist` | ~6,000 | Estimated | 1 read + 1 write |
+| `is_whitelisted` | ~2,500 | Estimated | 1 read |
+| `is_whitelist_enabled` | ~2,000 | Estimated | 1 read |
+| `set_whitelist_enabled` | ~5,000 | Estimated | 1 write |
+| `enable_whitelist_mode` | ~5,000 | Estimated | 1 write (alias for `set_whitelist_enabled(true)`) |
+
+### Bridge contracts
+
+| Function | Typical CU | Basis | Notes |
+| --- | --- | --- | --- |
+| `register_bridge` | ~7,000 | Estimated | 2 writes (bridge flag + list append) |
+| `is_bridge` | ~2,500 | Estimated | 1 read |
+| `get_bridge_list` | ~5,000–15,000 | Estimated | Scales with `limit` |
+
+### Fees & rate limits
+
+| Function | Typical CU | Basis | Notes |
+| --- | --- | --- | --- |
+| `get_fee_config` | ~3,000 | Estimated | 1 read |
+| `set_fee` | ~6,000 | Estimated | 1 write |
+| `get_rate_limit` | ~2,500 | Estimated | 1 read |
+| `set_rate_limit` | ~5,500 | Estimated | 1 write |
+| `get_rate_limit_for_claim_type` | ~2,500 | Estimated | 1 read |
+| `set_rate_limit_for_claim_type` | ~5,500 | Estimated | 1 write |
+
+### Limits & claim-type registry
+
+| Function | Typical CU | Basis | Notes |
+| --- | --- | --- | --- |
+| `get_limits` | ~2,500 | Estimated | 1 read |
+| `set_limits` | ~5,500 | Estimated | 1 write |
+| `set_registered_claim_type` | ~5,000 | Estimated | 1 write (enforcement flag) |
+| `get_registered_claim_type` | ~2,000 | Estimated | 1 read |
+| `register_claim_type` | ~7,000 | Estimated | 2 writes (description + list append) |
+| `get_claim_type_description` | ~2,500 | Estimated | 1 read |
+| `list_claim_types` | ~5,000–15,000 | Estimated | Scales with `limit` |
+
+### Delegation
+
+| Function | Typical CU | Basis | Notes |
+| --- | --- | --- | --- |
+| `delegate_claim_type` | ~7,000 | Estimated | 1 write (delegation record) |
+| `revoke_delegation` | ~6,000 | Estimated | 1 delete |
+
+### Expiration hooks
+
+| Function | Typical CU | Basis | Notes |
+| --- | --- | --- | --- |
+| `register_expiration_hook` | ~6,000 | Estimated | 1 write |
+| `get_expiration_hook` | ~2,500 | Estimated | 1 read |
+| `remove_expiration_hook` | ~5,000 | Estimated | 1 delete |
+
+### Attestation write operations
+
+| Function | Typical CU | Basis | Notes |
+| --- | --- | --- | --- |
+| `create_attestation` | ~75,000 | **Measured** | Baseline (no metadata/tags); 5 storage writes; see benchmarks |
+| `create_attestation_valid_from` | ~78,000 | Estimated | Same as `create_attestation` + `valid_from` validation |
+| `create_attestation_jurisdiction` | ~80,000 | Estimated | Same + jurisdiction index write |
+| `import_attestation` | ~80,000 | Estimated | Same path as `create_attestation`; skips issuer registry check |
+| `bridge_attestation` | ~80,000 | Estimated | Same path; bridge-auth check replaces issuer-auth check |
+| `create_attestations_batch` | ~75,000 + ~45,000×N | **Measured** | Shared-state writes batched (3 writes vs 3N); per-item cost ~45K CU |
+| `revoke_attestation` | ~12,000 | **Measured** | 2 writes (status + audit append) |
+| `revoke_attestations_batch` | ~12,000×N | Estimated | Linear in batch size; no shared-state optimisation yet |
+| `renew_attestation` | ~10,000 | Estimated | 1 read + 1 write (expiration field update) |
+| `update_expiration` | ~10,000 | Estimated | Same as `renew_attestation` |
+| `transfer_attestation` | ~10,000 | Estimated | 1 read + 1 write (issuer field update) |
+| `request_deletion` | ~8,000 | Estimated | 1 write (deletion-request record) |
+| `endorse_attestation` | ~8,000 | Estimated | 1 read + 1 write (endorsement count) |
+| `create_attestation_as_delegate` | ~80,000 | Estimated | Delegate auth check + `create_attestation` path |
+
+### Attestation read / query operations
+
+| Function | Typical CU | Basis | Notes |
+| --- | --- | --- | --- |
+| `has_valid_claim` | ~8,500–180,000 | **Measured** | Depends on attestation count; see table below |
+| `has_valid_claim_from_issuer` | ~10,000 | Estimated | Targeted issuer lookup; typically 1–2 reads |
+| `has_any_claim` | ~9,000–70,000 | **Measured** | Early-exit on first match |
+| `has_all_claims` | ~9,000–40,000 | **Measured** | Must validate all claims |
+| `get_attestation` | ~5,000 | Estimated | 1 read |
+| `get_attestation_status` | ~5,500 | Estimated | 1 read + expiry/revoke check |
+| `get_audit_log` | ~4,000–20,000 | Estimated | 1 read; size grows with audit entries |
+| `get_subject_attestations` | ~15,000–65,000 | **Measured** | Depends on page size; chunked index |
+| `get_issuer_attestations` | ~15,000–65,000 | Estimated | Same index structure as subject list |
+| `get_issuer_attestation_count` | ~3,000 | Estimated | 1 read (count entry) |
+| `get_subject_attestation_count` | ~3,000 | Estimated | 1 read |
+| `get_valid_claim_count` | ~3,500 | Estimated | 1 read + filter pass |
+| `get_attestations_in_range` | ~20,000–100,000 | Estimated | Full page load + timestamp filter in WASM |
+| `get_attestations_in_range_after` | ~20,000–100,000 | Estimated | Same; cursor-based variant |
+| `get_attestations_by_tag` | ~15,000–60,000 | Estimated | Tag index read + attestation lookups |
+| `get_attestations_by_jurisdiction` | ~15,000–60,000 | Estimated | Jurisdiction index read + lookups |
+| `get_attestation_by_type` | ~5,000–8,000 | Estimated | SubjectClaimIndex lookup + 1 attestation read |
+| `get_valid_claims` | ~10,000–50,000 | Estimated | Iterates all subject claim types |
+| `get_endorsement_count` | ~2,500 | Estimated | 1 read |
+| `get_global_stats` | ~3,000 | Estimated | 1 read |
+
+### Multi-sig proposals
+
+| Function | Typical CU | Basis | Notes |
+| --- | --- | --- | --- |
+| `propose_attestation` | ~20,000 | Estimated | 1 write (proposal record) |
+| `cosign_attestation` | ~15,000–80,000 | Estimated | 1 write; if threshold reached, also runs `create_attestation` path |
+| `get_multisig_proposal` | ~4,000 | Estimated | 1 read |
+| `get_multisig_ttl` | ~2,000 | Estimated | 1 read |
+
+### Attestation requests (pull workflow)
+
+| Function | Typical CU | Basis | Notes |
+| --- | --- | --- | --- |
+| `request_attestation` | ~10,000 | Estimated | 1 write (request record) |
+| `fulfill_request` | ~85,000 | Estimated | 1 read (request) + `create_attestation` path |
+| `reject_request` | ~8,000 | Estimated | 1 write (status update) |
+| `get_pending_requests` | ~10,000–40,000 | Estimated | 1 index read + N request reads |
+| `get_request` | ~4,000 | Estimated | 1 read |
+| `get_attestation_request` | ~4,000 | Estimated | Alias for `get_request` |
+
+### Templates
+
+| Function | Typical CU | Basis | Notes |
+| --- | --- | --- | --- |
+| `create_template` | ~12,000 | Estimated | 1 write (template record) + list append |
+| `create_attestation_from_template` | ~85,000 | Estimated | 1 read (template) + `create_attestation` path |
+| `list_templates` | ~5,000–20,000 | Estimated | 1 index read; scales with `limit` |
+| `get_template` | ~4,000 | Estimated | 1 read |
+
+### `has_valid_claim` — detail by attestation count
+
+| Attestations for (subject, claim_type) | Approx. CU | Basis |
+| --- | --- | --- |
+| 1 (valid) | ~8,500 | **Measured** |
+| 10 (1 valid + 9 noise) | ~25,000 | **Measured** |
+| 100 (1 valid + 99 noise) | ~180,000 | **Measured** |
+| 100 (no valid match) | ~150,000 | **Measured** |
+
+> Without the `SubjectClaimIndex` optimisation, 100 attestations would cost ~1.5 M CU.
+> The index limits the scan to claim-type-specific entries only.
+
+---
+
 ## Compute Units (CU)
 
 | Function | Scenario | Avg CU | Storage Impact |

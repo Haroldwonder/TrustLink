@@ -1017,6 +1017,15 @@ A companion written guide with all commands and code snippets is available at [d
 
 For a step-by-step walkthrough covering Rust cross-contract patterns, JavaScript/TypeScript usage, error handling, and testnet testing, see [docs/integration-guide.md](docs/integration-guide.md).
 
+## API Reference
+
+| SDK | Published docs |
+| --- | -------------- |
+| TypeScript SDK (`sdk/typescript`) | [haroldwonder.github.io/TrustLink/](https://haroldwonder.github.io/TrustLink/) (TypeDoc) |
+| Python SDK (`bindings/python`) | [haroldwonder.github.io/TrustLink/python/](https://haroldwonder.github.io/TrustLink/python/) (pdoc) |
+
+Both are generated automatically on each release by the [docs-sdk workflow](.github/workflows/docs-sdk.yml).
+
 ## Storage Layout
 
 For a full reference of every on-chain storage key, the data each holds, TTL policy, serialization format, and a practical RPC read example for indexer developers, see [docs/storage-layout.md](docs/storage-layout.md).

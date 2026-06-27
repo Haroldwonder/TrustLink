@@ -824,3 +824,5 @@ async function estimateCreateAttestationCost(
 ---
 
 For the full API reference, see the [README](../README.md). For error definitions and type details, see [`src/types.rs`](../src/types.rs).
+
+If something is not working as expected, see the [Troubleshooting & FAQ](./troubleshooting.md) guide for common integration errors, their causes, and fixes.
