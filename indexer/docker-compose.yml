@@ -16,14 +16,29 @@ services:
       timeout: 5s
       retries: 10
 
+  # #777: Redis caching layer for hot GraphQL queries
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   indexer:
     build: .
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgresql://trustlink:trustlink@db:5432/trustlink
+      REDIS_URL: redis://redis:6379
       CONTRACT_ID: ${CONTRACT_ID}
       RPC_URL: ${RPC_URL:-https://soroban-testnet.stellar.org}
       GENESIS_LEDGER: ${GENESIS_LEDGER:-0}

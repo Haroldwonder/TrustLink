@@ -1,10 +1,14 @@
 import { PubSub } from "graphql-subscriptions";
-import { PrismaClient, Attestation, MultisigProposal } from "@prisma/client";
+import { PrismaClient, Attestation, MultisigProposal, AuditEntry } from "@prisma/client";
+import type { Redis } from "ioredis";
 
 export const pubsub = new PubSub();
 export const ATTESTATION_CREATED = "ATTESTATION_CREATED";
 export const ATTESTATION_REVOKED = "ATTESTATION_REVOKED";
 export const ISSUER_REGISTERED = "ISSUER_REGISTERED";
+
+// Cache TTL in seconds
+const CACHE_TTL = 30;
 
 type MappedAttestation = Omit<Attestation, "timestamp" | "expiration" | "createdAt" | "updatedAt"> & {
   timestamp: string;
@@ -17,6 +21,11 @@ type MappedProposal = Omit<MultisigProposal, "expiresAt" | "createdAt" | "update
   expiresAt: string;
   createdAt: string;
   updatedAt: string;
+};
+
+type MappedAuditEntry = Omit<AuditEntry, "timestamp" | "createdAt"> & {
+  timestamp: string;
+  createdAt: string;
 };
 
 function mapAttestation(a: Attestation): MappedAttestation {
@@ -38,7 +47,45 @@ function mapProposal(p: MultisigProposal): MappedProposal {
   };
 }
 
-export function buildResolvers(db: PrismaClient) {
+function mapAuditEntry(e: AuditEntry): MappedAuditEntry {
+  return {
+    ...e,
+    timestamp: String(e.timestamp),
+    createdAt: e.createdAt.toISOString(),
+  };
+}
+
+// #777: Redis cache helpers (redis may be null when not configured)
+async function cacheGet(redis: Redis | null, key: string): Promise<unknown | null> {
+  if (!redis) return null;
+  try {
+    const val = await redis.get(key);
+    return val ? JSON.parse(val) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function cacheSet(redis: Redis | null, key: string, value: unknown): Promise<void> {
+  if (!redis) return;
+  try {
+    await redis.set(key, JSON.stringify(value), "EX", CACHE_TTL);
+  } catch {
+    // cache errors are non-fatal
+  }
+}
+
+export async function cacheInvalidate(redis: Redis | null, pattern: string): Promise<void> {
+  if (!redis) return;
+  try {
+    const keys = await redis.keys(pattern);
+    if (keys.length) await redis.del(...keys);
+  } catch {
+    // non-fatal
+  }
+}
+
+export function buildResolvers(db: PrismaClient, redis: Redis | null = null) {
   return {
     Query: {
       attestations: async (
@@ -58,22 +105,34 @@ export function buildResolvers(db: PrismaClient) {
         return rows.map(mapAttestation);
       },
 
+      // #775 + #777: issuerStats includes rateLimit; cached in Redis
       issuerStats: async (_: unknown, args: { issuer: string }) => {
-        const rows = await db.attestation.findMany({
-          where: { issuer: args.issuer },
-          select: { isRevoked: true, claimType: true },
-        });
+        const cacheKey = `issuerStats:${args.issuer}`;
+        const cached = await cacheGet(redis, cacheKey);
+        if (cached) return cached;
+
+        const [rows, issuerRow] = await Promise.all([
+          db.attestation.findMany({
+            where: { issuer: args.issuer },
+            select: { isRevoked: true, claimType: true },
+          }),
+          db.issuer.findUnique({ where: { address: args.issuer } }),
+        ]);
 
         const claimTypes = [...new Set(rows.map((r) => r.claimType))];
         const revoked = rows.filter((r) => r.isRevoked).length;
 
-        return {
+        const result = {
           issuer: args.issuer,
           total: rows.length,
           active: rows.length - revoked,
           revoked,
           claimTypes,
+          rateLimit: issuerRow?.rateLimit ?? null,
         };
+
+        await cacheSet(redis, cacheKey, result);
+        return result;
       },
 
       proposal: async (_: unknown, args: { id: string }) => {
@@ -97,6 +156,15 @@ export function buildResolvers(db: PrismaClient) {
         });
         return rows.map(mapProposal);
       },
+
+      // #774: audit log query
+      auditLog: async (_: unknown, args: { attestationId: string }) => {
+        const rows = await db.auditEntry.findMany({
+          where: { attestationId: args.attestationId },
+          orderBy: { timestamp: "asc" },
+        });
+        return rows.map(mapAuditEntry);
+      },
     },
 
     Subscription: {
@@ -108,7 +176,6 @@ export function buildResolvers(db: PrismaClient) {
 
           if (!args.subject) return iter;
 
-          // Filter by subject when provided
           const subject = args.subject;
           return {
             [Symbol.asyncIterator]() {

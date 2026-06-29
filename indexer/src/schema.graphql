@@ -15,6 +15,7 @@ type Attestation {
   timestamp: String!
   expiration: String
   isRevoked: Boolean!
+  revocationReason: String
   metadata: String
   imported: Boolean!
   bridged: Boolean!
@@ -22,6 +23,18 @@ type Attestation {
   sourceTx: String
   createdAt: String!
   updatedAt: String!
+}
+
+# #774: Audit log entry
+type AuditEntry {
+  id: Int!
+  attestationId: String!
+  action: String!
+  actor: String!
+  details: String
+  ledger: Int!
+  timestamp: String!
+  createdAt: String!
 }
 
 type MultisigProposal {
@@ -44,6 +57,8 @@ type IssuerStats {
   active: Int!
   revoked: Int!
   claimTypes: [String!]!
+  # #775: rate limit from set_rate_limit events
+  rateLimit: Int
 }
 
 type Query {
@@ -58,6 +73,9 @@ type Query {
 
   """List all multi-sig proposals"""
   proposals(subject: String, finalized: Boolean): [MultisigProposal!]!
+
+  """#774: Get audit log entries for an attestation"""
+  auditLog(attestationId: String!): [AuditEntry!]!
 }
 
 type Subscription {

@@ -10,7 +10,19 @@ import { join } from "path";
 import { startIndexer, getLastLedger } from "./indexer";
 import { buildResolvers } from "./graphql";
 import { getMetrics } from "./metrics";
+import Redis from "ioredis";
+
 const db = new PrismaClient();
+
+// #777: optional Redis client — only connect when REDIS_URL is set
+const redis = process.env.REDIS_URL
+  ? new Redis(process.env.REDIS_URL, { lazyConnect: true, enableOfflineQueue: false })
+  : null;
+if (redis) {
+  redis.connect().catch((err: unknown) => {
+    console.warn("Redis connection failed, caching disabled:", err);
+  });
+}
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -162,7 +174,7 @@ async function main() {
   const typeDefs = readFileSync(join(__dirname, "schema.graphql"), "utf-8");
   const schema = makeExecutableSchema({
     typeDefs,
-    resolvers: buildResolvers(db),
+    resolvers: buildResolvers(db, redis),
   });
 
   // 1. Create WS server (noServer — we handle the upgrade event manually)
@@ -243,7 +255,7 @@ async function main() {
   });
 
   // ── Indexer ────────────────────────────────────────────────────────────────
-  startIndexer(db).catch((err) => {
+  startIndexer(db, redis).catch((err) => {
     console.error("Indexer error:", err);
     process.exit(1);
   });
