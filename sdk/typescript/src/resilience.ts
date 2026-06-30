@@ -2,6 +2,16 @@
  * Resilience utilities: exponential backoff retry and circuit breaker.
  */
 
+/** Simplified resilience config accepted by TrustLinkClient constructor. */
+export interface ResilienceConfig {
+  /** Maximum number of retry attempts (default: 3) */
+  maxRetries?: number;
+  /** Initial backoff delay in ms (default: 200) */
+  backoffMs?: number;
+  /** Failure count before opening the circuit breaker (default: 5) */
+  circuitBreakerThreshold?: number;
+}
+
 export interface RetryOptions {
   /** Maximum number of attempts (default: 3) */
   maxAttempts?: number;

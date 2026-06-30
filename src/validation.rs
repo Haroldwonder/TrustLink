@@ -134,4 +134,77 @@ impl Validation {
         }
         Ok(())
     }
+
+    /// When `metadata_hash_only` mode is enabled in `ContractConfig`, enforce
+    /// that the metadata value is a 64-character lowercase hexadecimal string
+    /// (a SHA-256 hash). `None` is always accepted.
+    ///
+    /// # Errors
+    /// - [`Error::InvalidMetadata`] — metadata is present but is not a valid
+    ///   64-char hex hash while hash-only mode is active.
+    pub fn validate_metadata_hash_only(env: &Env, metadata: &Option<String>) -> Result<(), Error> {
+        let Some(value) = metadata else {
+            return Ok(());
+        };
+        if let Some(config) = Storage::get_contract_config(env) {
+            if config.metadata_hash_only {
+                if value.len() != 64 {
+                    return Err(Error::InvalidMetadata);
+                }
+                let mut buf = [0u8; 64];
+                value.copy_into_slice(&mut buf);
+                for &b in buf.iter() {
+                    if !matches!(b, b'0'..=b'9' | b'a'..=b'f') {
+                        return Err(Error::InvalidMetadata);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Check if a claim type is registered when required by contract config.
+    ///
+    /// # Errors
+    /// - [`Error::InvalidClaimType`] — claim type is not registered and contract requires registration.
+    pub fn require_registered_claim_type(env: &Env, claim_type: &String) -> Result<(), Error> {
+        if let Some(config) = Storage::get_contract_config(env) {
+            if config.require_registered_claim_type {
+                if Storage::get_claim_type(env, claim_type).is_none() {
+                    return Err(Error::InvalidClaimType);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Validate that an attestation satisfies claim type constraints.
+    ///
+    /// # Errors
+    /// - [`Error::ConstraintViolation`] — metadata does not satisfy constraints.
+    pub fn validate_claim_constraints(
+        env: &Env,
+        claim_type: &String,
+        metadata: &Option<String>,
+    ) -> Result<(), Error> {
+        if let Some(constraints) = Storage::get_claim_type_constraints(env, claim_type) {
+            if constraints.require_metadata && metadata.is_none() {
+                return Err(Error::ConstraintViolation);
+            }
+            if let Some(meta) = metadata {
+                let len = meta.len();
+                if let Some(min) = constraints.min_metadata_len {
+                    if len < min as usize {
+                        return Err(Error::ConstraintViolation);
+                    }
+                }
+                if let Some(max) = constraints.max_metadata_len {
+                    if len > max as usize {
+                        return Err(Error::ConstraintViolation);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }

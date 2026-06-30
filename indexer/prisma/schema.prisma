@@ -58,7 +58,7 @@ model MultisigProposal {
   proposer        String
   claimType       String
   threshold       Int
-  signers         String[] // array of signer addresses
+  signers         String[] // array of signer addresses that have co-signed
   signatureCount  Int      @default(1)
   finalized       Boolean  @default(false)
   expiresAt       BigInt
@@ -67,12 +67,62 @@ model MultisigProposal {
 
   @@index([subject])
   @@index([proposer])
+  @@index([finalized])
+  @@index([subject, finalized])
 }
 
 // Singleton row (id=1) tracking the last fully-processed ledger sequence.
 model Checkpoint {
   id     Int @id @default(1)
   ledger Int
+}
+
+// Archival configuration: retention window and last archival timestamp
+model ArchivalConfig {
+  id                      Int      @id @default(1)
+  retentionDaysRaw        Int      @default(30)     // How many days to keep raw events in hot storage
+  archiveEnabled          Boolean  @default(false)  // Enable archival jobs
+  archivePath             String   @default("s3://trustlink-events-archive") // Archive destination (S3, GCS, or local path)
+  lastArchivedAt          DateTime?                 // Timestamp of last successful archival
+  lastArchivedAttemptAt   DateTime?                 // Timestamp of last archival attempt (success or fail)
+  lastArchivalError       String?                   // Error message from last failed archival
+  compressionEnabled      Boolean  @default(true)  // Enable gzip compression for archived files
+}
+
+// Event archive metadata: tracks which batches have been archived
+model ArchivedEventBatch {
+  id                String   @id @default(cuid())
+  fromLedger        Int
+  toLedger          Int
+  recordCount       Int                            // Number of event records archived
+  archivePath       String                         // Full path to archived file in storage
+  compressedSize    BigInt                         // Size of compressed archive
+  uncompressedSize  BigInt                         // Original size before compression
+  archivedAt        DateTime @default(now())
+  checksum          String                         // SHA-256 checksum for integrity verification
+
+  @@index([archivedAt])
+  @@index([fromLedger, toLedger])
+}
+
+// Raw events table (new) — transient event storage for real-time processing
+// Events are archived and pruned based on ArchivalConfig.retentionDaysRaw
+model RawEvent {
+  id              String   @id @default(cuid())
+  ledger          Int
+  eventType       String
+  contractId      String
+  topic0          String?  // First topic (usually event type)
+  topic1          String?  // Second topic (usually subject/address)
+  topic2          String?  // Third topic if present
+  topic3          String?  // Fourth topic if present
+  dataJson        String   // Full event data as JSON
+  createdAt       DateTime @default(now())
+
+  @@index([ledger])
+  @@index([eventType])
+  @@index([createdAt])
+  @@index([contractId])
 }
 
 model Webhook {
@@ -82,4 +132,128 @@ model Webhook {
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+enum WebhookFailureStatus {
+  FAILED
+  RETRYING
+  RECOVERED
+}
+
+model WebhookFailure {
+  id           String               @id @default(cuid())
+  webhookId    String?              // nullable — webhook may be deleted
+  url          String
+  eventType    String
+  payload      String               // JSON body sent
+  statusCode   Int?                 // HTTP status if a response was received
+  errorMessage String?
+  attemptCount Int                  @default(5)
+  status       WebhookFailureStatus @default(FAILED)
+  failedAt     DateTime             @default(now())
+  resolvedAt   DateTime?
+  updatedAt    DateTime             @updatedAt
+
+  @@index([status])
+  @@index([webhookId])
+  @@index([eventType])
+  @@index([failedAt])
+  @@map("webhook_failures")
+}
+
+model Issuer {
+  address      String   @id // issuer address
+  name         String
+  url          String?
+  description  String?
+  tier         String   @default("basic")
+  registeredAt DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([tier])
+}
+
+enum RequestStatus {
+  PENDING
+  FULFILLED
+  REJECTED
+}
+
+model AttestationRequest {
+  id              String        @id           // deterministic hash ID from the contract
+  subject         String
+  issuer          String
+  claimType       String
+  requestedAt     BigInt
+  expiresAt       BigInt
+  status          RequestStatus @default(PENDING)
+  fulfillmentId   String?                     // attestation ID when fulfilled
+  rejectionReason String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([issuer])
+  @@index([subject])
+  @@index([status])
+  @@index([issuer, status])
+  @@map("attestation_requests")
+}
+
+model Endorsement {
+  id            String   @id @default(cuid())
+  attestationId String
+  endorser      String
+  timestamp     BigInt
+  createdAt     DateTime @default(now())
+
+  @@index([attestationId])
+  @@index([endorser])
+  @@unique([attestationId, endorser])
+}
+
+model Template {
+  id         String   @id @default(cuid())
+  templateId String   @unique
+  issuer     String
+  claimType  String
+  createdAt  DateTime @default(now())
+
+  @@index([issuer])
+}
+
+model Delegation {
+  id        String   @id @default(cuid())
+  delegator String
+  delegate  String
+  claimType String
+  expiresAt BigInt
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([delegator, delegate, claimType])
+  @@index([delegator])
+  @@index([delegate])
+}
+
+model WhitelistEntry {
+  id        String   @id @default(cuid())
+  issuer    String
+  subject   String
+  createdAt DateTime @default(now())
+
+  @@unique([issuer, subject])
+  @@index([issuer])
+  @@index([subject])
+}
+
+model CouncilAction {
+  id        String   @id @default(cuid())
+  actionId  String   @unique
+  proposer  String
+  approvals String[]
+  executed  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([executed])
+  @@index([proposer])
 }

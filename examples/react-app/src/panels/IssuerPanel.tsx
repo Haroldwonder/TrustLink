@@ -1,22 +1,54 @@
-import { useState } from "react";
-import { createAttestation, revokeAttestation, getSubjectAttestations, Attestation } from "../contract";
+import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
+import { createAttestation, revokeAttestation, getSubjectAttestations, listTemplates, createAttestationFromTemplate, getRateLimit, getRequireRegisteredClaimType, RateLimit, Attestation, AttestationTemplate } from "../contract";
+import { SkeletonAttestationList } from "../SkeletonList";
 import IssuerDashboard from "./IssuerDashboard";
+import TemplatePanel from "./TemplatePanel";
+import RateLimitPanel, { RATE_LIMIT_WARNING_THRESHOLD } from "./RateLimitPanel";
 
 interface Props { address: string; }
 
 export default function IssuerPanel({ address }: Props) {
-  const [tab, setTab] = useState<"dashboard" | "create" | "revoke" | "lookup">("dashboard");
+  const { t } = useTranslation();
+  const [tab, setTab] = useState<"dashboard" | "create" | "revoke" | "lookup" | "templates">("dashboard");
   const [subject, setSubject] = useState("");
   const [claimType, setClaimType] = useState("");
   const [metadata, setMetadata] = useState("");
   const [status, setStatus] = useState<{ type: "success" | "error"; msg: string } | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const [rateLimit, setRateLimit] = useState<RateLimit | null>(null);
+
+  useEffect(() => {
+    getRateLimit(address)
+      .then(setRateLimit)
+      .catch(() => { /* rate limit info is advisory */ });
+  }, [address]);
+
+  const nearLimit = rateLimit != null && rateLimit.limit > 0
+    && (rateLimit.current_count / rateLimit.limit) >= RATE_LIMIT_WARNING_THRESHOLD;
+
+  const [requireRegisteredClaimType, setRequireRegisteredClaimType] = useState(false);
+
+  useEffect(() => {
+    getRequireRegisteredClaimType().then(setRequireRegisteredClaimType).catch(() => null);
+  }, []);
+
   const [revokeId, setRevokeId] = useState("");
   const [revokeReason, setRevokeReason] = useState("");
 
   const [lookupAddr, setLookupAddr] = useState("");
   const [attestations, setAttestations] = useState<Attestation[]>([]);
+  const [lookupLoading, setLookupLoading] = useState(false);
+
+  const [templates, setTemplates] = useState<AttestationTemplate[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState("");
+  const [templateSubject, setTemplateSubject] = useState("");
+  const [templateLoading, setTemplateLoading] = useState(false);
+
+  useEffect(() => {
+    listTemplates(address).then(setTemplates).catch(() => {});
+  }, [address]);
 
   async function handleCreate() {
     if (!subject || !claimType) return;
@@ -24,7 +56,7 @@ export default function IssuerPanel({ address }: Props) {
     setStatus(null);
     try {
       await createAttestation(address, subject.trim(), claimType.trim(), null, metadata || null);
-      setStatus({ type: "success", msg: "Attestation created." });
+      setStatus({ type: "success", msg: t("issuer.attestation_created") });
       setSubject(""); setClaimType(""); setMetadata("");
     } catch (e: unknown) {
       setStatus({ type: "error", msg: (e as Error).message });
@@ -39,7 +71,7 @@ export default function IssuerPanel({ address }: Props) {
     setStatus(null);
     try {
       await revokeAttestation(address, revokeId.trim(), revokeReason || null);
-      setStatus({ type: "success", msg: "Attestation revoked." });
+      setStatus({ type: "success", msg: t("issuer.attestation_revoked") });
       setRevokeId(""); setRevokeReason("");
     } catch (e: unknown) {
       setStatus({ type: "error", msg: (e as Error).message });
@@ -48,9 +80,25 @@ export default function IssuerPanel({ address }: Props) {
     }
   }
 
+  async function handleFromTemplate() {
+    if (!selectedTemplate || !templateSubject) return;
+    setTemplateLoading(true);
+    setStatus(null);
+    try {
+      await createAttestationFromTemplate(address, selectedTemplate, templateSubject.trim(), null);
+      setStatus({ type: "success", msg: t("issuer.from_template_created") });
+      setTemplateSubject("");
+    } catch (e: unknown) {
+      setStatus({ type: "error", msg: (e as Error).message });
+    } finally {
+      setTemplateLoading(false);
+    }
+  }
+
   async function handleLookup() {
     if (!lookupAddr) return;
     setLoading(true);
+    setLookupLoading(true);
     try {
       const list = await getSubjectAttestations(lookupAddr.trim());
       setAttestations(list.filter((a) => a.issuer === address));
@@ -58,134 +106,213 @@ export default function IssuerPanel({ address }: Props) {
       setStatus({ type: "error", msg: (e as Error).message });
     } finally {
       setLoading(false);
+      setLookupLoading(false);
     }
   }
+
+  const allTabs = ["dashboard", "create", "revoke", "lookup", "templates"] as const;
+
+  const TabNav = () => (
+    <nav
+      role="tablist"
+      aria-label="Issuer panel tabs"
+      style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem", borderBottom: "1px solid #2d3148", paddingBottom: "0.5rem" }}
+    >
+      {allTabs.map((tabId) => (
+        <button
+          key={tabId}
+          role="tab"
+          aria-selected={tab === tabId}
+          className={`tab ${tab === tabId ? "active" : ""}`}
+          onClick={() => setTab(tabId)}
+          style={{ flex: 1, textAlign: "center", padding: "0.5rem", textTransform: "capitalize" }}
+        >
+          {t(`issuer.tab_${tabId}`)}
+        </button>
+      ))}
+    </nav>
+  );
 
   if (tab === "dashboard") {
     return (
       <div>
-        <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem", borderBottom: "1px solid #2d3148", paddingBottom: "0.5rem" }}>
-          <button
-            className={`tab ${tab === "dashboard" ? "active" : ""}`}
-            onClick={() => setTab("dashboard")}
-            style={{ flex: 1, textAlign: "center", padding: "0.5rem" }}
-          >
-            Dashboard
-          </button>
-          <button
-            className={`tab ${tab === "create" ? "active" : ""}`}
-            onClick={() => setTab("create")}
-            style={{ flex: 1, textAlign: "center", padding: "0.5rem" }}
-          >
-            Create
-          </button>
-          <button
-            className={`tab ${tab === "revoke" ? "active" : ""}`}
-            onClick={() => setTab("revoke")}
-            style={{ flex: 1, textAlign: "center", padding: "0.5rem" }}
-          >
-            Revoke
-          </button>
-          <button
-            className={`tab ${tab === "lookup" ? "active" : ""}`}
-            onClick={() => setTab("lookup")}
-            style={{ flex: 1, textAlign: "center", padding: "0.5rem" }}
-          >
-            Lookup
-          </button>
-        </div>
+        <TabNav />
+        <RateLimitPanel address={address} />
         <IssuerDashboard address={address} />
+      </div>
+    );
+  }
+
+  if (tab === "templates") {
+    return (
+      <div>
+        <TabNav />
+        <TemplatePanel address={address} />
       </div>
     );
   }
 
   return (
     <div className="panel">
-      <h2>Issuer Panel</h2>
-      <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem", borderBottom: "1px solid #2d3148", paddingBottom: "0.5rem" }}>
-        <button
-          className={`tab ${tab === "dashboard" ? "active" : ""}`}
-          onClick={() => setTab("dashboard")}
-          style={{ flex: 1, textAlign: "center", padding: "0.5rem" }}
-        >
-          Dashboard
-        </button>
-        <button
-          className={`tab ${tab === "create" ? "active" : ""}`}
-          onClick={() => setTab("create")}
-          style={{ flex: 1, textAlign: "center", padding: "0.5rem" }}
-        >
-          Create
-        </button>
-        <button
-          className={`tab ${tab === "revoke" ? "active" : ""}`}
-          onClick={() => setTab("revoke")}
-          style={{ flex: 1, textAlign: "center", padding: "0.5rem" }}
-        >
-          Revoke
-        </button>
-        <button
-          className={`tab ${tab === "lookup" ? "active" : ""}`}
-          onClick={() => setTab("lookup")}
-          style={{ flex: 1, textAlign: "center", padding: "0.5rem" }}
-        >
-          Lookup
-        </button>
-      </div>
+      <h2>{t("issuer.title")}</h2>
+      <TabNav />
 
-      {status && <div className={`alert alert-${status.type}`}>{status.msg}</div>}
+      {status && (
+        <div role="alert" className={`alert alert-${status.type}`}>
+          {status.msg}
+        </div>
+      )}
 
       {tab === "create" && (
         <div className="card">
-          <h3>Create Attestation</h3>
-          <div className="field"><label>Subject Address</label>
-            <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="G..." />
+          <h3>{t("issuer.create_title")}</h3>
+          {nearLimit && (
+            <div className="alert alert-error" style={{ fontSize: "0.85rem" }}>
+              {t("issuer.rate_limit_warning", { current: rateLimit!.current_count, limit: rateLimit!.limit })}
+            </div>
+          )}
+          {requireRegisteredClaimType && (
+            <div className="alert alert-error" style={{ marginBottom: "1rem", fontSize: "0.8rem" }}>
+              {t("issuer.claim_type_constraint")}
+            </div>
+          )}
+          <div className="field">
+            <label htmlFor="issuer-subject">{t("issuer.subject_address")}</label>
+            <input
+              id="issuer-subject"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              placeholder="G..."
+            />
           </div>
-          <div className="field"><label>Claim Type</label>
-            <input value={claimType} onChange={(e) => setClaimType(e.target.value)} placeholder="KYC, AML, accredited-investor…" />
+          <div className="field">
+            <label htmlFor="issuer-claim-type">{t("issuer.claim_type")}</label>
+            <input
+              id="issuer-claim-type"
+              value={claimType}
+              onChange={(e) => setClaimType(e.target.value)}
+              placeholder="KYC_PASSED, AML_CLEARED…"
+            />
           </div>
-          <div className="field"><label>Metadata (optional)</label>
-            <input value={metadata} onChange={(e) => setMetadata(e.target.value)} placeholder="optional note" />
+          <div className="field">
+            <label htmlFor="issuer-metadata">{t("issuer.metadata_optional")}</label>
+            <input
+              id="issuer-metadata"
+              value={metadata}
+              onChange={(e) => setMetadata(e.target.value)}
+              placeholder="optional note"
+            />
           </div>
-          <button className="btn btn-primary" disabled={loading || !subject || !claimType} onClick={handleCreate}>
-            Create
+          <button
+            className="btn btn-primary"
+            disabled={loading || !subject || !claimType}
+            onClick={handleCreate}
+            aria-disabled={loading || !subject || !claimType}
+          >
+            {t("issuer.create_title")}
           </button>
+          {templates.length > 0 && (
+            <div style={{ marginTop: "1.5rem", borderTop: "1px solid #2d3148", paddingTop: "1rem" }}>
+              <h4 style={{ marginBottom: "0.75rem", color: "#94a3b8", fontSize: "0.85rem" }}>
+                {t("issuer.from_template_heading")}
+              </h4>
+              <div className="field">
+                <label>{t("issuer.template_select")}</label>
+                <select
+                  value={selectedTemplate}
+                  onChange={(e) => setSelectedTemplate(e.target.value)}
+                  style={{ background: "#0f1117", border: "1px solid #2d3148", borderRadius: "0.5rem", padding: "0.5rem 0.75rem", color: "#e2e8f0", width: "100%" }}
+                >
+                  <option value="">{t("issuer.template_placeholder")}</option>
+                  {templates.map((tmpl) => (
+                    <option key={tmpl.template_id} value={tmpl.template_id}>
+                      {tmpl.template_id} — {tmpl.claim_type}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label>{t("issuer.subject_address")}</label>
+                <input
+                  value={templateSubject}
+                  onChange={(e) => setTemplateSubject(e.target.value)}
+                  placeholder="G..."
+                />
+              </div>
+              <button
+                className="btn btn-outline"
+                disabled={templateLoading || !selectedTemplate || !templateSubject}
+                onClick={handleFromTemplate}
+              >
+                {templateLoading ? t("common.creating") : t("issuer.create_from_template")}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
       {tab === "revoke" && (
         <div className="card">
-          <h3>Revoke Attestation</h3>
-          <div className="field"><label>Attestation ID</label>
-            <input value={revokeId} onChange={(e) => setRevokeId(e.target.value)} placeholder="attestation hash" />
+          <h3>{t("issuer.revoke_title")}</h3>
+          <div className="field">
+            <label htmlFor="revoke-id">{t("issuer.attestation_id")}</label>
+            <input
+              id="revoke-id"
+              value={revokeId}
+              onChange={(e) => setRevokeId(e.target.value)}
+              placeholder="attestation hash"
+            />
           </div>
-          <div className="field"><label>Reason (optional)</label>
-            <input value={revokeReason} onChange={(e) => setRevokeReason(e.target.value)} placeholder="reason for revocation" />
+          <div className="field">
+            <label htmlFor="revoke-reason">{t("issuer.reason_optional")}</label>
+            <input
+              id="revoke-reason"
+              value={revokeReason}
+              onChange={(e) => setRevokeReason(e.target.value)}
+              placeholder="reason for revocation"
+            />
           </div>
-          <button className="btn btn-danger" disabled={loading || !revokeId} onClick={handleRevoke}>
-            Revoke
+          <button
+            className="btn btn-danger"
+            disabled={loading || !revokeId}
+            onClick={handleRevoke}
+            aria-disabled={loading || !revokeId}
+          >
+            {t("common.revoke")}
           </button>
         </div>
       )}
 
       {tab === "lookup" && (
         <div className="card">
-          <h3>My Issued Attestations</h3>
+          <h3>{t("issuer.lookup_title")}</h3>
           <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.75rem" }}>
+            <label htmlFor="issuer-lookup-addr" className="visually-hidden">
+              Subject address to look up
+            </label>
             <input
+              id="issuer-lookup-addr"
               className="field"
               style={{ flex: 1, background: "#0f1117", border: "1px solid #2d3148", borderRadius: "0.5rem", padding: "0.5rem 0.75rem", color: "#e2e8f0" }}
               value={lookupAddr}
               onChange={(e) => setLookupAddr(e.target.value)}
-              placeholder="Subject address G..."
+              placeholder={t("issuer.subject_placeholder")}
+              aria-label="Subject address"
             />
-            <button className="btn btn-outline" disabled={loading || !lookupAddr} onClick={handleLookup}>
-              Load
+            <button
+              className="btn btn-outline"
+              disabled={loading || !lookupAddr}
+              onClick={handleLookup}
+              aria-disabled={loading || !lookupAddr}
+            >
+              {t("common.load")}
             </button>
           </div>
-          {attestations.length === 0
-            ? <p className="empty">No attestations found.</p>
-            : <AttestationList items={attestations} />}
+          {lookupLoading
+            ? <SkeletonAttestationList />
+            : attestations.length === 0
+              ? <p className="empty">{t("common.none_found")}</p>
+              : <AttestationList items={attestations} />}
         </div>
       )}
     </div>
@@ -193,20 +320,21 @@ export default function IssuerPanel({ address }: Props) {
 }
 
 function AttestationList({ items }: { items: Attestation[] }) {
+  const { t } = useTranslation();
   return (
-    <div className="att-list">
+    <ul className="att-list" aria-label="Attestation list">
       {items.map((a) => (
-        <div key={a.id} className="att-item">
+        <li key={a.id} className="att-item">
           <div className="row">
             <span className="claim">{a.claim_type}</span>
             <span className={`badge ${a.revoked ? "badge-revoked" : "badge-valid"}`}>
-              {a.revoked ? "Revoked" : "Valid"}
+              {a.revoked ? t("common.revoked") : t("common.valid")}
             </span>
           </div>
-          <span className="meta">Subject: {a.subject}</span>
-          <span className="meta">ID: {a.id}</span>
-        </div>
+          <span className="meta">{t("common.subject", { value: a.subject })}</span>
+          <span className="meta">{t("common.id", { id: a.id })}</span>
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }

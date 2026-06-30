@@ -7,11 +7,18 @@ import {
   revocationsTotal,
   eventsProcessedTotal,
   indexerLagLedgers,
+  incrementEventProcessed,
+  incrementEventFailed,
+  EventTypes,
 } from "./metrics";
 import { dispatchWebhooks } from "./webhooks";
+import { scheduleArchivalJob } from "./archival";
 
 const CONTRACT_ID = process.env.CONTRACT_ID!;
 const RPC_URL = process.env.RPC_URL ?? "https://soroban-testnet.stellar.org";
+const START_LEDGER = process.env.START_LEDGER
+  ? parseInt(process.env.START_LEDGER, 10)
+  : undefined;
 const PAGE_LIMIT = 200;
 const POLL_MS = 5_000;
 
@@ -36,13 +43,22 @@ export function getLastLedger(): number {
 export async function startIndexer(db: PrismaClient, redis: Redis | null = null): Promise<void> {
   const rpc = new SorobanRpc.Server(RPC_URL, { allowHttp: true });
 
+  // Initialize archival scheduler (runs every 6 hours, configurable)
+  const ARCHIVAL_INTERVAL_HOURS = parseInt(
+    process.env.ARCHIVAL_INTERVAL_HOURS ?? "6",
+    10,
+  );
+  scheduleArchivalJob(db, ARCHIVAL_INTERVAL_HOURS);
+
   // ── Backfill ───────────────────────────────────────────────────────────────
   const checkpoint = await db.checkpoint.findUnique({ where: { id: 1 } });
-  let cursor = checkpoint ? checkpoint.ledger + 1 : GENESIS_LEDGER;
+  // START_LEDGER env var overrides stored checkpoint
+  let cursor =
+    START_LEDGER ?? (checkpoint ? checkpoint.ledger + 1 : GENESIS_LEDGER);
 
   const { sequence: tip } = await rpc.getLatestLedger();
   if (cursor <= tip) {
-    console.log(`Backfilling ledgers ${cursor}–${tip}…`);
+    logger.info({ cursor, tip }, "Backfilling ledgers");
     try {
       cursor = await processRange(db, rpc, cursor, tip, redis);
     } catch (err) {
@@ -51,7 +67,7 @@ export async function startIndexer(db: PrismaClient, redis: Redis | null = null)
   }
 
   // ── Live polling ───────────────────────────────────────────────────────────
-  console.log("Live polling for new events…");
+  logger.info("Live polling for new events");
   while (true) {
     await sleep(POLL_MS);
     const { sequence: latest } = await rpc.getLatestLedger();
@@ -71,6 +87,9 @@ async function processRange(
   to: number,
   redis: Redis | null
 ): Promise<number> {
+  const span = getTracer().startSpan("indexer.processRange", {
+    attributes: { "ledger.from": from, "ledger.to": to },
+  });
   let startLedger = from;
   let processedCount = 0;
 
@@ -86,9 +105,17 @@ async function processRange(
       });
 
       for (const ev of response.events) {
+        const topicStr = ev.topic[0]
+          ? (scValToNative(ev.topic[0]) as string)
+          : "unknown";
         try {
           await handleEvent(db, ev, redis);
           processedCount++;
+          // Track by event type
+          const eventType = normalizeEventType(topicStr);
+          if (eventType) {
+            incrementEventProcessed(eventType);
+          }
         } catch (err) {
           console.error(`Error processing event at ledger ${ev.ledger}:`, err);
         }
@@ -119,7 +146,8 @@ async function processRange(
     lastLedger = Math.min(startLedger - 1, to);
   }
 
-  console.log(`Completed processing range ${from}–${to}, total events: ${processedCount}`);
+  logger.info({ from, to, processedCount }, "Completed processing ledger range");
+  span.end();
   return to + 1;
 }
 
@@ -135,6 +163,10 @@ async function handleEvent(
   const topicStr = scValToNative(ev.topic[0]) as string;
   if (!WATCHED.has(topicStr)) return;
 
+  const span = getTracer().startSpan("indexer.handleEvent", {
+    attributes: { "event.topic": topicStr, "ledger.sequence": ev.ledger },
+  });
+  try {
   eventsProcessedTotal.inc();
   const data = scValToNative(ev.value) as unknown[];
 
@@ -145,6 +177,8 @@ async function handleEvent(
     const proposer = String(data[1]);
     const threshold = Number(data[2]);
     const subject = ev.topic[1] ? String(scValToNative(ev.topic[1])) : "";
+    // claimType is not in the event; default to empty string — updated via ms_sign if needed
+    const expiresAt = BigInt(Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60);
 
     await db.multisigProposal.upsert({
       where: { id: proposalId },
@@ -168,7 +202,7 @@ async function handleEvent(
     const signatureCount = Number(data[1]);
     await db.multisigProposal.update({
       where: { id: proposalId },
-      data: { signatureCount },
+      data: { signatureCount, signers: updatedSigners },
     });
     return;
   }
@@ -241,14 +275,73 @@ async function handleEvent(
     }
 
     revocationsTotal.inc();
-    dispatchWebhooks(db, "attestation.revoked", { id: attestationId }).catch(() => {});
+    dispatchWebhooks(db, "attestation.revoked", { id: attestationId }).catch(
+      () => {},
+    );
+
+    // Publish to GraphQL subscription
+    pubsub.publish(ATTESTATION_REVOKED, {
+      onAttestationRevoked: {
+        id: attestationId,
+        issuer: attestation?.issuer ?? "",
+        revokedAt: new Date().toISOString(),
+      },
+    });
+    return;
+  }
+
+  // Handle issuer registration events
+  if (topicStr === "iss_reg") {
+    // data: [issuer_address, name, url, description]
+    const issuerAddress = String(data[0]);
+    const name = String(data[1]);
+    const url = data[2] != null ? String(data[2]) : null;
+    const description = data[3] != null ? String(data[3]) : null;
+
+    await db.issuer.upsert({
+      where: { address: issuerAddress },
+      update: { name, url, description },
+      create: {
+        address: issuerAddress,
+        name,
+        url,
+        description,
+        tier: "basic",
+      },
+    });
+
+    // Publish to GraphQL subscription
+    pubsub.publish(ISSUER_REGISTERED, {
+      onIssuerRegistered: {
+        issuer: issuerAddress,
+        registeredAt: new Date().toISOString(),
+      },
+    });
+    return;
+  }
+
+  // Handle issuer tier update events
+  if (topicStr === "issuer_tier_updated") {
+    // data: [issuer_address, new_tier]
+    const issuerAddress = String(data[0]);
+    const tier = String(data[1]);
+
+    await db.issuer.update({
+      where: { address: issuerAddress },
+      data: { tier },
+    });
     return;
   }
 
   // ── created | imported | bridged ───────────────────────────────────────────
 
   const subject = ev.topic[1] ? String(scValToNative(ev.topic[1])) : "";
-  const [id, issuer, claimType, rawTs] = data as [string, string, string, bigint | number];
+  const [id, issuer, claimType, rawTs] = data as [
+    string,
+    string,
+    string,
+    bigint | number,
+  ];
   const timestamp = BigInt(rawTs);
 
   let extra: Record<string, unknown> = {};
@@ -298,20 +391,49 @@ async function handleEvent(
   dispatchWebhooks(db, `attestation.${topicStr}`, {
     ...attestation,
     timestamp: String(attestation.timestamp),
-    expiration: attestation.expiration != null ? String(attestation.expiration) : null,
+    expiration:
+      attestation.expiration != null ? String(attestation.expiration) : null,
   }).catch(() => {});
 
   pubsub.publish(ATTESTATION_CREATED, {
     onAttestationCreated: {
       ...attestation,
       timestamp: String(attestation.timestamp),
-      expiration: attestation.expiration != null ? String(attestation.expiration) : null,
+      expiration:
+        attestation.expiration != null ? String(attestation.expiration) : null,
       createdAt: attestation.createdAt.toISOString(),
       updatedAt: attestation.updatedAt.toISOString(),
     },
   });
+  } finally {
+    span.end();
+  }
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+// Map raw event topics to normalized event type labels
+function normalizeEventType(topic: string): string | null {
+  const mapping: Record<string, string> = {
+    created: EventTypes.CREATED,
+    imported: EventTypes.IMPORTED,
+    bridged: EventTypes.BRIDGED,
+    revoked: EventTypes.REVOKED,
+    renewed: EventTypes.RENEWED,
+    updated: EventTypes.UPDATED,
+    expired: EventTypes.EXPIRED,
+    endorsed: EventTypes.ENDORSED,
+    iss_reg: EventTypes.ISSUER_REGISTERED,
+    iss_tier: EventTypes.ISSUER_TIER,
+    iss_rem: EventTypes.ISSUER_REMOVED,
+    clmtype: EventTypes.CLAIM_TYPE,
+    ms_prop: EventTypes.MULTISIG_PROPOSED,
+    ms_sign: EventTypes.MULTISIG_COSIGNED,
+    ms_actv: EventTypes.MULTISIG_ACTIVATED,
+    adm_init: EventTypes.ADMIN_INIT,
+    adm_xfer: EventTypes.ADMIN_TRANSFER,
+  };
+  return mapping[topic] ?? null;
 }

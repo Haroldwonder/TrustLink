@@ -1,3 +1,6 @@
+import { initTracing, getTracer } from "./tracing";
+initTracing(); // must be first — instruments http, pg, etc.
+
 import { PrismaClient } from "@prisma/client";
 import { createServer, IncomingMessage, ServerResponse } from "http";
 import Fastify from "fastify";
@@ -7,7 +10,7 @@ import { WebSocketServer } from "ws";
 import { useServer } from "graphql-ws/use/ws";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { startIndexer, getLastLedger } from "./indexer";
+import { startIndexer, getLastLedger, reindex } from "./indexer";
 import { buildResolvers } from "./graphql";
 import { getMetrics } from "./metrics";
 import Redis from "ioredis";
@@ -39,7 +42,7 @@ async function main() {
   // ── REST (Fastify) ─────────────────────────────────────────────────────────
   const fastify = Fastify({ logger: true });
 
-  fastify.get("/health", async () => {
+  fastify.get("/health", async (request, reply) => {
     let dbConnected = false;
     try {
       await db.$queryRaw`SELECT 1`;
@@ -47,10 +50,20 @@ async function main() {
     } catch {
       dbConnected = false;
     }
+    
+    if (!dbConnected) {
+      reply.code(503);
+      return {
+        status: "error",
+        db: "disconnected",
+        lastLedger: getLastLedger(),
+      };
+    }
+    
     return {
       status: "ok",
+      db: "connected",
       lastLedger: getLastLedger(),
-      dbConnected,
     };
   });
 
@@ -83,7 +96,6 @@ async function main() {
     }
   );
 
-  // GET /subjects/:address/claims/:claim_type/valid - Check if subject has valid claim
   fastify.get<{ Params: { address: string; claim_type: string } }>(
     "/subjects/:address/claims/:claim_type/valid",
     async (req) => {
@@ -98,7 +110,6 @@ async function main() {
     }
   );
 
-  // GET /issuers/:address/attestations - Get all attestations issued by an issuer
   fastify.get<{ Params: { address: string } }>(
     "/issuers/:address/attestations",
     async (req) => {
@@ -109,7 +120,6 @@ async function main() {
     }
   );
 
-  // GET /stats - Get global statistics
   fastify.get("/stats", async () => {
     const [total, revoked, issuers] = await Promise.all([
       db.attestation.count(),
@@ -126,9 +136,6 @@ async function main() {
     };
   });
 
-  // ── Webhook management ─────────────────────────────────────────────────────
-
-  // GET /webhooks - List all registered webhooks (secrets redacted)
   fastify.get("/webhooks", async () => {
     const webhooks = await db.webhook.findMany({
       select: { id: true, url: true, active: true, createdAt: true },
@@ -137,7 +144,6 @@ async function main() {
     return webhooks;
   });
 
-  // POST /webhooks - Register a new webhook
   fastify.post<{ Body: { url: string; secret: string } }>(
     "/webhooks",
     async (req, reply) => {
@@ -152,7 +158,6 @@ async function main() {
     }
   );
 
-  // DELETE /webhooks/:id - Remove a webhook
   fastify.delete<{ Params: { id: string } }>(
     "/webhooks/:id",
     async (req, reply) => {
@@ -167,6 +172,84 @@ async function main() {
     }
   );
 
+  fastify.post<{ Querystring: { from?: string } }>(
+    "/admin/reindex",
+    async (req, reply) => {
+      const from = req.query.from ? parseInt(req.query.from, 10) : getLastLedger();
+      if (isNaN(from) || from < 0) {
+        reply.code(400);
+        return { error: "Invalid 'from' ledger number" };
+      }
+      reindex(db, from).catch((err) => {
+        logger.error({ err }, "Reindex error");
+      });
+      reply.code(202);
+      return { message: `Reindex started from ledger ${from}` };
+    }
+  );
+
+  fastify.get<{
+    Querystring: { status?: string; eventType?: string; limit?: string; offset?: string; sort?: string };
+  }>("/admin/webhook-failures", async (req, reply) => {
+    const { status, eventType, limit: limitStr, offset: offsetStr, sort } = req.query;
+    const limit = Math.min(parseInt(limitStr ?? "50", 10) || 50, 200);
+    const offset = parseInt(offsetStr ?? "0", 10) || 0;
+    const orderBy = sort === "asc" ? "asc" : "desc";
+
+    const where: Record<string, unknown> = {};
+    if (status) {
+      if (!["FAILED", "RETRYING", "RECOVERED"].includes(status)) {
+        reply.code(400);
+        return { error: "Invalid status filter" };
+      }
+      where.status = status;
+    }
+    if (eventType) where.eventType = eventType;
+
+    const [items, total] = await Promise.all([
+      db.webhookFailure.findMany({
+        where,
+        orderBy: { failedAt: orderBy },
+        skip: offset,
+        take: limit,
+        select: {
+          id: true, webhookId: true, url: true, eventType: true,
+          statusCode: true, errorMessage: true, attemptCount: true,
+          status: true, failedAt: true, resolvedAt: true, updatedAt: true,
+        },
+      }),
+      db.webhookFailure.count({ where }),
+    ]);
+
+    return { items, total, limit, offset };
+  });
+
+  fastify.post<{ Params: { id: string } }>(
+    "/admin/retry-webhook/:id",
+    async (req, reply) => {
+      const { id } = req.params;
+      if (!id) {
+        reply.code(400);
+        return { error: "Missing failure id" };
+      }
+      const { replayFailure } = await import("./webhooks");
+      const result = await replayFailure(db, id);
+      if (result.error === "Not found") {
+        reply.code(404);
+        return { error: "Webhook failure record not found" };
+      }
+      if (result.error === "Retry already in progress") {
+        reply.code(409);
+        return { error: result.error };
+      }
+      if (result.success) {
+        return { success: true, statusCode: result.statusCode };
+      }
+      reply.code(502);
+      return { success: false, statusCode: result.statusCode, error: result.error };
+    }
+  );
+
   const REST_PORT = Number(process.env.PORT ?? 3000);
   await fastify.listen({ port: REST_PORT, host: "0.0.0.0" });
 
@@ -177,16 +260,19 @@ async function main() {
     resolvers: buildResolvers(db, redis),
   });
 
-  // 1. Create WS server (noServer — we handle the upgrade event manually)
-  const wsServer = new WebSocketServer({ noServer: true });
+  // Query depth and complexity limits (#779)
+  const MAX_DEPTH = Number(process.env.GRAPHQL_MAX_DEPTH ?? 7);
+  const MAX_COMPLEXITY = Number(process.env.GRAPHQL_MAX_COMPLEXITY ?? 1000);
+  const complexityRule = createComplexityLimitRule(MAX_COMPLEXITY, {
+    onCost: (cost) => logger.debug({ cost }, "graphql query complexity"),
+  });
 
-  // 2. Wire graphql-ws onto the WS server
+  const wsServer = new WebSocketServer({ noServer: true });
   const wsCleanup = useServer({ schema }, wsServer);
 
-  // 3. Build and start Apollo (plugin references wsCleanup via closure — already assigned)
   const apollo = new ApolloServer({
     schema,
-    introspection: true, // enables Apollo Sandbox at /graphql in development
+    introspection: true,
     plugins: [
       {
         async serverWillStart() {
@@ -210,35 +296,80 @@ async function main() {
       return;
     }
 
+    // #778 — API key check
+    if (!isAuthorized(req)) {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ errors: [{ message: "Unauthorized: valid x-api-key header required" }] }));
+      return;
+    }
+
+    const correlationId = (req.headers["x-correlation-id"] as string | undefined) ?? randomUUID();
+    const reqLog = requestLogger(correlationId);
+
+    const tracer = getTracer();
+    const span = tracer.startSpan("graphql.request", {
+      attributes: { "http.method": req.method ?? "GET", "correlation.id": correlationId },
+    });
+
     const body = await readBody(req);
     const headers = new HeaderMap();
     for (const [key, value] of Object.entries(req.headers)) {
       if (value) headers.set(key, Array.isArray(value) ? value.join(", ") : value);
     }
 
-    const result = await apollo.executeHTTPGraphQLRequest({
-      httpGraphQLRequest: {
-        method: req.method ?? "GET",
-        headers,
-        search: new URL(req.url ?? "/graphql", "http://localhost").search,
-        body: body ? JSON.parse(body) : undefined,
-      },
-      context: async () => ({ db }),
-    });
-
-    res.writeHead(result.status ?? 200, Object.fromEntries(result.headers));
-
-    if (result.body.kind === "complete") {
-      res.end(result.body.string);
-    } else {
-      for await (const chunk of result.body.asyncIterator) {
-        res.write(chunk);
+    // #779 — depth + complexity validation before execution
+    let parsedDocument: ReturnType<typeof import("graphql").parse> | undefined;
+    if (body) {
+      try {
+        const parsed = JSON.parse(body) as { query?: string };
+        if (parsed.query) {
+          const { parse } = await import("graphql");
+          parsedDocument = parse(parsed.query);
+          const validationErrors = validate(schema, parsedDocument, [
+            depthLimit(MAX_DEPTH),
+            complexityRule,
+          ]);
+          if (validationErrors.length > 0) {
+            span.end();
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ errors: validationErrors.map((e) => ({ message: e.message })) }));
+            return;
+          }
+        }
+      } catch {
+        // malformed JSON — let Apollo return its own parse error
       }
-      res.end();
+    }
+
+    try {
+      const result = await apollo.executeHTTPGraphQLRequest({
+        httpGraphQLRequest: {
+          method: req.method ?? "GET",
+          headers,
+          search: new URL(req.url ?? "/graphql", "http://localhost").search,
+          body: body ? JSON.parse(body) : undefined,
+        },
+        context: async () => ({ db, correlationId, log: reqLog }),
+      });
+
+      res.writeHead(result.status ?? 200, {
+        ...Object.fromEntries(result.headers),
+        "x-correlation-id": correlationId,
+      });
+
+      if (result.body.kind === "complete") {
+        res.end(result.body.string);
+      } else {
+        for await (const chunk of result.body.asyncIterator) {
+          res.write(chunk);
+        }
+        res.end();
+      }
+    } finally {
+      span.end();
     }
   });
 
-  // Upgrade HTTP → WebSocket for subscriptions
   httpServer.on("upgrade", (req, socket, head) => {
     if (req.url === "/graphql") {
       wsServer.handleUpgrade(req, socket, head, (ws) => {
@@ -249,9 +380,7 @@ async function main() {
 
   const GQL_PORT = Number(process.env.GQL_PORT ?? 4000);
   httpServer.listen(GQL_PORT, "0.0.0.0", () => {
-    console.log(`GraphQL endpoint:   http://0.0.0.0:${GQL_PORT}/graphql`);
-    console.log(`GraphQL Playground: http://localhost:${GQL_PORT}/graphql`);
-    console.log(`Subscriptions:      ws://localhost:${GQL_PORT}/graphql`);
+    logger.info({ port: GQL_PORT }, "GraphQL endpoint listening");
   });
 
   // ── Indexer ────────────────────────────────────────────────────────────────

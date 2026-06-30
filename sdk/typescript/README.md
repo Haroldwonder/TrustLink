@@ -1,5 +1,6 @@
 # @trustlink/sdk
 
+TypeScript client for the [TrustLink](../../README.md) Soroban attestation contract on Stellar.
 TypeScript SDK for the [TrustLink](https://github.com/afurious/TrustLink) on-chain attestation contract on Stellar.
 
 [![npm version](https://badge.fury.io/js/@trustlink%2Fsdk.svg)](https://badge.fury.io/js/@trustlink%2Fsdk)
@@ -8,8 +9,135 @@ TypeScript SDK for the [TrustLink](https://github.com/afurious/TrustLink) on-cha
 ## Installation
 
 ```bash
+npm install @trustlink/sdk
+```
+
+## Quick start
+
+```ts
+import { TrustLinkClient } from "@trustlink/sdk";
+
+const client = new TrustLinkClient({
+  rpcUrl: "https://soroban-testnet.stellar.org",
+  contractId: "C...",
+});
+```
+
+## API reference
+
+### Attestation range queries
+
+#### `getAttestationsInRange(start, end)`
+
+Returns all attestations whose `timestamp` falls within the closed interval
+`[start, end]` (Unix seconds).
+
+```ts
+const attestations = await client.getAttestationsInRange(
+  1_700_000_000,
+  1_710_000_000
+);
+```
+
+Maps to the contract's `get_attestations_in_range(start, end)` entry point.
+
+#### `getAttestationsInRangeAfter(cursor, limit)`
+
+Cursor-based pagination — returns up to `limit` attestations created **after**
+the attestation identified by `cursor`. Use the last returned ID as the next
+`cursor` to page through large result sets without re-fetching.
+
+```ts
+let cursor = "";
+const pageSize = 20;
+
+while (true) {
+  const page = await client.getAttestationsInRangeAfter(cursor, pageSize);
+  if (page.length === 0) break;
+  // process page…
+  cursor = page[page.length - 1].id;
+}
+```
+
+Maps to the contract's `get_attestations_in_range_after(cursor, limit)` entry
+point.
+
+### Admin / council
+
+#### `getCouncil()`
+
+Returns the current admin-council configuration (members list, threshold,
+creation timestamp).
+
+```ts
+const council = await client.getCouncil();
+console.log(council.members, council.threshold);
+```
+
+#### `getCouncilProposal(proposalId)`
+
+Returns a single council proposal including approvals and execution status.
+
+```ts
+const proposal = await client.getCouncilProposal("abc123");
+console.log(proposal.action, proposal.approvals);
+```
+
+### Storage limits
+
+#### `getLimits()`
+
+Returns the `StorageLimits` configuration enforced by the contract.
+
+```ts
+const limits = await client.getLimits();
+console.log(limits.max_attestations_per_subject);
+```
+
+```ts
+interface StorageLimits {
+  max_attestations_per_subject: number;
+  max_attestations_per_issuer: number;
+  max_tags_per_attestation: number;
+  max_tag_length: number;
+  max_metadata_length: number;
+}
+```
+
+### Other methods
+
+| Method | Description |
+|--------|-------------|
+| `getAttestation(id)` | Fetch a single attestation |
+| `getAttestationStatus(id)` | Fetch live `AttestationStatus` |
+| `getSubjectAttestations(subject)` | All attestation IDs for a subject |
+| `getIssuerAttestations(issuer)` | All attestation IDs from an issuer |
+| `getMultisigProposal(id)` | Fetch a multi-sig proposal |
+| `getAdmin()` | Contract admin address |
+| `getFeeConfig()` | Fee configuration |
+| `getIssuerMetadata(issuer)` | Issuer name / URL / description |
+| `getContractMetadata()` | Contract name / version / description |
+| `getVersion()` | Contract version string |
+
+## Types
+
+All TypeScript types are exported from the package root:
+
+```ts
+import type {
+  Attestation,
+  AttestationStatus,
+  Council,
+  CouncilProposal,
+  StorageLimits,
+  MultiSigProposal,
+  FeeConfig,
+} from "@trustlink/sdk";
+```
 npm install @trustlink/sdk @stellar/stellar-sdk
 ```
+
+The package is published to npm as [`@trustlink/sdk`](https://www.npmjs.com/package/@trustlink/sdk) with npm provenance attestation enabled.
 
 **Requirements:**
 - Node.js 16.0.0 or higher
@@ -96,8 +224,12 @@ const issued = await client.getIssuerAttestations(issuer, 0, 10);
 // All valid claim IDs for a subject
 const validClaims = await client.getValidClaims(subject);
 
-// Attestations by tag
-const tagged = await client.getAttestationsByTag(subject, "premium");
+// Attestations by tag (paginated)
+const tagged = await client.getAttestationsByTag(subject, "premium");          // first 20 (default)
+const page2  = await client.getAttestationsByTag(subject, "premium", 20, 20); // next 20
+
+// Attestations by jurisdiction (paginated)
+const euAtts = await client.getAttestationsByJurisdiction(subject, "EU", 0, 10);
 
 // Audit log for an attestation
 const log = await client.getAuditLog(attestationId);
@@ -135,6 +267,15 @@ for await (const a of client.iterateSubjectAttestations(subject, 50)) {
 }
 ```
 
+Iteration stops as soon as a page returns fewer items than `pageSize` (not only
+when it returns zero). This means the generator handles mid-iteration deletions
+gracefully — it will not hang waiting for a page that will never be full.
+
+```typescript
+// iterateSubjectAttestations(subject: string, pageSize?: number): AsyncGenerator<Attestation>
+// iterateIssuerAttestations(issuer: string, pageSize?: number): AsyncGenerator<Attestation>
+```
+
 ### Count Queries
 
 ```typescript
@@ -160,6 +301,17 @@ await client.getClaimTypeDescription("KYC_PASSED");
 await client.listClaimTypes(0, 20);
 ```
 
+### Delegation
+
+```typescript
+const delegation = await client.getDelegation(
+  delegatorAddress,
+  delegateAddress,
+  "KYC_PASSED"
+);
+// delegation is either null or { delegator, delegate, claim_type, expiration }
+```
+
 ### Multi-Sig Proposals
 
 ```typescript
@@ -174,6 +326,32 @@ const endorsements = await client.getEndorsements(attestationId);
 const count = await client.getEndorsementCount(attestationId);
 ```
 
+### Delegations
+
+```typescript
+// List all delegations granted by a delegator (paginated)
+const delegations = await client.listDelegationsByDelegator(delegatorAddress, 0, 20);
+// delegations[0].delegate, delegations[0].claim_types, delegations[0].expires_at
+```
+
+### Whitelist
+
+```typescript
+// Check if an issuer has whitelist mode enabled
+const enabled = await client.isWhitelistEnabled(issuerAddress);
+
+// Check if a subject is on an issuer's whitelist
+const listed = await client.isWhitelisted(issuerAddress, subjectAddress);
+```
+
+### Templates
+
+```typescript
+// List attestation templates registered by an issuer (paginated)
+const templates = await client.listTemplates(issuerAddress, 0, 20);
+// templates[0].id, templates[0].name, templates[0].claim_type, templates[0].description
+```
+
 ### Contract Info
 
 ```typescript
@@ -183,8 +361,22 @@ await client.isPaused();
 await client.healthCheck();
 await client.getGlobalStats();
 await client.getContractMetadata();
-await client.getConfig();
+await client.getConfig();      // Returns ContractConfig: TTL, limits, and fee config in one call
 await client.getFeeConfig();
+```
+
+`getConfig()` returns a `ContractConfig` object combining TTL settings, storage limits, and fee
+configuration in a single RPC call — useful for admin dashboards that would otherwise need three
+separate calls:
+
+```typescript
+const config = await client.getConfig();
+// config.ttl_config.ttl_days                        — attestation TTL in days
+// config.limits.max_attestations_per_issuer         — issuer storage cap
+// config.limits.max_attestations_per_subject        — subject storage cap
+// config.fee_config.attestation_fee                 — fee amount (0 = disabled)
+// config.fee_config.fee_collector                   — collector address
+// config.fee_config.fee_token                       — fee token contract address or null
 ```
 
 ## TypeScript Types

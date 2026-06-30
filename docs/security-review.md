@@ -41,7 +41,10 @@ pub fn initialize(env: Env, admin: Address, ttl_days: Option<u32>) -> Result<(),
 
 **Recommendation:** Move `require_auth()` to the first line.
 
-**Status:** Fixed — `require_auth()` is now the first call in `initialize()`, before `Storage::has_admin()`. Verified at `src/lib.rs` line 277.
+**Status:** Fixed — `require_auth()` is now the first call in `initialize()`,
+before `Storage::has_admin()`. The implementation lives in `src/admin.rs`
+`initialize()` (delegated from `src/lib.rs`); regression coverage is provided by
+`test_second_initialize_from_any_address_rejected` in `src/test.rs`.
 
 ---
 
@@ -125,7 +128,7 @@ pub fn initialize(env: Env, admin: Address, ttl_days: Option<u32>) -> Result<(),
 
 | ID | Function | Severity | Issue | Status |
 |----|----------|----------|-------|--------|
-| FINDING-001 | `initialize` | Medium | State read (`has_admin`) before `require_auth` | Open |
+| FINDING-001 | `initialize` | Medium | State read (`has_admin`) before `require_auth` | Fixed |
 | FINDING-002 | `revoke_attestation` | High | Missing `require_issuer` check | Open |
 | FINDING-003 | `update_expiration` | High | Missing `require_issuer` check | Open |
 | FINDING-004 | `revoke_attestation`, `update_expiration` | Low | Storage read before ownership check | Accepted |
@@ -142,7 +145,7 @@ pub fn initialize(env: Env, admin: Address, ttl_days: Option<u32>) -> Result<(),
 
 | Function | Line | Auth Pattern | require_auth First? | State Read Before Auth? | Result |
 |----------|------|-------------|---------------------|------------------------|--------|
-| `initialize` | 275 | `require_auth` on param (bootstrap) | ❌ `has_admin` read first | Yes — `has_admin` | **FAIL** (FINDING-001) |
+| `initialize` | `admin.rs` | `require_auth` on param (bootstrap) | ✅ | No | **PASS** (FINDING-001 fixed) |
 | `transfer_admin` | 299 | `require_auth` → `require_admin` (storage) | ✅ | No | **PASS** |
 | `add_admin` | 313 | `require_auth` → `require_admin` (storage) | ✅ | No | **PASS** |
 | `remove_admin` | 330 | `require_auth` → `require_admin` (storage) | ✅ | No | **PASS** |
@@ -305,11 +308,14 @@ No bypass is possible through parameter manipulation.
 
 ## Required Actions Before Mainnet
 
-Four actionable findings remain open:
+Three actionable findings remain open:
 
-1. **FINDING-001** — Move `require_auth` before `has_admin` check in `initialize`.
-2. **FINDING-002** — Add `Validation::require_issuer` to `revoke_attestation`.
-3. **FINDING-003** — Add `Validation::require_issuer` to `update_expiration`.
-4. **FINDING-008** — Remove duplicate `pause`/`unpause`/`is_paused` definitions (lines 1733–1751) that call `Events::contract_paused`/`contract_unpaused` with wrong arity.
+1. **FINDING-002** — Add `Validation::require_issuer` to `revoke_attestation`.
+2. **FINDING-003** — Add `Validation::require_issuer` to `update_expiration`.
+3. **FINDING-008** — Remove duplicate `pause`/`unpause`/`is_paused` definitions (lines 1733–1751) that call `Events::contract_paused`/`contract_unpaused` with wrong arity.
+
+FINDING-001 (`initialize` state read before `require_auth`) is resolved —
+`require_auth()` is the first operation in `initialize()` and is covered by
+`test_second_initialize_from_any_address_rejected`.
 
 Run the full test suite to confirm no regressions: `cargo test`

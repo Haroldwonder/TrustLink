@@ -88,21 +88,89 @@ export async function cacheInvalidate(redis: Redis | null, pattern: string): Pro
 export function buildResolvers(db: PrismaClient, redis: Redis | null = null) {
   return {
     Query: {
+      healthCheck: async () => {
+        let dbOk = false;
+        try {
+          await db.$queryRaw`SELECT 1`;
+          dbOk = true;
+        } catch {
+          dbOk = false;
+        }
+        return {
+          status: dbOk ? "ok" : "degraded",
+          lastLedger: getLastLedger ? getLastLedger() : null,
+          timestamp: new Date().toISOString(),
+        };
+      },
+
       attestations: async (
         _: unknown,
-        args: { subject?: string; claimType?: string; status?: "ACTIVE" | "REVOKED" }
-      ) => {
+        args: { 
+          subject?: string; 
+          claimType?: string; 
+          status?: "ACTIVE" | "REVOKED";
+          first?: number;
+          after?: string;
+        }
+      ): Promise<AttestationConnection> => {
         const where: Record<string, unknown> = {};
         if (args.subject) where.subject = args.subject;
         if (args.claimType) where.claimType = args.claimType;
         if (args.status === "ACTIVE") where.isRevoked = false;
         if (args.status === "REVOKED") where.isRevoked = true;
 
-        const rows = await db.attestation.findMany({
-          where,
-          orderBy: { timestamp: "desc" },
+        return buildAttestationConnection(db, where, args.first, args.after);
+      },
+
+      attestationsByIssuer: async (
+        _: unknown,
+        args: {
+          issuer: string;
+          first?: number;
+          after?: string;
+        }
+      ): Promise<AttestationConnection> => {
+        const where = { issuer: args.issuer };
+        return buildAttestationConnection(db, where, args.first, args.after);
+      },
+
+      issuer: async (_: unknown, args: { address: string }) => {
+        const issuer = await db.issuer.findUnique({
+          where: { address: args.address },
         });
-        return rows.map(mapAttestation);
+        return issuer
+          ? {
+              ...issuer,
+              registeredAt: issuer.registeredAt.toISOString(),
+              updatedAt: issuer.updatedAt.toISOString(),
+            }
+          : null;
+      },
+
+      issuers: async (
+        _: unknown,
+        args: { start?: number; limit?: number }
+      ) => {
+        const start = args.start ?? 0;
+        const limit = args.limit ?? 50;
+
+        const [issuers, total] = await Promise.all([
+          db.issuer.findMany({
+            skip: start,
+            take: limit,
+            orderBy: { registeredAt: "desc" },
+          }),
+          db.issuer.count(),
+        ]);
+
+        return {
+          items: issuers.map((i) => ({
+            ...i,
+            registeredAt: i.registeredAt.toISOString(),
+            updatedAt: i.updatedAt.toISOString(),
+          })),
+          total,
+        };
       },
 
       // #775 + #777: issuerStats includes rateLimit; cached in Redis

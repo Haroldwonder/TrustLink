@@ -1,0 +1,109 @@
+{{- if .Values.backup.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "trustlink-indexer.fullname" . }}-backup
+  labels:
+    {{- include "trustlink-indexer.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "trustlink-indexer.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: backup
+        spec:
+          serviceAccountName: {{ include "trustlink-indexer.serviceAccountName" . }}
+          restartPolicy: OnFailure
+          containers:
+          - name: backup
+            image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+            imagePullPolicy: {{ .Values.image.pullPolicy }}
+            command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              echo "[$(date)] Starting database backup..."
+              
+              # Run backup script
+              /app/scripts/backup.sh
+              
+              if [ $? -eq 0 ]; then
+                echo "[$(date)] ✓ Backup completed successfully"
+              else
+                echo "[$(date)] ✗ Backup failed"
+                exit 1
+              fi
+            env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "trustlink-indexer.fullname" . }}
+                  key: database-url
+            - name: BACKUP_STORAGE
+              value: {{ .Values.backup.storage | quote }}
+            {{- if eq .Values.backup.storage "s3" }}
+            - name: BACKUP_S3_BUCKET
+              value: {{ .Values.backup.s3Bucket | quote }}
+            - name: BACKUP_S3_PREFIX
+              value: {{ .Values.backup.s3Prefix | quote }}
+            - name: BACKUP_RETENTION_DAYS
+              value: {{ .Values.backup.retentionDays | quote }}
+            - name: AWS_PROFILE
+              value: {{ .Values.backup.awsProfile | default "default" | quote }}
+            {{- if .Values.backup.awsAccessKeyId }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "trustlink-indexer.fullname" . }}-backup-aws
+                  key: access-key-id
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "trustlink-indexer.fullname" . }}-backup-aws
+                  key: secret-access-key
+            {{- end }}
+            {{- else if eq .Values.backup.storage "gcs" }}
+            - name: BACKUP_GCS_BUCKET
+              value: {{ .Values.backup.gcsBucket | quote }}
+            {{- if .Values.backup.gcServiceAccountJson }}
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /var/secrets/gcp/key.json
+            {{- end }}
+            {{- else if eq .Values.backup.storage "local" }}
+            - name: BACKUP_PATH
+              value: /backups
+            {{- end }}
+            - name: COMPRESSION_ENABLED
+              value: {{ .Values.backup.compressionEnabled | default true | quote }}
+            
+            {{- if eq .Values.backup.storage "local" }}
+            volumeMounts:
+            - name: backup-storage
+              mountPath: /backups
+            {{- else if and (eq .Values.backup.storage "gcs") .Values.backup.gcServiceAccountJson }}
+            volumeMounts:
+            - name: gcp-key
+              mountPath: /var/secrets/gcp
+              readOnly: true
+            {{- end }}
+            
+            resources:
+              {{- toYaml .Values.backup.resources | nindent 14 }}
+          
+          {{- if eq .Values.backup.storage "local" }}
+          volumes:
+          - name: backup-storage
+            persistentVolumeClaim:
+              claimName: {{ include "trustlink-indexer.fullname" . }}-backup-pvc
+          {{- else if and (eq .Values.backup.storage "gcs") .Values.backup.gcServiceAccountJson }}
+          volumes:
+          - name: gcp-key
+            secret:
+              secretName: {{ include "trustlink-indexer.fullname" . }}-backup-gcp
+          {{- end }}
+{{- end }}

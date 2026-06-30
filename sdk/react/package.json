@@ -1,32 +1,27 @@
 {
   "name": "@trustlink/react",
   "version": "0.1.0",
-  "description": "React hooks for the TrustLink on-chain attestation contract on Stellar",
+  "description": "React hooks for the TrustLink on-chain attestation contract",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist", "README.md"],
+  "files": ["dist"],
   "scripts": {
     "build": "tsc",
-    "clean": "rm -rf dist",
-    "prepublishOnly": "npm run clean && npm run build"
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
-  "keywords": ["stellar", "soroban", "attestation", "trustlink", "react", "hooks"],
-  "author": "TrustLink Team",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/afurious/TrustLink.git",
-    "directory": "sdk/react"
-  },
-  "publishConfig": { "access": "public" },
-  "dependencies": {
-    "@trustlink/sdk": "^0.1.0"
-  },
   "peerDependencies": {
-    "react": ">=17.0.0"
+    "react": ">=18.0.0"
   },
   "devDependencies": {
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/react-hooks": "^8.0.1",
+    "@types/react": "^18.3.3",
+    "jsdom": "^25.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "typescript": "^5.4.5",
-    "@types/react": "^18.0.0"
+    "vitest": "^2.0.0"
   }
 }

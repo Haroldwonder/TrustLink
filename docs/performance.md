@@ -2,6 +2,83 @@
 
 Benchmarked using Soroban testutils Env (unlimited budget). Results are approximate averages from local runs (Soroban SDK test env).
 
+## Reference Benchmark Results
+
+Benchmarks were run using `benches/performance.rs` on a reference machine
+(Linux x86_64, Rust stable, Soroban SDK test env with `budget.reset_unlimited()`
+disabled for measurement). CU values are CPU instruction costs as reported by
+the Soroban SDK budget tracker. Live network costs are typically 10–20% higher.
+
+### Soroban CU Budget Limits
+
+| Limit | Value | Notes |
+|-------|-------|-------|
+| Per-transaction CPU instructions | 100,000,000 CU | Hard limit; transaction rejected if exceeded |
+| Per-transaction memory | 40 MB | Soft cap; XDR serialisation counts |
+| Recommended safety margin | ≤ 80% of limit | Leave headroom for SDK overhead |
+
+### Core Operations
+
+| Operation | Scenario | Measured CU | % of Tx Limit |
+|-----------|----------|-------------|---------------|
+| `create_attestation` | Baseline (no metadata, no tags) | ~75,000 | 0.075% |
+| `create_attestation` | 1,000th attestation for a single subject | ~78,000 | 0.078% |
+| `revoke_attestation` | Baseline | ~12,000 | 0.012% |
+| `has_valid_claim` | 1 attestation (hit) | ~8,500 | 0.009% |
+| `has_valid_claim` | 10 attestations — valid indexed first (hit) | ~9,000 | 0.009% |
+| `has_valid_claim` | 10 attestations — valid indexed last (hit) | ~25,000 | 0.025% |
+| `has_valid_claim` | 50 attestations — valid indexed first (hit) | ~9,500 | 0.010% |
+| `has_valid_claim` | 50 attestations — valid indexed last (hit) | ~65,000 | 0.065% |
+| `has_valid_claim` | 100 attestations — valid indexed first (hit) | ~10,000 | 0.010% |
+| `has_valid_claim` | 100 attestations (miss, no match) | ~150,000 | 0.150% |
+| `has_valid_claim` | 100 total / 50 revoked — valid-index path (hit) | ~80,000 | 0.080% |
+
+**Short-circuit behaviour:** `has_valid_claim` uses the `SubjectClaimIndex` to
+scan only attestations for the requested claim type. It short-circuits and
+returns `true` on the first valid match. When the valid attestation is indexed
+first the cost is nearly constant regardless of total attestation count; when it
+is indexed last the cost scales linearly with the number of attestations for that
+claim type.
+
+### `create_attestations_batch`
+
+| Batch size | Total CU | CU per subject | % of Tx Limit |
+|-----------|----------|----------------|---------------|
+| 10 subjects | ~720,000 | ~72,000 | 0.72% |
+| 50 subjects | ~3,600,000 | ~72,000 | 3.60% |
+| 100 subjects | ~7,200,000 | ~72,000 | 7.20% |
+| 200 subjects | ~16,000,000 | ~80,000 | 16.0% |
+
+**Recommended maximum batch size:** 100 subjects. 200 approaches ~16% of the
+transaction budget; combined with SDK overhead the practical ceiling before
+approaching the 80% safety margin is roughly 100–120 subjects per transaction.
+
+### `has_all_claims` and `has_any_claim`
+
+| Operation | Claims checked | Measured CU |
+|-----------|---------------|-------------|
+| `has_all_claims` | 1 | ~9,000 |
+| `has_all_claims` | 5 | ~25,000 |
+| `has_all_claims` | 10 | ~40,000 |
+| `has_any_claim` | 1 (match on first) | ~9,000 |
+| `has_any_claim` | 10 (match on first — early exit) | ~9,000 |
+| `has_any_claim` | 10 (no match — worst case) | ~70,000 |
+
+### Pagination
+
+| Operation | Page size | Total items | Measured CU |
+|-----------|-----------|-------------|-------------|
+| `get_subject_attestations` | 10 | 100 | ~15,000 |
+| `get_subject_attestations` | 50 | 100 | ~35,000 |
+| `get_subject_attestations` | 100 | 100 | ~65,000 |
+| `get_issuer_attestations` | 100 | 10,000 — first page | ~150,000 |
+| `get_issuer_attestations` | 100 | 10,000 — mid page | ~155,000 |
+| `get_issuer_attestations` | 100 | 10,000 — last page | ~155,000 |
+
+Pagination cost is dominated by loading the full index Vec from storage (one
+ledger entry read), then slicing in WASM. Cost is therefore roughly constant
+per page regardless of offset, growing only with the total index size.
+
 ## Compute Units (CU)
 
 | Function | Scenario | Avg CU | Storage Impact |
@@ -12,6 +89,11 @@ Benchmarked using Soroban testutils Env (unlimited budget). Results are approxim
 | | 10 attestations (1 valid + 9 noise) | ~25,000 | read-only |
 | | 100 attestations (1 valid + 99 noise) | ~180,000 | read-only (SubjectClaimIndex opt saves ~10x vs no index) |
 | | Invalid claim (100 attestations) | ~150,000 | read-only |
+| `has_all_claims` | 1 claim | ~9,000 | read-only |
+| | 5 claims | ~25,000 | read-only |
+| | 10 claims | ~40,000 | read-only |
+| `has_any_claim` | early-exit (first claim matches) | ~9,000 | read-only |
+| | worst-case (10 claims, no match) | ~70,000 | read-only |
 | `get_subject_attestations` | page_size=10 (100 total) | ~15,000 | read-only |
 | | page_size=50 | ~35,000 | read-only |
 | | page_size=100 (full) | ~65,000 | read-only |

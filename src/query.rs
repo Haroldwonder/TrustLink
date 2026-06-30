@@ -3,7 +3,10 @@ use soroban_sdk::{Address, Env, String, Vec};
 use crate::attestation::maybe_trigger_expiration_hook;
 use crate::events::Events;
 use crate::storage::Storage;
-use crate::types::{Attestation, AttestationStatus, AuditEntry, Error, GlobalStats};
+use crate::types::{
+    Attestation, AttestationStatus, AttestationVersionSnapshot, AuditEntry, Delegation,
+    DisputeRecord, Error, GlobalStats,
+};
 
 /// Returns `true` if the subject holds at least one valid attestation for `claim_type`.
 ///
@@ -17,12 +20,14 @@ use crate::types::{Attestation, AttestationStatus, AuditEntry, Error, GlobalStat
 /// the last indexed entry. The best case is O(1) attestation reads when the first
 /// indexed entry is a valid match.
 pub fn has_valid_claim(env: &Env, subject: Address, claim_type: String) -> bool {
-    let attestation_ids = Storage::get_subject_attestations(env, &subject);
+    // Use the pre-filtered valid-attestations index (non-revoked, non-deleted)
+    // to avoid reading records that can never produce a true result.
+    let attestation_ids = Storage::get_valid_attestations(env, &subject);
     let current_time = env.ledger().timestamp();
 
     for attestation_id in attestation_ids.iter() {
         if let Ok(attestation) = Storage::get_attestation(env, &attestation_id) {
-            if attestation.deleted || attestation.claim_type != claim_type {
+            if attestation.claim_type != claim_type {
                 continue;
             }
             if attestation.get_status(current_time) == AttestationStatus::Valid {
@@ -48,7 +53,16 @@ pub fn has_valid_claim_from_issuer(env: &Env, subject: Address, claim_type: Stri
             if attestation.deleted { continue; }
             if attestation.claim_type == claim_type && attestation.issuer == issuer {
                 match attestation.get_status(current_time) {
-                    AttestationStatus::Valid => return true,
+                    AttestationStatus::Valid => {
+                        maybe_trigger_expiration_hook(
+                            env,
+                            &subject,
+                            &attestation_id,
+                            attestation.expiration.unwrap_or(u64::MAX),
+                            current_time,
+                        );
+                        return true;
+                    }
                     AttestationStatus::Expired => {
                         Events::attestation_expired(env, &attestation_id, &subject);
                     }
@@ -73,6 +87,13 @@ pub fn has_any_claim(env: &Env, subject: Address, claim_types: Vec<String>) -> b
                     && attestation.claim_type == claim_type
                     && attestation.get_status(current_time) == AttestationStatus::Valid
                 {
+                    maybe_trigger_expiration_hook(
+                        env,
+                        &subject,
+                        &attestation_id,
+                        attestation.expiration.unwrap_or(u64::MAX),
+                        current_time,
+                    );
                     return true;
                 }
             }
@@ -101,6 +122,18 @@ pub fn has_all_claims(env: &Env, subject: Address, claim_types: Vec<String>) -> 
     true
 }
 
+/// Check if multiple subjects all have a valid attestation for the given claim type.
+/// Returns a Vec<bool> where each element corresponds to whether that subject has the claim.
+/// This is more efficient than making individual has_valid_claim calls.
+pub fn has_valid_claim_batch(env: &Env, subjects: Vec<Address>, claim_type: String) -> Vec<bool> {
+    let mut results = Vec::new(env);
+    for subject in subjects.iter() {
+        let has_claim = has_valid_claim(env, subject.clone(), claim_type.clone());
+        results.push_back(has_claim);
+    }
+    results
+}
+
 pub fn get_attestation(env: &Env, attestation_id: String) -> Result<Attestation, Error> {
     let attestation = Storage::get_attestation(env, &attestation_id)?;
     if attestation.deleted {
@@ -111,6 +144,15 @@ pub fn get_attestation(env: &Env, attestation_id: String) -> Result<Attestation,
 
 pub fn get_audit_log(env: &Env, attestation_id: String) -> Vec<AuditEntry> {
     Storage::get_audit_log(env, &attestation_id)
+}
+
+pub fn get_delegation(
+    env: &Env,
+    delegator: Address,
+    delegate: Address,
+    claim_type: String,
+) -> Option<Delegation> {
+    Storage::get_delegation(env, &delegator, &delegate, &claim_type)
 }
 
 pub fn get_attestation_status(env: &Env, attestation_id: String) -> Result<AttestationStatus, Error> {
@@ -374,4 +416,60 @@ pub fn get_valid_claim_count(env: &Env, subject: Address) -> u32 {
 
 pub fn get_global_stats(env: &Env) -> GlobalStats {
     Storage::get_global_stats(env)
+}
+
+/// Return all prior versions of an attestation's metadata, in the order they
+/// were superseded. The current (latest) metadata lives on the attestation
+/// itself and is NOT included here.
+pub fn get_attestation_history(
+    env: &Env,
+    attestation_id: String,
+) -> Vec<AttestationVersionSnapshot> {
+    Storage::get_attestation_history(env, &attestation_id)
+}
+
+/// Return the active dispute record for an attestation, or `None` if there
+/// is no open dispute.
+pub fn get_dispute(env: &Env, attestation_id: String) -> Option<DisputeRecord> {
+    Storage::get_dispute(env, &attestation_id)
+}
+
+/// Submit a dispute against an attestation. Only the subject of the
+/// attestation may call this. The disputed flag is informational and does
+/// not affect validity queries.
+pub fn dispute_attestation(
+    env: &Env,
+    subject: Address,
+    attestation_id: String,
+    reason: String,
+) -> Result<(), Error> {
+    use crate::errors::Error as E;
+    use crate::events::Events;
+
+    subject.require_auth();
+
+    let attestation = Storage::get_attestation(env, &attestation_id)?;
+    if attestation.subject != subject {
+        return Err(E::Unauthorized);
+    }
+    if attestation.deleted {
+        return Err(E::NotFound);
+    }
+    if Storage::get_dispute(env, &attestation_id).is_some() {
+        return Err(E::AlreadyDisputed);
+    }
+    if reason.len() > 256 {
+        return Err(E::MetadataTooLong);
+    }
+
+    let timestamp = env.ledger().timestamp();
+    let record = DisputeRecord {
+        attestation_id: attestation_id.clone(),
+        subject: subject.clone(),
+        reason: reason.clone(),
+        disputed_at: timestamp,
+    };
+    Storage::set_dispute(env, &attestation_id, &record);
+    Events::dispute_raised(env, &attestation_id, &subject, &reason, timestamp);
+    Ok(())
 }

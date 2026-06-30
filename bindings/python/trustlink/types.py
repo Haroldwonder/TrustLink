@@ -55,6 +55,38 @@ class MultiSigProposal(TypedDict):
     finalized: bool
 
 
+class AttestationTemplate(TypedDict):
+    """Named attestation template owned by an issuer."""
+    issuer: str
+    template_id: str
+    claim_type: str
+    metadata: Optional[str]
+    metadata_template: Optional[str]
+    default_expiration_days: Optional[int]
+
+
+class Delegation(TypedDict):
+    """Sub-issuer delegation record."""
+    delegator: str
+    delegate: str
+    claim_type: str
+    expiration: Optional[int]
+
+
+class ContractConfig(TypedDict):
+    """Contract configuration."""
+    admin: str
+    initialized: bool
+    whitelist_mode: bool
+
+
+class ContractMetadata(TypedDict):
+    """Contract metadata."""
+    name: str
+    description: str
+    version: str
+
+
 class TrustLinkError(Exception):
     """Base exception for TrustLink SDK errors."""
     pass
