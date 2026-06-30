@@ -1,5 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { rpc as SorobanRpc, scValToNative } from "@stellar/stellar-sdk";
+import { logger } from "./logger";
+import { getTracer } from "./tracing";
 import {
   pubsub,
   ATTESTATION_CREATED,
@@ -65,9 +67,9 @@ export async function reindex(
   const rpc = new SorobanRpc.Server(RPC_URL, { allowHttp: true });
   const { sequence: tip } = await rpc.getLatestLedger();
 
-  console.log(`Reindexing from ledger ${fromLedger} to ${tip}…`);
+  logger.info({ fromLedger, tip }, "Reindexing ledger range");
   await processRange(db, rpc, fromLedger, tip);
-  console.log(`Reindex complete`);
+  logger.info("Reindex complete");
 }
 
 export async function startIndexer(db: PrismaClient): Promise<void> {
@@ -88,17 +90,17 @@ export async function startIndexer(db: PrismaClient): Promise<void> {
 
   const { sequence: tip } = await rpc.getLatestLedger();
   if (cursor <= tip) {
-    console.log(`Backfilling ledgers ${cursor}–${tip}…`);
+    logger.info({ cursor, tip }, "Backfilling ledgers");
     try {
       cursor = await processRange(db, rpc, cursor, tip);
     } catch (err) {
-      console.error("Error during backfill:", err);
+      logger.error({ err }, "Error during backfill");
       // Continue with live polling even if backfill fails
     }
   }
 
   // ── Live polling ───────────────────────────────────────────────────────────
-  console.log("Live polling for new events…");
+  logger.info("Live polling for new events");
   while (true) {
     await sleep(POLL_MS);
     const { sequence: latest } = await rpc.getLatestLedger();
@@ -117,6 +119,9 @@ async function processRange(
   from: number,
   to: number,
 ): Promise<number> {
+  const span = getTracer().startSpan("indexer.processRange", {
+    attributes: { "ledger.from": from, "ledger.to": to },
+  });
   let startLedger = from;
   let processedCount = 0;
 
@@ -144,7 +149,7 @@ async function processRange(
             incrementEventProcessed(eventType);
           }
         } catch (err) {
-          console.error(`Error processing event at ledger ${ev.ledger}:`, err);
+          logger.error({ err, ledger: ev.ledger }, "Error processing event");
           // Continue processing other events
           const eventType = normalizeEventType(topicStr);
           if (eventType) {
@@ -167,15 +172,10 @@ async function processRange(
       });
 
       if (processedCount % 100 === 0) {
-        console.log(
-          `Processed ${processedCount} events, checkpoint: ${lastProcessed}`,
-        );
+        logger.info({ processedCount, checkpoint: lastProcessed }, "Processing events");
       }
     } catch (err) {
-      console.error(
-        `Error fetching events from ledger ${startLedger} to ${endLedger}:`,
-        err,
-      );
+      logger.error({ err, startLedger, endLedger }, "Error fetching events");
       // Retry with exponential backoff
       await sleep(1000);
       continue;
@@ -196,9 +196,8 @@ async function processRange(
     });
   }
 
-  console.log(
-    `Completed processing range ${from}–${to}, total events: ${processedCount}`,
-  );
+  logger.info({ from, to, processedCount }, "Completed processing ledger range");
+  span.end();
   return to + 1;
 }
 
@@ -213,6 +212,10 @@ async function handleEvent(
   const topicStr = scValToNative(ev.topic[0]) as string;
   if (!WATCHED.has(topicStr)) return;
 
+  const span = getTracer().startSpan("indexer.handleEvent", {
+    attributes: { "event.topic": topicStr, "ledger.sequence": ev.ledger },
+  });
+  try {
   eventsProcessedTotal.inc();
   const data = scValToNative(ev.value) as unknown[];
 
@@ -592,6 +595,9 @@ async function handleEvent(
       updatedAt: attestation.updatedAt.toISOString(),
     },
   });
+  } finally {
+    span.end();
+  }
 }
 
 function sleep(ms: number): Promise<void> {

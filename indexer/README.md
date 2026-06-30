@@ -37,14 +37,57 @@ Stellar RPC  →  indexer.ts (poll getEvents)  →  PostgreSQL (Prisma)
 
 Copy `.env.example` to `.env` and fill in the values:
 
-| Variable         | Description                                            | Default                               |
-| ---------------- | ------------------------------------------------------ | ------------------------------------- |
-| `DATABASE_URL`   | PostgreSQL connection string                           | —                                     |
-| `CONTRACT_ID`    | Deployed TrustLink contract ID                         | —                                     |
-| `RPC_URL`        | Soroban RPC endpoint                                   | `https://soroban-testnet.stellar.org` |
-| `GENESIS_LEDGER` | First ledger to index (contract deployment ledger)     | `0`                                   |
-| `START_LEDGER`   | Override starting ledger (overrides stored checkpoint) | —                                     |
-| `PORT`           | HTTP port for the REST API                             | `3000`                                |
+| Variable                      | Description                                                   | Default                               |
+| ----------------------------- | ------------------------------------------------------------- | ------------------------------------- |
+| `DATABASE_URL`                | PostgreSQL connection string                                  | —                                     |
+| `CONTRACT_ID`                 | Deployed TrustLink contract ID                                | —                                     |
+| `RPC_URL`                     | Soroban RPC endpoint                                          | `https://soroban-testnet.stellar.org` |
+| `GENESIS_LEDGER`              | First ledger to index (contract deployment ledger)            | `0`                                   |
+| `START_LEDGER`                | Override starting ledger (overrides stored checkpoint)        | —                                     |
+| `PORT`                        | HTTP port for the REST API                                    | `3000`                                |
+| `GQL_PORT`                    | HTTP/WS port for the GraphQL API                              | `4000`                                |
+| `LOG_LEVEL`                   | Pino log level (`trace` \| `debug` \| `info` \| `warn` \| `error`) | `info`                          |
+| `GRAPHQL_API_KEYS`            | Comma-separated API keys for GraphQL auth; unset = disabled   | —                                     |
+| `GRAPHQL_MAX_DEPTH`           | Maximum GraphQL query depth                                   | `7`                                   |
+| `GRAPHQL_MAX_COMPLEXITY`      | Maximum GraphQL query complexity score                        | `1000`                                |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP collector base URL for distributed tracing; unset = disabled | —                                 |
+
+## GraphQL API Key Authentication
+
+When `GRAPHQL_API_KEYS` is set, every GraphQL request must include a valid key in the `x-api-key` header. Requests without a valid key receive a `401 Unauthorized` response.
+
+```bash
+# Authenticated request
+curl -H "x-api-key: mysecretkey" http://localhost:4000/graphql \
+  -d '{"query":"{ healthCheck { status } }"}'
+```
+
+To disable auth (default), leave `GRAPHQL_API_KEYS` unset.
+
+## GraphQL Query Depth and Complexity Limits
+
+The GraphQL endpoint rejects queries that exceed the configured depth or complexity thresholds before execution, protecting database connections from expensive queries. Adjust `GRAPHQL_MAX_DEPTH` and `GRAPHQL_MAX_COMPLEXITY` in `.env` as needed.
+
+## Structured Logging
+
+All log output is JSON (via [pino](https://getpino.io)). Each GraphQL request carries a `correlationId` field that is propagated through resolver logs and returned as the `x-correlation-id` response header, making it easy to trace a request end-to-end.
+
+Set `LOG_LEVEL=debug` to see resolver-level detail.
+
+## Distributed Tracing (OpenTelemetry)
+
+Set `OTEL_EXPORTER_OTLP_ENDPOINT` to export traces to any OTLP-compatible collector (Jaeger, Grafana Tempo, AWS X-Ray via ADOT, etc.):
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+```
+
+Traces are emitted for:
+- `indexer.processRange` — each batch of ledgers processed
+- `indexer.handleEvent` — individual contract event handling
+- `graphql.request` — each incoming GraphQL HTTP request
+
+Tracing is disabled when `OTEL_EXPORTER_OTLP_ENDPOINT` is not set.
 
 ## Quick Start (Docker)
 
