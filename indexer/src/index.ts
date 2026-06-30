@@ -13,24 +13,18 @@ import { join } from "path";
 import { startIndexer, getLastLedger, reindex } from "./indexer";
 import { buildResolvers } from "./graphql";
 import { getMetrics } from "./metrics";
-import { logger, requestLogger } from "./logger";
-import depthLimit from "graphql-depth-limit";
-import { createComplexityLimitRule } from "graphql-query-complexity";
-import { validate } from "graphql";
-import { randomUUID } from "crypto";
+import Redis from "ioredis";
 
 const db = new PrismaClient();
 
-// ── API key auth helper ────────────────────────────────────────────────────
-const API_KEYS = process.env.GRAPHQL_API_KEYS
-  ? new Set(process.env.GRAPHQL_API_KEYS.split(",").map((k) => k.trim()).filter(Boolean))
-  : null; // null = auth disabled
-
-function isAuthorized(req: IncomingMessage): boolean {
-  if (!API_KEYS) return true; // auth not configured
-  const header = req.headers["x-api-key"];
-  const key = Array.isArray(header) ? header[0] : header;
-  return !!key && API_KEYS.has(key);
+// #777: optional Redis client — only connect when REDIS_URL is set
+const redis = process.env.REDIS_URL
+  ? new Redis(process.env.REDIS_URL, { lazyConnect: true, enableOfflineQueue: false })
+  : null;
+if (redis) {
+  redis.connect().catch((err: unknown) => {
+    console.warn("Redis connection failed, caching disabled:", err);
+  });
 }
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -263,7 +257,7 @@ async function main() {
   const typeDefs = readFileSync(join(__dirname, "schema.graphql"), "utf-8");
   const schema = makeExecutableSchema({
     typeDefs,
-    resolvers: buildResolvers(db, getLastLedger),
+    resolvers: buildResolvers(db, redis),
   });
 
   // Query depth and complexity limits (#779)
@@ -390,8 +384,8 @@ async function main() {
   });
 
   // ── Indexer ────────────────────────────────────────────────────────────────
-  startIndexer(db).catch((err) => {
-    logger.error({ err }, "Indexer fatal error");
+  startIndexer(db, redis).catch((err) => {
+    console.error("Indexer error:", err);
     process.exit(1);
   });
 }

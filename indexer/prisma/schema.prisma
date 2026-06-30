@@ -8,26 +8,48 @@ datasource db {
 }
 
 model Attestation {
-  id          String   @id           // deterministic hash ID from the contract
-  issuer      String
-  subject     String
-  claimType   String
-  timestamp   BigInt
-  expiration  BigInt?
-  isRevoked   Boolean  @default(false)
-  metadata    String?
-  imported    Boolean  @default(false)
-  bridged     Boolean  @default(false)
-  sourceChain String?
-  sourceTx    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id               String       @id           // deterministic hash ID from the contract
+  issuer           String
+  subject          String
+  claimType        String
+  timestamp        BigInt
+  expiration       BigInt?
+  isRevoked        Boolean      @default(false)
+  revocationReason String?
+  metadata         String?
+  imported         Boolean      @default(false)
+  bridged          Boolean      @default(false)
+  sourceChain      String?
+  sourceTx         String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  auditEntries     AuditEntry[]
 
   @@index([subject])
   @@index([issuer])
   @@index([claimType])
   @@index([subject, claimType])
   @@index([timestamp])
+}
+
+model AuditEntry {
+  id            Int         @id @default(autoincrement())
+  attestationId String
+  attestation   Attestation @relation(fields: [attestationId], references: [id])
+  action        String      // "Created", "Revoked", "Renewed", "Transferred", etc.
+  actor         String
+  details       String?
+  ledger        Int
+  timestamp     BigInt
+  createdAt     DateTime    @default(now())
+
+  @@index([attestationId])
+}
+
+model Issuer {
+  address    String   @id
+  rateLimit  Int?
+  updatedAt  DateTime @updatedAt
 }
 
 model MultisigProposal {

@@ -1,10 +1,14 @@
 import { PubSub } from "graphql-subscriptions";
-import { PrismaClient, Attestation, MultisigProposal, AttestationRequest, Template, Delegation, WhitelistEntry, CouncilAction } from "@prisma/client";
+import { PrismaClient, Attestation, MultisigProposal, AuditEntry } from "@prisma/client";
+import type { Redis } from "ioredis";
 
 export const pubsub = new PubSub();
 export const ATTESTATION_CREATED = "ATTESTATION_CREATED";
 export const ATTESTATION_REVOKED = "ATTESTATION_REVOKED";
 export const ISSUER_REGISTERED = "ISSUER_REGISTERED";
+
+// Cache TTL in seconds
+const CACHE_TTL = 30;
 
 type MappedAttestation = Omit<Attestation, "timestamp" | "expiration" | "createdAt" | "updatedAt"> & {
   timestamp: string;
@@ -17,6 +21,11 @@ type MappedProposal = Omit<MultisigProposal, "expiresAt" | "createdAt" | "update
   expiresAt: string;
   createdAt: string;
   updatedAt: string;
+};
+
+type MappedAuditEntry = Omit<AuditEntry, "timestamp" | "createdAt"> & {
+  timestamp: string;
+  createdAt: string;
 };
 
 function mapAttestation(a: Attestation): MappedAttestation {
@@ -38,40 +47,45 @@ function mapProposal(p: MultisigProposal): MappedProposal {
   };
 }
 
-type MappedRequest = Omit<AttestationRequest, "requestedAt" | "expiresAt" | "createdAt" | "updatedAt"> & {
-  requestedAt: string;
-  expiresAt: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-function mapRequest(r: AttestationRequest): MappedRequest {
+function mapAuditEntry(e: AuditEntry): MappedAuditEntry {
   return {
-    ...r,
-    requestedAt: String(r.requestedAt),
-    expiresAt: String(r.expiresAt),
-    createdAt: r.createdAt.toISOString(),
-    updatedAt: r.updatedAt.toISOString(),
+    ...e,
+    timestamp: String(e.timestamp),
+    createdAt: e.createdAt.toISOString(),
   };
 }
 
-function mapTemplate(t: Template) {
-  return { ...t, createdAt: t.createdAt.toISOString() };
+// #777: Redis cache helpers (redis may be null when not configured)
+async function cacheGet(redis: Redis | null, key: string): Promise<unknown | null> {
+  if (!redis) return null;
+  try {
+    const val = await redis.get(key);
+    return val ? JSON.parse(val) : null;
+  } catch {
+    return null;
+  }
 }
 
-function mapDelegation(d: Delegation) {
-  return { ...d, expiresAt: String(d.expiresAt), createdAt: d.createdAt.toISOString() };
+async function cacheSet(redis: Redis | null, key: string, value: unknown): Promise<void> {
+  if (!redis) return;
+  try {
+    await redis.set(key, JSON.stringify(value), "EX", CACHE_TTL);
+  } catch {
+    // cache errors are non-fatal
+  }
 }
 
-function mapWhitelistEntry(w: WhitelistEntry) {
-  return { ...w, createdAt: w.createdAt.toISOString() };
+export async function cacheInvalidate(redis: Redis | null, pattern: string): Promise<void> {
+  if (!redis) return;
+  try {
+    const keys = await redis.keys(pattern);
+    if (keys.length) await redis.del(...keys);
+  } catch {
+    // non-fatal
+  }
 }
 
-function mapCouncilAction(c: CouncilAction) {
-  return { ...c, createdAt: c.createdAt.toISOString() };
-}
-
-export function buildResolvers(db: PrismaClient, getLastLedger?: () => number) {
+export function buildResolvers(db: PrismaClient, redis: Redis | null = null) {
   return {
     Query: {
       healthCheck: async () => {
@@ -159,22 +173,34 @@ export function buildResolvers(db: PrismaClient, getLastLedger?: () => number) {
         };
       },
 
+      // #775 + #777: issuerStats includes rateLimit; cached in Redis
       issuerStats: async (_: unknown, args: { issuer: string }) => {
-        const rows = await db.attestation.findMany({
-          where: { issuer: args.issuer },
-          select: { isRevoked: true, claimType: true },
-        });
+        const cacheKey = `issuerStats:${args.issuer}`;
+        const cached = await cacheGet(redis, cacheKey);
+        if (cached) return cached;
+
+        const [rows, issuerRow] = await Promise.all([
+          db.attestation.findMany({
+            where: { issuer: args.issuer },
+            select: { isRevoked: true, claimType: true },
+          }),
+          db.issuer.findUnique({ where: { address: args.issuer } }),
+        ]);
 
         const claimTypes = [...new Set(rows.map((r) => r.claimType))];
         const revoked = rows.filter((r) => r.isRevoked).length;
 
-        return {
+        const result = {
           issuer: args.issuer,
           total: rows.length,
           active: rows.length - revoked,
           revoked,
           claimTypes,
+          rateLimit: issuerRow?.rateLimit ?? null,
         };
+
+        await cacheSet(redis, cacheKey, result);
+        return result;
       },
 
       proposal: async (_: unknown, args: { id: string }) => {
@@ -199,82 +225,13 @@ export function buildResolvers(db: PrismaClient, getLastLedger?: () => number) {
         return rows.map(mapProposal);
       },
 
-      multiSigProposal: async (_: unknown, args: { id: string }) => {
-        if (!args.id) return null;
-        const proposal = await db.multisigProposal.findUnique({
-          where: { id: args.id },
-        });
-        return proposal ? mapProposal(proposal) : null;
-      },
-
-      openProposals: async (_: unknown, args: { subject: string }) => {
-        if (!args.subject) return [];
-        const rows = await db.multisigProposal.findMany({
-          where: { subject: args.subject, finalized: false },
-          orderBy: { createdAt: "desc" },
-        });
-        return rows.map(mapProposal);
-      },
-
-      attestationRequest: async (_: unknown, args: { id: string }) => {
-        if (!args.id) return null;
-        const req = await db.attestationRequest.findUnique({ where: { id: args.id } });
-        return req ? mapRequest(req) : null;
-      },
-
-      pendingRequests: async (_: unknown, args: { issuer: string }) => {
-        if (!args.issuer) return [];
-        const rows = await db.attestationRequest.findMany({
-          where: { issuer: args.issuer, status: "PENDING" },
-          orderBy: { createdAt: "asc" },
-        });
-        return rows.map(mapRequest);
-      },
-
-      endorsements: async (_: unknown, args: { attestationId: string }) => {
-        if (!args.attestationId) return [];
-        const rows = await db.endorsement.findMany({
+      // #774: audit log query
+      auditLog: async (_: unknown, args: { attestationId: string }) => {
+        const rows = await db.auditEntry.findMany({
           where: { attestationId: args.attestationId },
           orderBy: { timestamp: "asc" },
         });
-        return rows.map((e) => ({
-          ...e,
-          timestamp: String(e.timestamp),
-          createdAt: e.createdAt.toISOString(),
-        }));
-      },
-
-      templates: async (_: unknown, args: { issuer: string }) => {
-        const rows = await db.template.findMany({
-          where: { issuer: args.issuer },
-          orderBy: { createdAt: "asc" },
-        });
-        return rows.map(mapTemplate);
-      },
-
-      delegationsByDelegator: async (_: unknown, args: { delegator: string }) => {
-        const rows = await db.delegation.findMany({
-          where: { delegator: args.delegator },
-          orderBy: { createdAt: "asc" },
-        });
-        return rows.map(mapDelegation);
-      },
-
-      isWhitelisted: async (_: unknown, args: { issuer: string; subject: string }) => {
-        const entry = await db.whitelistEntry.findUnique({
-          where: { issuer_subject: { issuer: args.issuer, subject: args.subject } },
-        });
-        return entry !== null;
-      },
-
-      councilActions: async (_: unknown, args: { executed?: boolean }) => {
-        const where: Record<string, unknown> = {};
-        if (args.executed !== undefined) where.executed = args.executed;
-        const rows = await db.councilAction.findMany({
-          where,
-          orderBy: { createdAt: "desc" },
-        });
-        return rows.map(mapCouncilAction);
+        return rows.map(mapAuditEntry);
       },
     },
 
@@ -287,7 +244,6 @@ export function buildResolvers(db: PrismaClient, getLastLedger?: () => number) {
 
           if (!args.subject) return iter;
 
-          // Filter by subject when provided
           const subject = args.subject;
           return {
             [Symbol.asyncIterator]() {

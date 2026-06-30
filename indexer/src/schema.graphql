@@ -15,6 +15,7 @@ type Attestation {
   timestamp: String!
   expiration: String
   isRevoked: Boolean!
+  revocationReason: String
   metadata: String
   imported: Boolean!
   bridged: Boolean!
@@ -22,6 +23,18 @@ type Attestation {
   sourceTx: String
   createdAt: String!
   updatedAt: String!
+}
+
+# #774: Audit log entry
+type AuditEntry {
+  id: Int!
+  attestationId: String!
+  action: String!
+  actor: String!
+  details: String
+  ledger: Int!
+  timestamp: String!
+  createdAt: String!
 }
 
 type MultisigProposal {
@@ -59,6 +72,8 @@ type IssuerStats {
   active: Int!
   revoked: Int!
   claimTypes: [String!]!
+  # #775: rate limit from set_rate_limit events
+  rateLimit: Int
 }
 
 """Pagination info for cursor-based pagination"""
@@ -126,32 +141,8 @@ type Query {
   """List all multi-sig proposals"""
   proposals(subject: String, finalized: Boolean): [MultisigProposal!]!
 
-  """Get a multi-sig proposal by ID"""
-  multiSigProposal(id: String!): MultisigProposal
-
-  """List open (non-finalized) multi-sig proposals for a subject"""
-  openProposals(subject: String!): [MultisigProposal!]!
-
-  """Get an attestation request by ID"""
-  attestationRequest(id: String!): AttestationRequest
-
-  """List pending attestation requests for an issuer"""
-  pendingRequests(issuer: String!): [AttestationRequest!]!
-
-  """List endorsements for an attestation"""
-  endorsements(attestationId: String!): [Endorsement!]!
-
-  """List attestation templates for an issuer"""
-  templates(issuer: String!): [Template!]!
-
-  """List delegations authorized by a delegator"""
-  delegationsByDelegator(delegator: String!): [Delegation!]!
-
-  """Check whether a subject is whitelisted by an issuer"""
-  isWhitelisted(issuer: String!, subject: String!): Boolean!
-
-  """List council governance actions, optionally filtered by execution status"""
-  councilActions(executed: Boolean): [CouncilAction!]!
+  """#774: Get audit log entries for an attestation"""
+  auditLog(attestationId: String!): [AuditEntry!]!
 }
 
 type Subscription {
