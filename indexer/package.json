@@ -36,7 +36,7 @@
     "graphql-ws": "^6.0.7",
     "ioredis": "^5.3.2",
     "prom-client": "^15.1.0",
-    "ws": "^8.20.0"
+    "ws": "^8.21.0"
   },
   "devDependencies": {
     "@types/graphql-depth-limit": "^1.1.3",
