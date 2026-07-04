@@ -1,8 +1,6 @@
 """Async TrustLink contract client for Python."""
 
 import asyncio
-from functools import partial
-from typing import Optional, List
 from typing import Optional, List, Any
 
 from stellar_sdk import Keypair, Networks, SorobanServerAsync, xdr
@@ -37,13 +35,6 @@ class AsyncTrustLinkClient:
         self,
         contract_id: str,
         rpc_url: str,
-        network_passphrase: str = "Test SDF Network ; September 2015",
-    ):
-        self._sync = TrustLinkClient(contract_id, rpc_url, network_passphrase)
-
-    async def _run(self, func, *args, **kwargs):
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, partial(func, *args, **kwargs))
         network_passphrase: str = Networks.TESTNET_NETWORK_PASSPHRASE,
     ) -> None:
         self.contract_id = contract_id
