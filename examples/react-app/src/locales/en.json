@@ -89,7 +89,10 @@
     "hide_qr": "Hide QR",
     "history_loading": "Loading history…",
     "history_error": "Failed to load history.",
-    "history_empty": "No history available."
+    "history_empty": "No history available.",
+    "expiring_soon_title": "{{count}} attestation(s) expiring soon",
+    "expiring_soon_desc": "The following attestations will expire within 30 days. Consider renewing them.",
+    "expiring_and_more": "and {{count}} more…"
   },
   "verifier": {
     "title": "Verifier Panel",

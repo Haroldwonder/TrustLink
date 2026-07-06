@@ -701,6 +701,54 @@ export class TrustLinkClient {
     return this.simulate("get_valid_claim_count", this.addr(subject));
   }
 
+  // ── Expiring Attestations (Issue #604) ───────────────────────────────────────
+
+  /**
+   * Returns attestations expiring within `withinDays` days, sorted by expiration ascending.
+   *
+   * @param subject    - Stellar address of the subject.
+   * @param withinDays - Number of days to look ahead for expiring attestations.
+   * @param start      - Zero-based page offset.
+   * @param limit      - Maximum number of results to return.
+   */
+  async getExpiringAttestations(
+    subject: string,
+    withinDays: number,
+    start: number,
+    limit: number
+  ): Promise<Attestation[]> {
+    return this.simulate(
+      "get_expiring_attestations",
+      this.addr(subject),
+      this.u32(withinDays),
+      this.u32(start),
+      this.u32(limit)
+    );
+  }
+
+  /**
+   * Returns issuer's attestations expiring within `daysWindow` days, sorted by expiration ascending.
+   *
+   * @param issuer     - Stellar address of the issuer.
+   * @param daysWindow - Number of days to look ahead for expiring attestations.
+   * @param start      - Zero-based page offset.
+   * @param limit      - Maximum number of results to return.
+   */
+  async getIssuerExpiringAttestations(
+    issuer: string,
+    daysWindow: number,
+    start: number,
+    limit: number
+  ): Promise<Attestation[]> {
+    return this.simulate(
+      "get_issuer_expiring_attestations",
+      this.addr(issuer),
+      this.u32(daysWindow),
+      this.u32(start),
+      this.u32(limit)
+    );
+  }
+
   // ── Multi-Sig Proposals ────────────────────────────────────────────────────
 
   async getMultisigProposal(proposalId: string): Promise<MultiSigProposal> {

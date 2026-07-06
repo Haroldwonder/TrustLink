@@ -8400,3 +8400,382 @@ mod timelock_tests {
         assert_eq!(result, Err(Ok(Error::CouncilProposalExecuted)));
     }
 }
+
+// ── get_expiring_attestations tests (Issue #604) ──────────────────────────────
+
+#[test]
+fn test_get_expiring_attestations_returns_attestations_expiring_within_window() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    // Set current time to 1000
+    env.ledger().set_timestamp(1000);
+
+    // Create attestation expiring in 5 days (432000 seconds from now)
+    let id1 = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &Some(1000 + 5 * 86_400), // expires at 433000
+        &None,
+        &None,
+    );
+
+    // Create attestation expiring in 20 days (1728000 seconds from now)
+    let _id2 = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &Some(1000 + 20 * 86_400),
+        &None,
+        &None,
+    );
+
+    // Create attestation expiring in 40 days (should NOT be returned with 30-day window)
+    let _id3 = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &Some(1000 + 40 * 86_400),
+        &None,
+        &None,
+    );
+
+    // Query with 30-day window should return first two
+    let result = client.get_expiring_attestations(&subject, &30, &0, &10);
+    assert_eq!(result.len(), 2);
+
+    // Query with 10-day window should return only the first one
+    let result_short = client.get_expiring_attestations(&subject, &10, &0, &10);
+    assert_eq!(result_short.len(), 1);
+    assert_eq!(result_short.get(0).unwrap().id, id1);
+}
+
+#[test]
+fn test_get_expiring_attestations_excludes_expired_attestations() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    env.ledger().set_timestamp(1000);
+
+    // Create attestation that will expire in the past (already expired)
+    let _id = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &Some(500), // already expired
+        &None,
+        &None,
+    );
+
+    // Query should return empty since attestation is already expired
+    let result = client.get_expiring_attestations(&subject, &30, &0, &10);
+    assert_eq!(result.len(), 0);
+}
+
+#[test]
+fn test_get_expiring_attestations_excludes_revoked_attestations() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    env.ledger().set_timestamp(1000);
+
+    let id = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &Some(1000 + 5 * 86_400),
+        &None,
+        &None,
+    );
+
+    // Revoke the attestation
+    client.revoke_attestation(&issuer, &id, &None);
+
+    // Query should return empty since attestation is revoked
+    let result = client.get_expiring_attestations(&subject, &30, &0, &10);
+    assert_eq!(result.len(), 0);
+}
+
+#[test]
+fn test_get_expiring_attestations_excludes_none_expiration() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    env.ledger().set_timestamp(1000);
+
+    // Create attestation with no expiration
+    let _id = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &None,
+        &None,
+        &None,
+    );
+
+    // Query should return empty since attestation has no expiration
+    let result = client.get_expiring_attestations(&subject, &30, &0, &10);
+    assert_eq!(result.len(), 0);
+}
+
+#[test]
+fn test_get_expiring_attestations_sorted_by_expiration_ascending() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    env.ledger().set_timestamp(1000);
+
+    // Create attestations with different expirations
+    let _id1 = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &Some(1000 + 10 * 86_400), // 10 days
+        &None,
+        &None,
+    );
+    env.ledger().set_timestamp(1001);
+
+    let _id2 = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &Some(1000 + 5 * 86_400), // 5 days (sooner)
+        &None,
+        &None,
+    );
+    env.ledger().set_timestamp(1002);
+
+    let _id3 = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &Some(1000 + 20 * 86_400), // 20 days (latest)
+        &None,
+        &None,
+    );
+
+    let result = client.get_expiring_attestations(&subject, &30, &0, &10);
+    assert_eq!(result.len(), 3);
+
+    // Should be sorted by expiration ascending (5 days, 10 days, 20 days)
+    assert_eq!(result.get(0).unwrap().expiration, Some(1000 + 5 * 86_400));
+    assert_eq!(result.get(1).unwrap().expiration, Some(1000 + 10 * 86_400));
+    assert_eq!(result.get(2).unwrap().expiration, Some(1000 + 20 * 86_400));
+}
+
+#[test]
+fn test_get_expiring_attestations_pagination() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    env.ledger().set_timestamp(1000);
+
+    // Create 5 attestations expiring within 30 days
+    for i in 1..=5 {
+        env.ledger().set_timestamp(1000 + i);
+        client.create_attestation(
+            &issuer,
+            &subject,
+            &claim_type,
+            &Some(1000 + i * 86_400),
+            &None,
+            &None,
+        );
+    }
+
+    // Page 1
+    let page1 = client.get_expiring_attestations(&subject, &30, &0, &2);
+    assert_eq!(page1.len(), 2);
+
+    // Page 2
+    let page2 = client.get_expiring_attestations(&subject, &30, &2, &2);
+    assert_eq!(page2.len(), 2);
+
+    // Page 3
+    let page3 = client.get_expiring_attestations(&subject, &30, &4, &2);
+    assert_eq!(page3.len(), 1);
+
+    // Beyond total
+    let page4 = client.get_expiring_attestations(&subject, &30, &5, &2);
+    assert_eq!(page4.len(), 0);
+}
+
+#[test]
+fn test_get_expiring_attestations_zero_days_window_returns_empty() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    env.ledger().set_timestamp(1000);
+
+    client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &Some(1000 + 86_400), // expires in 1 day
+        &None,
+        &None,
+    );
+
+    // Zero days window should return empty
+    let result = client.get_expiring_attestations(&subject, &0, &0, &10);
+    assert_eq!(result.len(), 0);
+}
+
+// ── get_issuer_expiring_attestations tests (Issue #604) ────────────────────────
+
+#[test]
+fn test_get_issuer_expiring_attestations_returns_issuers_expiring_attestations() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    env.ledger().set_timestamp(1000);
+
+    // Create attestation expiring in 5 days
+    let id1 = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &Some(1000 + 5 * 86_400),
+        &None,
+        &None,
+    );
+
+    // Create attestation expiring in 40 days (outside 30-day window)
+    let _id2 = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &Some(1000 + 40 * 86_400),
+        &None,
+        &None,
+    );
+
+    // Query with 30-day window
+    let result = client.get_issuer_expiring_attestations(&issuer, &30, &0, &10);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result.get(0).unwrap().id, id1);
+}
+
+#[test]
+fn test_get_issuer_expiring_attestations_excludes_revoked() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    env.ledger().set_timestamp(1000);
+
+    let id = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &Some(1000 + 5 * 86_400),
+        &None,
+        &None,
+    );
+
+    client.revoke_attestation(&issuer, &id, &None);
+
+    let result = client.get_issuer_expiring_attestations(&issuer, &30, &0, &10);
+    assert_eq!(result.len(), 0);
+}
+
+#[test]
+fn test_get_issuer_expiring_attestations_empty_issuer() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+
+    // Issuer with no attestations
+    let result = client.get_issuer_expiring_attestations(&issuer, &30, &0, &10);
+    assert_eq!(result.len(), 0);
+}
+
+#[test]
+fn test_get_issuer_expiring_attestations_sorted_by_expiration() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject1 = Address::generate(&env);
+    let subject2 = Address::generate(&env);
+    let subject3 = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    env.ledger().set_timestamp(1000);
+
+    // Create 3 attestations with different expirations
+    client.create_attestation(
+        &issuer,
+        &subject1,
+        &claim_type,
+        &Some(1000 + 20 * 86_400), // 20 days
+        &None,
+        &None,
+    );
+    env.ledger().set_timestamp(1001);
+
+    client.create_attestation(
+        &issuer,
+        &subject2,
+        &claim_type,
+        &Some(1000 + 5 * 86_400), // 5 days (soonest)
+        &None,
+        &None,
+    );
+    env.ledger().set_timestamp(1002);
+
+    client.create_attestation(
+        &issuer,
+        &subject3,
+        &claim_type,
+        &Some(1000 + 10 * 86_400), // 10 days
+        &None,
+        &None,
+    );
+
+    let result = client.get_issuer_expiring_attestations(&issuer, &30, &0, &10);
+    assert_eq!(result.len(), 3);
+
+    // Should be sorted by expiration ascending
+    assert_eq!(result.get(0).unwrap().expiration, Some(1000 + 5 * 86_400));
+    assert_eq!(result.get(1).unwrap().expiration, Some(1000 + 10 * 86_400));
+    assert_eq!(result.get(2).unwrap().expiration, Some(1000 + 20 * 86_400));
+}

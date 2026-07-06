@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { QRCodeSVG } from "qrcode.react";
-import { getSubjectAttestations, getAuditLog, Attestation, AuditEntry } from "../contract";
+import { getSubjectAttestations, getSubjectExpiringAttestations, getAuditLog, Attestation, AuditEntry } from "../contract";
 import { SkeletonAttestationList } from "../SkeletonList";
 
 interface Props { address: string; }
@@ -55,6 +55,7 @@ function AttestationTimeline({ attestationId }: { attestationId: string }) {
 export default function UserPanel({ address }: Props) {
   const { t } = useTranslation();
   const [attestations, setAttestations] = useState<Attestation[]>([]);
+  const [expiringAttestations, setExpiringAttestations] = useState<Attestation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedTimeline, setExpandedTimeline] = useState<string | null>(null);
@@ -66,8 +67,14 @@ export default function UserPanel({ address }: Props) {
 
   useEffect(() => {
     setLoading(true);
-    getSubjectAttestations(address)
-      .then(setAttestations)
+    Promise.all([
+      getSubjectAttestations(address),
+      getSubjectExpiringAttestations(address, 30),
+    ])
+      .then(([atts, expiring]) => {
+        setAttestations(atts);
+        setExpiringAttestations(expiring);
+      })
       .catch((e: unknown) => setError((e as Error).message))
       .finally(() => setLoading(false));
   }, [address]);
@@ -103,6 +110,43 @@ export default function UserPanel({ address }: Props) {
 
       {error && <div className="alert alert-error">{error}</div>}
       {loading && <SkeletonAttestationList />}
+
+      {!loading && expiringAttestations.length > 0 && (
+        <div style={{
+          marginBottom: "1rem",
+          padding: "0.75rem 1rem",
+          background: "linear-gradient(135deg, #7c6af7 0%, #a855f7 100%)",
+          borderRadius: "0.5rem",
+          color: "#fff",
+        }}>
+          <div style={{ fontWeight: 600, fontSize: "0.9rem", marginBottom: "0.5rem" }}>
+            {t("user.expiring_soon_title", { count: expiringAttestations.length })}
+          </div>
+          <div style={{ fontSize: "0.8rem", opacity: 0.9, marginBottom: "0.5rem" }}>
+            {t("user.expiring_soon_desc")}
+          </div>
+          {expiringAttestations.slice(0, 3).map((a) => (
+            <div key={a.id} style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              padding: "0.3rem 0",
+              fontSize: "0.78rem",
+              borderBottom: "1px solid rgba(255,255,255,0.2)",
+            }}>
+              <span style={{ fontWeight: 500 }}>{a.claim_type}</span>
+              <span style={{ opacity: 0.85 }}>
+                {t("common.expires", { date: new Date(Number(a.expiration) * 1000).toLocaleDateString() })}
+              </span>
+            </div>
+          ))}
+          {expiringAttestations.length > 3 && (
+            <div style={{ fontSize: "0.75rem", opacity: 0.8, marginTop: "0.4rem" }}>
+              {t("user.expiring_and_more", { count: expiringAttestations.length - 3 })}
+            </div>
+          )}
+        </div>
+      )}
 
       {!loading && (
         <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "1rem", alignItems: "center" }}>

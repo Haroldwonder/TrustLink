@@ -597,6 +597,28 @@ impl TrustLinkContract {
     }
 
     #[must_use]
+    pub fn get_expiring_attestations(
+        env: Env,
+        subject: Address,
+        within_days: u32,
+        start: u32,
+        limit: u32,
+    ) -> Vec<Attestation> {
+        query::get_expiring_attestations(&env, subject, within_days, start, limit)
+    }
+
+    #[must_use]
+    pub fn get_issuer_expiring_attestations(
+        env: Env,
+        issuer: Address,
+        days_window: u32,
+        start: u32,
+        limit: u32,
+    ) -> Vec<Attestation> {
+        query::get_issuer_expiring_attestations(&env, issuer, days_window, start, limit)
+    }
+
+    #[must_use]
     pub fn get_global_stats(env: Env) -> GlobalStats {
         query::get_global_stats(&env)
     }
@@ -820,26 +842,6 @@ impl TrustLinkContract {
         result
     }
 
-    /// Endorse an existing attestation, adding a layer of social proof.
-    ///
-    /// Only registered issuers may endorse. An issuer cannot endorse their own
-    /// attestation, and cannot endorse a revoked attestation. Each issuer may
-    /// endorse a given attestation at most once.
-    ///
-    /// # Errors
-    /// - [`Error::Unauthorized`] — endorser is not a registered issuer.
-    /// - [`Error::NotFound`] — attestation does not exist.
-    /// - [`Error::CannotEndorseOwn`] — endorser is the attestation's issuer.
-    /// - [`Error::AlreadyRevoked`] — attestation has been revoked.
-    /// - [`Error::AlreadyEndorsed`] — endorser has already endorsed this attestation.
-    pub fn endorse_attestation(
-        env: Env,
-        endorser: Address,
-        attestation_id: String,
-    ) -> Result<(), Error> {
-        endorser.require_auth();
-        Validation::require_issuer(&env, &endorser)?;
-
     pub fn cancel_request(env: Env, subject: Address, request_id: String) -> Result<(), Error> {
         request::cancel_request(&env, subject, request_id)
     }
@@ -928,6 +930,11 @@ impl TrustLinkContract {
         Validation::require_issuer(&env, &issuer)?;
         Validation::validate_claim_type(&template.claim_type)?;
         Validation::validate_metadata(&env, &template.metadata_template)?;
+
+        Storage::set_template(&env, &issuer, &template_id, &template);
+        Storage::add_to_template_registry(&env, &issuer, &template_id);
+        Ok(())
+    }
 
     pub fn get_contract_metadata(env: Env) -> Result<ContractMetadata, Error> {
         let version = Storage::get_version(&env).ok_or(Error::NotInitialized)?;
@@ -1019,14 +1026,16 @@ impl TrustLinkContract {
         // Delegate to the shared internal creation path.
         attestation::create_attestation_internal(
             &env,
-            &attestation_id,
-            &AuditEntry {
-                action: AuditAction::Transferred,
-                actor: admin.clone(),
-                timestamp,
-                details: None,
-            },
-        );
+            issuer,
+            subject,
+            template.claim_type.clone(),
+            expiration,
+            metadata,
+            None,
+            None,
+            None,
+        )
+    }
 
     /// Return the ordered list of template IDs registered for `issuer`.
     ///
