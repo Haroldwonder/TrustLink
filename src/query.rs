@@ -1,6 +1,7 @@
 use soroban_sdk::{Address, Env, String, Vec};
 
 use crate::attestation::maybe_trigger_expiration_hook;
+use crate::constants::SECS_PER_DAY;
 use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::{
@@ -432,6 +433,108 @@ pub fn get_attestation_history(
 /// is no open dispute.
 pub fn get_dispute(env: &Env, attestation_id: String) -> Option<DisputeRecord> {
     Storage::get_dispute(env, &attestation_id)
+}
+
+/// Returns subject's attestations expiring within `within_days` days, sorted by expiration ascending.
+///
+/// Excludes already-revoked, already-expired, and None-expiration attestations.
+/// Paginated via `start`/`limit`.
+pub fn get_expiring_attestations(
+    env: &Env,
+    subject: Address,
+    within_days: u32,
+    start: u32,
+    limit: u32,
+) -> Vec<Attestation> {
+    let current_time = env.ledger().timestamp();
+    let window_end = current_time + (within_days as u64) * SECS_PER_DAY;
+
+    let attestation_ids = Storage::get_subject_attestations(env, &subject);
+    let mut filtered = Vec::new(env);
+
+    for id in attestation_ids.iter() {
+        if let Ok(attestation) = Storage::get_attestation(env, &id) {
+            if attestation.deleted || attestation.revoked {
+                continue;
+            }
+            if let Some(exp) = attestation.expiration {
+                if exp > current_time && exp <= window_end {
+                    filtered.push_back(attestation);
+                }
+            }
+        }
+    }
+
+    // Sort by expiration ascending (simple bubble sort for small vectors)
+    let len = filtered.len();
+    for i in 0..len {
+        for j in 0..len - i - 1 {
+            let a = filtered.get(j).unwrap();
+            let b = filtered.get(j + 1).unwrap();
+            if a.expiration.unwrap_or(u64::MAX) > b.expiration.unwrap_or(u64::MAX) {
+                filtered.set(j, b);
+                filtered.set(j + 1, a);
+            }
+        }
+    }
+
+    let paginated = crate::storage::paginate(env, &filtered, start, limit);
+    let mut result = Vec::new(env);
+    for attestation in paginated.iter() {
+        result.push_back(attestation);
+    }
+    result
+}
+
+/// Returns issuer's attestations expiring within `days_window` days, sorted by expiration ascending.
+///
+/// Excludes already-revoked, already-expired, and None-expiration attestations.
+/// Paginated via `start`/`limit`.
+pub fn get_issuer_expiring_attestations(
+    env: &Env,
+    issuer: Address,
+    days_window: u32,
+    start: u32,
+    limit: u32,
+) -> Vec<Attestation> {
+    let current_time = env.ledger().timestamp();
+    let window_end = current_time + (days_window as u64) * SECS_PER_DAY;
+
+    let attestation_ids = Storage::get_issuer_attestations(env, &issuer);
+    let mut filtered = Vec::new(env);
+
+    for id in attestation_ids.iter() {
+        if let Ok(attestation) = Storage::get_attestation(env, &id) {
+            if attestation.deleted || attestation.revoked {
+                continue;
+            }
+            if let Some(exp) = attestation.expiration {
+                if exp > current_time && exp <= window_end {
+                    filtered.push_back(attestation);
+                }
+            }
+        }
+    }
+
+    // Sort by expiration ascending (simple bubble sort for small vectors)
+    let len = filtered.len();
+    for i in 0..len {
+        for j in 0..len - i - 1 {
+            let a = filtered.get(j).unwrap();
+            let b = filtered.get(j + 1).unwrap();
+            if a.expiration.unwrap_or(u64::MAX) > b.expiration.unwrap_or(u64::MAX) {
+                filtered.set(j, b);
+                filtered.set(j + 1, a);
+            }
+        }
+    }
+
+    let paginated = crate::storage::paginate(env, &filtered, start, limit);
+    let mut result = Vec::new(env);
+    for attestation in paginated.iter() {
+        result.push_back(attestation);
+    }
+    result
 }
 
 /// Submit a dispute against an attestation. Only the subject of the

@@ -393,6 +393,19 @@ export async function getExpiringAttestations(
   );
 }
 
+export async function getSubjectExpiringAttestations(
+  subject: string,
+  withinDays: number
+): Promise<Attestation[]> {
+  return simulate(
+    "get_expiring_attestations",
+    addr(subject),
+    nativeToScVal(withinDays, { type: "u32" }),
+    nativeToScVal(0, { type: "u32" }),
+    nativeToScVal(50, { type: "u32" })
+  );
+}
+
 export type AuditAction = "Created" | "Revoked" | "Renewed" | "Updated" | "Transferred";
 
 export interface AuditEntry {
