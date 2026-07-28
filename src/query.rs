@@ -1,7 +1,7 @@
 use soroban_sdk::{Address, Env, String, Vec};
 
 use crate::attestation::maybe_trigger_expiration_hook;
-use crate::constants::SECS_PER_DAY;
+use crate::constants::{SECS_PER_DAY, MAX_EXPIRING_WINDOW_DAYS};
 use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::{
@@ -439,13 +439,19 @@ pub fn get_dispute(env: &Env, attestation_id: String) -> Option<DisputeRecord> {
 ///
 /// Excludes already-revoked, already-expired, and None-expiration attestations.
 /// Paginated via `start`/`limit`.
+///
+/// Returns an error if `within_days` exceeds `MAX_EXPIRING_WINDOW_DAYS`.
 pub fn get_expiring_attestations(
     env: &Env,
     subject: Address,
     within_days: u32,
     start: u32,
     limit: u32,
-) -> Vec<Attestation> {
+) -> Result<Vec<Attestation>, Error> {
+    if within_days > MAX_EXPIRING_WINDOW_DAYS {
+        return Err(Error::LimitExceeded);
+    }
+
     let current_time = env.ledger().timestamp();
     let window_end = current_time + (within_days as u64) * SECS_PER_DAY;
 
@@ -483,20 +489,26 @@ pub fn get_expiring_attestations(
     for attestation in paginated.iter() {
         result.push_back(attestation);
     }
-    result
+    Ok(result)
 }
 
 /// Returns issuer's attestations expiring within `days_window` days, sorted by expiration ascending.
 ///
 /// Excludes already-revoked, already-expired, and None-expiration attestations.
 /// Paginated via `start`/`limit`.
+///
+/// Returns an error if `days_window` exceeds `MAX_EXPIRING_WINDOW_DAYS`.
 pub fn get_issuer_expiring_attestations(
     env: &Env,
     issuer: Address,
     days_window: u32,
     start: u32,
     limit: u32,
-) -> Vec<Attestation> {
+) -> Result<Vec<Attestation>, Error> {
+    if days_window > MAX_EXPIRING_WINDOW_DAYS {
+        return Err(Error::LimitExceeded);
+    }
+
     let current_time = env.ledger().timestamp();
     let window_end = current_time + (days_window as u64) * SECS_PER_DAY;
 
@@ -534,7 +546,7 @@ pub fn get_issuer_expiring_attestations(
     for attestation in paginated.iter() {
         result.push_back(attestation);
     }
-    result
+    Ok(result)
 }
 
 /// Submit a dispute against an attestation. Only the subject of the

@@ -596,25 +596,23 @@ impl TrustLinkContract {
         query::get_valid_claim_count(&env, subject)
     }
 
-    #[must_use]
     pub fn get_expiring_attestations(
         env: Env,
         subject: Address,
         within_days: u32,
         start: u32,
         limit: u32,
-    ) -> Vec<Attestation> {
+    ) -> Result<Vec<Attestation>, Error> {
         query::get_expiring_attestations(&env, subject, within_days, start, limit)
     }
 
-    #[must_use]
     pub fn get_issuer_expiring_attestations(
         env: Env,
         issuer: Address,
         days_window: u32,
         start: u32,
         limit: u32,
-    ) -> Vec<Attestation> {
+    ) -> Result<Vec<Attestation>, Error> {
         query::get_issuer_expiring_attestations(&env, issuer, days_window, start, limit)
     }
 
