@@ -1752,6 +1752,68 @@ fn test_multisig_duplicate_cosign_rejected() {
 }
 
 #[test]
+fn test_multisig_proposer_in_required_signers_counts() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (issuer1, issuer2, issuer3, _, client) = setup_multisig(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "VERIFIED_IDENTITY");
+
+    let mut required = soroban_sdk::Vec::new(&env);
+    required.push_back(issuer1.clone());
+    required.push_back(issuer2.clone());
+
+    let proposal_id = client.propose_attestation(&issuer1, &subject, &claim_type, &required, &2);
+
+    let proposal = client.get_multisig_proposal(&proposal_id);
+    assert_eq!(proposal.signers.len(), 1);
+    assert_eq!(proposal.signers.get(0).unwrap(), &issuer1);
+
+    client.cosign_attestation(&issuer2, &proposal_id);
+
+    let proposal = client.get_multisig_proposal(&proposal_id);
+    assert!(proposal.finalized);
+    assert!(client.has_valid_claim(&subject, &claim_type));
+}
+
+#[test]
+fn test_multisig_proposer_not_in_required_signers() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (issuer1, issuer2, issuer3, admin, client) = setup_multisig(&env);
+    let outsider = Address::generate(&env);
+    client.register_issuer(&admin, &outsider);
+
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "VERIFIED_IDENTITY");
+
+    let mut required = soroban_sdk::Vec::new(&env);
+    required.push_back(issuer2.clone());
+    required.push_back(issuer3.clone());
+
+    let proposal_id = client.propose_attestation(&outsider, &subject, &claim_type, &required, &2);
+
+    let proposal = client.get_multisig_proposal(&proposal_id);
+    assert_eq!(proposal.signers.len(), 1);
+    assert_eq!(proposal.signers.get(0).unwrap(), &outsider);
+
+    client.cosign_attestation(&issuer2, &proposal_id);
+
+    let proposal = client.get_multisig_proposal(&proposal_id);
+    assert_eq!(proposal.signers.len(), 2);
+    assert!(!proposal.finalized);
+
+    client.cosign_attestation(&issuer3, &proposal_id);
+
+    let proposal = client.get_multisig_proposal(&proposal_id);
+    assert_eq!(proposal.signers.len(), 3);
+    assert!(proposal.finalized);
+    assert!(client.has_valid_claim(&subject, &claim_type));
+}
+
+#[test]
 fn test_multisig_expired_proposal_rejected() {
     let env = Env::default();
     env.mock_all_auths();
