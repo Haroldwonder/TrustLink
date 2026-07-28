@@ -252,7 +252,6 @@ pub fn get_attestations_in_range_after(
     if let Some(cursor_id) = after_attestation_id {
         let mut cursor_found = false;
         let mut cursor_timestamp: u64 = 0;
-        let mut cursor_id_ref = cursor_id.clone();
         if let Ok(cursor_attestation) = Storage::get_attestation(env, &cursor_id) {
             cursor_timestamp = cursor_attestation.timestamp;
             for i in 0..filtered.len() {
@@ -272,7 +271,7 @@ pub fn get_attestations_in_range_after(
             for i in 0..filtered.len() {
                 if let Some(attestation) = filtered.get(i) {
                     if attestation.timestamp > cursor_timestamp
-                        || (attestation.timestamp == cursor_timestamp && attestation.id > cursor_id_ref)
+                        || (attestation.timestamp == cursor_timestamp && attestation.id > cursor_id)
                     {
                         start_index = i;
                         cursor_found = true;
@@ -469,11 +468,11 @@ pub fn get_expiring_attestations(
     let len = filtered.len();
     for i in 0..len {
         for j in 0..len - i - 1 {
-            let a = filtered.get(j).unwrap();
-            let b = filtered.get(j + 1).unwrap();
-            if a.expiration.unwrap_or(u64::MAX) > b.expiration.unwrap_or(u64::MAX) {
-                filtered.set(j, b);
-                filtered.set(j + 1, a);
+            if let (Some(a), Some(b)) = (filtered.get(j), filtered.get(j + 1)) {
+                if a.expiration.unwrap_or(u64::MAX) > b.expiration.unwrap_or(u64::MAX) {
+                    filtered.set(j, b);
+                    filtered.set(j + 1, a);
+                }
             }
         }
     }
@@ -520,11 +519,11 @@ pub fn get_issuer_expiring_attestations(
     let len = filtered.len();
     for i in 0..len {
         for j in 0..len - i - 1 {
-            let a = filtered.get(j).unwrap();
-            let b = filtered.get(j + 1).unwrap();
-            if a.expiration.unwrap_or(u64::MAX) > b.expiration.unwrap_or(u64::MAX) {
-                filtered.set(j, b);
-                filtered.set(j + 1, a);
+            if let (Some(a), Some(b)) = (filtered.get(j), filtered.get(j + 1)) {
+                if a.expiration.unwrap_or(u64::MAX) > b.expiration.unwrap_or(u64::MAX) {
+                    filtered.set(j, b);
+                    filtered.set(j + 1, a);
+                }
             }
         }
     }

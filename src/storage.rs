@@ -4,9 +4,10 @@
 
 use crate::constants::{DAY_IN_LEDGERS, DEFAULT_INSTANCE_LIFETIME};
 use crate::types::{
-    Attestation, AttestationRequest, AuditEntry, ClaimTypeInfo, Endorsement, Error, ExpirationHook,
-    FeeConfig, GlobalStats, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal,
-    RateLimitConfig, StorageLimits, TtlConfig,
+    AdminCouncil, Attestation, AttestationRequest, AttestationTemplate, AuditEntry, ClaimTypeConstraints,
+    ClaimTypeInfo, CouncilProposal, DecayConfig, Delegation, DisputeRecord, Endorsement, Error,
+    ExpirationHook, FeeConfig, GlobalStats, IssuerMetadata, IssuerStats, IssuerTier,
+    MultiSigProposal, PendingAdminTransfer, RateLimitConfig, StorageLimits, TtlConfig,
 };
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
@@ -20,6 +21,8 @@ pub enum StorageKey {
     ContractConfig,
     Issuer(Address),
     Bridge(Address),
+    /// Ordered list of all registered bridge addresses.
+    BridgeList,
     Attestation(String),
     SubjectAttestations(Address),
     IssuerAttestations(Address),
@@ -30,6 +33,10 @@ pub enum StorageKey {
     ClaimTypeList,
     /// Constraints for a specific claim type.
     ClaimTypeConstraints(String),
+    /// Per-claim-type attestation count across all issuers.
+    ClaimTypeCount(String),
+    /// Per-claim-type minimum issuance interval (rate limit).
+    ClaimTypeRateLimit(String),
     IssuerList,
     MultisigTtlDays,
     IssuerTier(Address),
@@ -37,7 +44,11 @@ pub enum StorageKey {
     GlobalStats,
     ExpirationHook(Address),
     Endorsements(String),
+    /// Index of attestation IDs endorsed by a given endorser.
+    EndorserIndex(Address),
     StorageLimits,
+    /// Alias for StorageLimits used in some code paths.
+    Limits,
     RateLimitConfig,
     LastIssuanceTime(Address),
     IssuerWhitelistMode(Address),
@@ -49,6 +60,10 @@ pub enum StorageKey {
     AuditLog(String),
     /// Multi-sig proposal keyed by proposal ID.
     MultiSigProposal(String),
+    /// Admin council proposal keyed by proposal ID.
+    CouncilProposal(u32),
+    /// Monotonic counter for admin council proposal IDs.
+    ProposalCounter,
     /// An attestation request record.
     AttestationRequest(String),
     IssuerPendingRequests(Address),
@@ -58,14 +73,30 @@ pub enum StorageKey {
     WhitelistEnabled(Address),
     /// Presence flag for a whitelisted subject under a specific issuer.
     SubjectWhitelist(Address, Address),
-    /// Rate limit configuration (minimum seconds between attestations).
-    RateLimitConfig,
-    /// Last attestation issuance timestamp per issuer.
-    LastIssuanceTime(Address),
     /// Ordered list of proposal IDs for a subject (for list_open_proposals).
     ProposalIndex(Address),
     /// Configurable TTL in days for multisig proposals (default: 7).
     MultisigTtl,
+    /// Pending two-step admin transfer.
+    PendingAdminTransfer,
+    /// Attestation template keyed by (issuer, template_id).
+    AttestationTemplate(Address, String),
+    /// Ordered list of template IDs for a given issuer.
+    AttestationTemplateList(Address),
+    /// Index of valid attestation IDs for a subject (optimised lookup).
+    ValidAttestations(Address),
+    /// Delegation record keyed by (delegator, delegate, claim_type).
+    Delegation(Address, Address, String),
+    /// Index of active delegations for a delegator.
+    DelegatorIndex(Address),
+    /// Decay configuration for issuer reputation scoring.
+    DecayConfig,
+    /// Active dispute record for an attestation.
+    Dispute(String),
+    /// Timelock delay in seconds for council action execution.
+    CouncilTimelockDelay,
+    /// Cumulative revocation count for an issuer (used in confidence scoring).
+    IssuerRevocations(Address),
 }
 
 /// Composite key for per-issuer-per-claim-type last issuance timestamps.

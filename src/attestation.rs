@@ -894,7 +894,9 @@ pub fn list_endorsements_by_endorser(env: &Env, endorser: Address, start: u32, l
     let end = (start + limit).min(total);
     let mut result = Vec::new(env);
     for i in start..end {
-        result.push_back(all.get(i).unwrap());
+        if let Some(item) = all.get(i) {
+            result.push_back(item);
+        }
     }
     result
 }
