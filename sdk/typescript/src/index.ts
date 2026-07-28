@@ -59,6 +59,8 @@ export {
   ProposalCancelledError,
   InvalidSourceReferenceError,
   parseTrustLinkError,
+  classifyErrorCode,
+  knownErrorCodes,
 } from "./types.js";
 export { CircuitBreaker, withRetry } from "./resilience.js";
 export type { RetryOptions, CircuitBreakerOptions, ResilienceConfig } from "./resilience.js";

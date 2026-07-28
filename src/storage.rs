@@ -31,12 +31,14 @@ pub enum StorageKey {
     /// Constraints for a specific claim type.
     ClaimTypeConstraints(String),
     IssuerList,
+    BridgeList,
     MultisigTtlDays,
     IssuerTier(Address),
     IssuerStats(Address),
     GlobalStats,
     ExpirationHook(Address),
     Endorsements(String),
+    EndorserIndex(Address),
     StorageLimits,
     RateLimitConfig,
     LastIssuanceTime(Address),
@@ -58,14 +60,40 @@ pub enum StorageKey {
     WhitelistEnabled(Address),
     /// Presence flag for a whitelisted subject under a specific issuer.
     SubjectWhitelist(Address, Address),
-    /// Rate limit configuration (minimum seconds between attestations).
-    RateLimitConfig,
-    /// Last attestation issuance timestamp per issuer.
-    LastIssuanceTime(Address),
     /// Ordered list of proposal IDs for a subject (for list_open_proposals).
     ProposalIndex(Address),
     /// Configurable TTL in days for multisig proposals (default: 7).
     MultisigTtl,
+    /// Attestation template keyed by (issuer, template_id).
+    AttestationTemplate(Address, String),
+    /// List of template IDs for an issuer.
+    AttestationTemplateList(Address),
+    /// Per-claim-type attestation count.
+    ClaimTypeCount(String),
+    /// Per-claim-type rate-limit interval (seconds).
+    ClaimTypeRateLimit(String),
+    /// Admin council proposal keyed by proposal id.
+    CouncilProposal(u64),
+    /// Council timelock delay in seconds.
+    CouncilTimelockDelay,
+    /// Reputation decay configuration.
+    DecayConfig,
+    /// Delegation keyed by (delegator, delegate, claim_type).
+    Delegation(Address, Address, String),
+    /// Index of delegations for a delegator.
+    DelegatorIndex(Address),
+    /// Dispute record for an attestation.
+    Dispute(String),
+    /// Revocation IDs for an issuer.
+    IssuerRevocations(Address),
+    /// Global operational limits.
+    Limits,
+    /// Pending admin transfer (two-step ownership change).
+    PendingAdminTransfer,
+    /// Monotonic counter for proposal IDs.
+    ProposalCounter,
+    /// Cached list of currently-valid attestation IDs for a subject.
+    ValidAttestations(Address),
 }
 
 /// Composite key for per-issuer-per-claim-type last issuance timestamps.

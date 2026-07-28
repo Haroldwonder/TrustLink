@@ -15,6 +15,9 @@ from .types import (
     MultiSigProposal,
     TrustLinkError,
     ContractError,
+    CONTRACT_ERRORS,
+    decode_contract_error,
+    classify_error_code,
 )
 
 __version__ = "0.1.0"
@@ -33,4 +36,7 @@ __all__ = [
     "MultiSigProposal",
     "TrustLinkError",
     "ContractError",
+    "CONTRACT_ERRORS",
+    "decode_contract_error",
+    "classify_error_code",
 ]

@@ -182,6 +182,7 @@ export enum ContractErrorCode {
   RateLimited = 28,
   LimitExceeded = 29,
   ProposalCancelled = 30,
+  InvalidSourceReference = 44,
 }
 
 export const CONTRACT_ERRORS: Record<number, string> = {
@@ -215,6 +216,7 @@ export const CONTRACT_ERRORS: Record<number, string> = {
   28: "RateLimited",
   29: "LimitExceeded",
   30: "ProposalCancelled",
+  44: "InvalidSourceReference",
 };
 
 // ─── XDR helpers ──────────────────────────────────────────────────────────────
