@@ -8830,3 +8830,26 @@ fn test_issue_924_increment_issuer_stats() {
     let after_zero = Storage::get_issuer_stats(&env, &issuer);
     assert_eq!(after_zero.total_issued, 8);
 }
+
+#[test]
+fn test_issue_923_remove_issuer_attestation() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+    let attestations_before = client.get_issuer_attestations(&issuer, &0, &100);
+    assert!(attestations_before.len() > 0);
+
+    let first_attestation_id = attestations_before.get(0).unwrap().id;
+
+    Storage::remove_issuer_attestation(&env, &issuer, &first_attestation_id);
+
+    let attestations_after = client.get_issuer_attestations(&issuer, &0, &100);
+    for att in attestations_after.iter() {
+        assert_ne!(att.id, first_attestation_id);
+    }
+}

@@ -344,6 +344,10 @@ impl Storage {
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 
+    pub fn remove_issuer_attestation(env: &Env, issuer: &Address, attestation_id: &String) {
+        ChunkedIndex::remove_issuer(env, issuer, attestation_id);
+    }
+
     /// Persist `metadata` for `issuer` and refresh its TTL.
     pub fn set_issuer_metadata(env: &Env, issuer: &Address, metadata: &IssuerMetadata) {
         let key = StorageKey::IssuerMetadata(issuer.clone());
