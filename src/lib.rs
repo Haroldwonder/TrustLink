@@ -711,11 +711,6 @@ impl TrustLinkContract {
         multisig::get_multisig_proposal(&env, proposal_id)
     }
 
-    #[must_use]
-    pub fn get_multisig_ttl(env: Env) -> u32 {
-        multisig::get_multisig_ttl(&env)
-    }
-
         if proposal.cancelled {
             return Err(Error::ProposalExpired);
         }
