@@ -479,6 +479,11 @@ impl TrustLinkContract {
         attestation::get_endorsement_count(&env, attestation_id)
     }
 
+    #[must_use]
+    pub fn list_endorsements_by_endorser(env: Env, endorser: Address, start: u32, limit: u32) -> Vec<Endorsement> {
+        attestation::list_endorsements_by_endorser(&env, endorser, start, limit)
+    }
+
     pub fn create_attestation_as_delegate(
         env: Env,
         delegate: Address,
@@ -844,6 +849,13 @@ impl TrustLinkContract {
 
     pub fn cancel_request(env: Env, subject: Address, request_id: String) -> Result<(), Error> {
         request::cancel_request(&env, subject, request_id)
+    }
+
+    pub fn cleanup_expired_requests(env: Env, issuer: Address) -> Result<(), Error> {
+        issuer.require_auth();
+        Validation::require_issuer(&env, &issuer)?;
+        Storage::cleanup_expired_requests(&env, &issuer);
+        Ok(())
     }
 
     // -----------------------------------------------------------------------

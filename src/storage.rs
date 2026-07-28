@@ -779,6 +779,23 @@ impl Storage {
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 
+    pub fn cleanup_expired_requests(env: &Env, issuer: &Address) {
+        let key = StorageKey::IssuerPendingRequests(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        let current_time = env.ledger().timestamp();
+        let existing = Self::get_pending_request_ids(env, issuer);
+        let mut updated = Vec::new(env);
+        for id in existing.iter() {
+            if let Ok(req) = Self::get_request(env, &id) {
+                if current_time < req.expires_at {
+                    updated.push_back(id);
+                }
+            }
+        }
+        env.storage().persistent().set(&key, &updated);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
     // ── Pending admin transfer ────────────────────────────────────────────────
 
     pub fn set_pending_admin_transfer(env: &Env, transfer: &PendingAdminTransfer) {
