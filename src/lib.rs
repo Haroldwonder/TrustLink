@@ -279,6 +279,19 @@ impl TrustLinkContract {
         admin::get_metadata_hash_only(&env)
     }
 
+    /// Sets the `ChunkedIndex` chunk size (number of attestation IDs per
+    /// storage entry). Admin-only. See [`admin::set_chunk_size`] for
+    /// important caveats about calling this after data has been written.
+    pub fn set_chunk_size(env: Env, admin: Address, chunk_size: u32) -> Result<(), Error> {
+        admin::set_chunk_size(&env, admin, chunk_size)
+    }
+
+    /// Returns the currently configured `ChunkedIndex` chunk size (default: 50).
+    #[must_use]
+    pub fn get_chunk_size(env: Env) -> u32 {
+        admin::get_chunk_size(&env)
+    }
+
     // -----------------------------------------------------------------------
     // Limits
     // -----------------------------------------------------------------------
@@ -969,6 +982,9 @@ impl TrustLinkContract {
                 "On-chain attestation and verification system for the Stellar blockchain.",
             ),
             multisig_ttl_days: Storage::get_multisig_ttl(&env),
+            require_registered_claim_type: admin::get_require_registered_claim_type(&env),
+            metadata_hash_only: admin::get_metadata_hash_only(&env),
+            chunk_size: admin::get_chunk_size(&env),
         }
     }
 

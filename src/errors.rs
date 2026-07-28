@@ -55,4 +55,6 @@ pub enum Error {
     LimitExceeded = 29,
     /// The proposal has been cancelled by the proposer.
     ProposalCancelled = 30,
+    /// `chunk_size` passed to `set_chunk_size` is 0 or otherwise out of range.
+    InvalidChunkSize = 31,
 }

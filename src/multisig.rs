@@ -75,6 +75,7 @@ pub fn propose_attestation(
         created_at: timestamp,
         expires_at: timestamp + MULTISIG_PROPOSAL_TTL_SECS,
         finalized: false,
+        cancelled: false,
     };
     Storage::set_multisig_proposal(env, &proposal);
     Events::multisig_proposed(env, &proposal_id, &proposer, &subject, threshold);

@@ -411,6 +411,9 @@ pub fn set_require_registered_claim_type(env: &Env, admin: Address, require: boo
                 fee_token: None,
             }),
             require_registered_claim_type: false,
+            metadata_hash_only: false,
+            multisig_ttl_days: 7,
+            chunk_size: 50,
         }
     });
     
@@ -442,6 +445,54 @@ pub fn get_metadata_hash_only(env: &Env) -> bool {
     Storage::get_contract_config(env)
         .map(|config| config.metadata_hash_only)
         .unwrap_or(false)
+}
+
+/// Sets the `ChunkedIndex` chunk size stored in `ContractConfig`.
+///
+/// The chunk size controls how many attestation IDs are packed into each
+/// on-chain storage entry for the subject/issuer indexes.
+///
+/// **This should only be called before any attestations are written.** Changing
+/// the chunk size after index data exists will cause the old chunks (written
+/// with the previous size) to be read correctly, but new writes will use the
+/// new size, producing inconsistently-sized chunks. A full index migration is
+/// required to normalise an existing index to a new chunk size.
+///
+/// # Errors
+/// - [`Error::Unauthorized`] — caller is not a registered admin.
+/// - [`Error::InvalidInput`] — `chunk_size` is 0.
+pub fn set_chunk_size(env: &Env, admin: Address, chunk_size: u32) -> Result<(), Error> {
+    admin.require_auth();
+    Validation::require_admin(env, &admin)?;
+    if chunk_size == 0 {
+        return Err(Error::InvalidChunkSize);
+    }
+    let mut config = Storage::get_contract_config(env).unwrap_or_else(|| ContractConfig {
+        contract_name: String::from_str(env, "TrustLink"),
+        contract_version: String::from_str(env, ""),
+        contract_description: String::from_str(env, ""),
+        fee_config: crate::types::FeeConfig {
+            attestation_fee: 0,
+            fee_collector: admin.clone(),
+            fee_token: None,
+        },
+        ttl_config: crate::types::TtlConfig { ttl_days: 30 },
+        require_registered_claim_type: false,
+        metadata_hash_only: false,
+        multisig_ttl_days: 7,
+        chunk_size: 50,
+    });
+    config.chunk_size = chunk_size;
+    Storage::set_contract_config(env, &config);
+    Ok(())
+}
+
+/// Returns the currently configured `ChunkedIndex` chunk size (default: 50).
+pub fn get_chunk_size(env: &Env) -> u32 {
+    Storage::get_contract_config(env)
+        .map(|config| config.chunk_size)
+        .filter(|&s| s >= 1)
+        .unwrap_or(50)
 }
 
 // -----------------------------------------------------------------------

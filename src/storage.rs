@@ -1196,7 +1196,18 @@ pub fn paginate_addresses(env: &Env, list: &Vec<Address>, start: u32, limit: u32
     result
 }
 
-const CHUNKED_INDEX_CHUNK_SIZE: u32 = 50;
+/// Default chunk size used when no value has been configured in `ContractConfig`.
+const DEFAULT_CHUNK_SIZE: u32 = 50;
+
+/// Returns the configured `ChunkedIndex` chunk size, falling back to
+/// `DEFAULT_CHUNK_SIZE` when the contract has not been initialised yet or
+/// when `chunk_size` was not explicitly stored.
+fn get_chunk_size(env: &Env) -> u32 {
+    Storage::get_contract_config(env)
+        .map(|cfg| cfg.chunk_size)
+        .filter(|&s| s >= 1)
+        .unwrap_or(DEFAULT_CHUNK_SIZE)
+}
 
 pub struct ChunkedIndex;
 
@@ -1239,11 +1250,12 @@ impl ChunkedIndex {
 
     fn write_subject_chunks(env: &Env, subject: &Address, ids: &Vec<String>) {
         let ttl = get_ttl_lifetime(env);
+        let chunk_size = get_chunk_size(env);
         let mut chunk_index = 0;
         let mut offset = 0;
         while offset < ids.len() {
             let mut chunk = Vec::new(env);
-            for _ in 0..CHUNKED_INDEX_CHUNK_SIZE {
+            for _ in 0..chunk_size {
                 if let Some(id) = ids.get(offset) {
                     chunk.push_back(id.clone());
                     offset += 1;
@@ -1272,11 +1284,12 @@ impl ChunkedIndex {
 
     fn write_issuer_chunks(env: &Env, issuer: &Address, ids: &Vec<String>) {
         let ttl = get_ttl_lifetime(env);
+        let chunk_size = get_chunk_size(env);
         let mut chunk_index = 0;
         let mut offset = 0;
         while offset < ids.len() {
             let mut chunk = Vec::new(env);
-            for _ in 0..CHUNKED_INDEX_CHUNK_SIZE {
+            for _ in 0..chunk_size {
                 if let Some(id) = ids.get(offset) {
                     chunk.push_back(id.clone());
                     offset += 1;
