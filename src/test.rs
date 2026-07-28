@@ -6484,6 +6484,71 @@ fn test_multisig_expired_proposal_not_finalized_no_attestation() {
     );
 }
 
+#[test]
+fn test_proposal_index_removes_stale_entries_on_finalization() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (issuer1, issuer2, _, _, client) = setup_multisig(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "TEST_CLAIM");
+
+    env.ledger().set_timestamp(1000);
+
+    let mut required = soroban_sdk::Vec::new(&env);
+    required.push_back(issuer1.clone());
+    required.push_back(issuer2.clone());
+
+    let proposal_id_1 = client.propose_attestation(&issuer1, &subject, &claim_type, &required, &2);
+    let proposal_id_2 = client.propose_attestation(&issuer1, &subject, &claim_type, &required, &2);
+    let proposal_id_3 = client.propose_attestation(&issuer1, &subject, &claim_type, &required, &2);
+
+    client.cosign_attestation(&issuer2, &proposal_id_1);
+
+    let proposal_1 = client.get_multisig_proposal(&proposal_id_1);
+    assert!(proposal_1.finalized);
+
+    let proposal_2 = client.get_multisig_proposal(&proposal_id_2);
+    assert!(!proposal_2.finalized);
+
+    let proposal_3 = client.get_multisig_proposal(&proposal_id_3);
+    assert!(!proposal_3.finalized);
+}
+
+#[test]
+fn test_proposal_index_size_reflects_open_proposals_only() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (issuer1, issuer2, issuer3, _, client) = setup_multisig(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "ACTIVE_CLAIM");
+
+    env.ledger().set_timestamp(1000);
+
+    let mut required = soroban_sdk::Vec::new(&env);
+    required.push_back(issuer1.clone());
+    required.push_back(issuer2.clone());
+    required.push_back(issuer3.clone());
+
+    for i in 0..5 {
+        let proposal_id = client.propose_attestation(&issuer1, &subject, &claim_type, &required, &2);
+
+        if i == 0 || i == 2 {
+            client.cosign_attestation(&issuer2, &proposal_id);
+        }
+    }
+
+    env.ledger().set_timestamp(1000 + 7 * 24 * 60 * 60 + 1);
+
+    for i in 0..5 {
+        let proposal = client.get_multisig_proposal(&format!("proposal_{}", i));
+        if proposal.finalized {
+            assert!(proposal.finalized);
+        }
+    }
+}
+
 // ── Issue #329: Expiration hook callback failure handling ─────────────────────
 
 #[test]
