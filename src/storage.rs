@@ -31,7 +31,6 @@ pub enum StorageKey {
     /// Constraints for a specific claim type.
     ClaimTypeConstraints(String),
     IssuerList,
-    MultisigTtlDays,
     IssuerTier(Address),
     IssuerStats(Address),
     GlobalStats,
@@ -58,14 +57,8 @@ pub enum StorageKey {
     WhitelistEnabled(Address),
     /// Presence flag for a whitelisted subject under a specific issuer.
     SubjectWhitelist(Address, Address),
-    /// Rate limit configuration (minimum seconds between attestations).
-    RateLimitConfig,
-    /// Last attestation issuance timestamp per issuer.
-    LastIssuanceTime(Address),
     /// Ordered list of proposal IDs for a subject (for list_open_proposals).
     ProposalIndex(Address),
-    /// Configurable TTL in days for multisig proposals (default: 7).
-    MultisigTtl,
 }
 
 /// Composite key for per-issuer-per-claim-type last issuance timestamps.
@@ -616,7 +609,7 @@ impl Storage {
     }
 
     pub fn get_multisig_ttl_days(env: &Env) -> u32 {
-        env.storage().instance().get(&StorageKey::MultisigTtlDays).unwrap_or(7)
+        env.storage().instance().get(&StorageKey::MultisigTtl).unwrap_or(7)
     }
 
     pub fn get_endorsements(env: &Env, attestation_id: &String) -> Vec<Endorsement> {
