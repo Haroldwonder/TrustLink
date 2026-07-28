@@ -127,6 +127,33 @@ export class TrustLinkClient {
     }, this.retryOptions, this.breaker);
   }
 
+  /**
+   * Build and simulate a write-adjacent call using a given source account,
+   * returning the raw SimulateTransactionResponse for the caller to sign and
+   * submit. Uses the same retry + circuit-breaker path as `simulate()` so
+   * transient RPC failures are handled consistently.
+   *
+   * NOTE: Only the *simulation* is retried here. The actual transaction
+   * submission is left to the caller, which prevents double-submission on retry.
+   */
+  private async simulateForSigning(
+    source: string,
+    method: string,
+    ...args: xdr.ScVal[]
+  ): Promise<SorobanRpc.Api.SimulateTransactionResponse> {
+    return withRetry(async () => {
+      const account = new Account(source, "0");
+      const tx = new TransactionBuilder(account, {
+        fee: BASE_FEE,
+        networkPassphrase: this.networkPassphrase,
+      })
+        .addOperation(this.contract.call(method, ...args))
+        .setTimeout(30)
+        .build();
+      return this.server.simulateTransaction(tx);
+    }, this.retryOptions, this.breaker);
+  }
+
   private addr(address: string): xdr.ScVal {
     return Address.fromString(address).toScVal();
   }
@@ -516,22 +543,12 @@ export class TrustLinkClient {
     proposer: string,
     proposalId: string
   ): Promise<SorobanRpc.Api.SimulateTransactionResponse> {
-    const dummySource = proposer;
-    const account = new Account(dummySource, "0");
-    const tx = new TransactionBuilder(account, {
-      fee: BASE_FEE,
-      networkPassphrase: this.networkPassphrase,
-    })
-      .addOperation(
-        this.contract.call(
-          "cancel_multisig_proposal",
-          this.addr(proposer),
-          this.str(proposalId)
-        )
-      )
-      .setTimeout(30)
-      .build();
-    return this.server.simulateTransaction(tx);
+    return this.simulateForSigning(
+      proposer,
+      "cancel_multisig_proposal",
+      this.addr(proposer),
+      this.str(proposalId)
+    );
   }
 
   async fulfillRequest(
@@ -539,22 +556,13 @@ export class TrustLinkClient {
     requestId: string,
     expiration?: bigint
   ): Promise<SorobanRpc.Api.SimulateTransactionResponse> {
-    const account = new Account(issuer, "0");
-    const tx = new TransactionBuilder(account, {
-      fee: BASE_FEE,
-      networkPassphrase: this.networkPassphrase,
-    })
-      .addOperation(
-        this.contract.call(
-          "fulfill_request",
-          this.addr(issuer),
-          this.str(requestId),
-          this.optU64(expiration ?? null)
-        )
-      )
-      .setTimeout(30)
-      .build();
-    return this.server.simulateTransaction(tx);
+    return this.simulateForSigning(
+      issuer,
+      "fulfill_request",
+      this.addr(issuer),
+      this.str(requestId),
+      this.optU64(expiration ?? null)
+    );
   }
 
   async rejectRequest(
@@ -562,22 +570,13 @@ export class TrustLinkClient {
     requestId: string,
     reason?: string
   ): Promise<SorobanRpc.Api.SimulateTransactionResponse> {
-    const account = new Account(issuer, "0");
-    const tx = new TransactionBuilder(account, {
-      fee: BASE_FEE,
-      networkPassphrase: this.networkPassphrase,
-    })
-      .addOperation(
-        this.contract.call(
-          "reject_request",
-          this.addr(issuer),
-          this.str(requestId),
-          this.optStr(reason ?? null)
-        )
-      )
-      .setTimeout(30)
-      .build();
-    return this.server.simulateTransaction(tx);
+    return this.simulateForSigning(
+      issuer,
+      "reject_request",
+      this.addr(issuer),
+      this.str(requestId),
+      this.optStr(reason ?? null)
+    );
   }
 
   async getAttestationRequest(requestId: string): Promise<AttestationRequest> {

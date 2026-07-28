@@ -16,6 +16,7 @@ from .types import (
     TrustLinkError,
     ContractError,
 )
+from ._retry import with_retry, with_retry_async
 
 __version__ = "0.1.0"
 __all__ = [
@@ -33,4 +34,6 @@ __all__ = [
     "MultiSigProposal",
     "TrustLinkError",
     "ContractError",
+    "with_retry",
+    "with_retry_async",
 ]
