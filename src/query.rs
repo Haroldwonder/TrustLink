@@ -47,27 +47,20 @@ pub fn has_valid_claim(env: &Env, subject: Address, claim_type: String) -> bool 
 }
 
 pub fn has_valid_claim_from_issuer(env: &Env, subject: Address, claim_type: String, issuer: Address) -> bool {
-    let attestation_ids = Storage::get_subject_attestations(env, &subject);
+    let attestation_ids = Storage::get_valid_attestations(env, &subject);
     let current_time = env.ledger().timestamp();
     for attestation_id in attestation_ids.iter() {
         if let Ok(attestation) = Storage::get_attestation(env, &attestation_id) {
-            if attestation.deleted { continue; }
             if attestation.claim_type == claim_type && attestation.issuer == issuer {
-                match attestation.get_status(current_time) {
-                    AttestationStatus::Valid => {
-                        maybe_trigger_expiration_hook(
-                            env,
-                            &subject,
-                            &attestation_id,
-                            attestation.expiration.unwrap_or(u64::MAX),
-                            current_time,
-                        );
-                        return true;
-                    }
-                    AttestationStatus::Expired => {
-                        Events::attestation_expired(env, &attestation_id, &subject);
-                    }
-                    _ => {}
+                if attestation.get_status(current_time) == AttestationStatus::Valid {
+                    maybe_trigger_expiration_hook(
+                        env,
+                        &subject,
+                        &attestation_id,
+                        attestation.expiration.unwrap_or(u64::MAX),
+                        current_time,
+                    );
+                    return true;
                 }
             }
         }
@@ -79,13 +72,12 @@ pub fn has_any_claim(env: &Env, subject: Address, claim_types: Vec<String>) -> b
     if claim_types.is_empty() {
         return false;
     }
-    let attestation_ids = Storage::get_subject_attestations(env, &subject);
+    let attestation_ids = Storage::get_valid_attestations(env, &subject);
     let current_time = env.ledger().timestamp();
     for claim_type in claim_types.iter() {
         for attestation_id in attestation_ids.iter() {
             if let Ok(attestation) = Storage::get_attestation(env, &attestation_id) {
-                if !attestation.deleted
-                    && attestation.claim_type == claim_type
+                if attestation.claim_type == claim_type
                     && attestation.get_status(current_time) == AttestationStatus::Valid
                 {
                     maybe_trigger_expiration_hook(
@@ -105,13 +97,12 @@ pub fn has_any_claim(env: &Env, subject: Address, claim_types: Vec<String>) -> b
 
 pub fn has_all_claims(env: &Env, subject: Address, claim_types: Vec<String>) -> bool {
     if claim_types.is_empty() { return true; }
-    let attestation_ids = Storage::get_subject_attestations(env, &subject);
+    let attestation_ids = Storage::get_valid_attestations(env, &subject);
     let current_time = env.ledger().timestamp();
     'claims: for claim_type in claim_types.iter() {
         for attestation_id in attestation_ids.iter() {
             if let Ok(attestation) = Storage::get_attestation(env, &attestation_id) {
-                if !attestation.deleted
-                    && attestation.claim_type == claim_type
+                if attestation.claim_type == claim_type
                     && attestation.get_status(current_time) == AttestationStatus::Valid
                 {
                     continue 'claims;

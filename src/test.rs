@@ -8841,3 +8841,117 @@ fn test_get_attestations_in_range_after_tie_break_ordering_by_id() {
         }
     }
 }
+
+// ── Issue #943: Claim check functions optimization ───────────────────────────
+
+#[test]
+fn test_has_valid_claim_from_issuer_returns_true_for_valid() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+
+    assert!(client.has_valid_claim_from_issuer(&subject, &claim_type, &issuer));
+}
+
+#[test]
+fn test_has_valid_claim_from_issuer_returns_false_for_different_issuer() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let other_issuer = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+
+    assert!(!client.has_valid_claim_from_issuer(&subject, &claim_type, &other_issuer));
+}
+
+#[test]
+fn test_has_any_claim_returns_true_when_any_exists() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type1 = String::from_str(&env, "KYC_PASSED");
+    let claim_type2 = String::from_str(&env, "ACCREDITED");
+
+    client.create_attestation(&issuer, &subject, &claim_type1, &None, &None, &None);
+
+    let mut claim_types = soroban_sdk::Vec::new(&env);
+    claim_types.push_back(claim_type2.clone());
+    claim_types.push_back(claim_type1.clone());
+
+    assert!(client.has_any_claim(&subject, &claim_types));
+}
+
+#[test]
+fn test_has_any_claim_returns_false_when_none_exist() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type1 = String::from_str(&env, "KYC_PASSED");
+    let claim_type2 = String::from_str(&env, "ACCREDITED");
+    let claim_type3 = String::from_str(&env, "VERIFIED");
+
+    client.create_attestation(&issuer, &subject, &claim_type1, &None, &None, &None);
+
+    let mut claim_types = soroban_sdk::Vec::new(&env);
+    claim_types.push_back(claim_type2.clone());
+    claim_types.push_back(claim_type3.clone());
+
+    assert!(!client.has_any_claim(&subject, &claim_types));
+}
+
+#[test]
+fn test_has_all_claims_returns_true_when_all_exist() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type1 = String::from_str(&env, "KYC_PASSED");
+    let claim_type2 = String::from_str(&env, "ACCREDITED");
+
+    client.create_attestation(&issuer, &subject, &claim_type1, &None, &None, &None);
+    env.ledger().with_mut(|l| l.timestamp += 1);
+    client.create_attestation(&issuer, &subject, &claim_type2, &None, &None, &None);
+
+    let mut claim_types = soroban_sdk::Vec::new(&env);
+    claim_types.push_back(claim_type1.clone());
+    claim_types.push_back(claim_type2.clone());
+
+    assert!(client.has_all_claims(&subject, &claim_types));
+}
+
+#[test]
+fn test_has_all_claims_returns_false_when_not_all_exist() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type1 = String::from_str(&env, "KYC_PASSED");
+    let claim_type2 = String::from_str(&env, "ACCREDITED");
+    let claim_type3 = String::from_str(&env, "VERIFIED");
+
+    client.create_attestation(&issuer, &subject, &claim_type1, &None, &None, &None);
+    env.ledger().with_mut(|l| l.timestamp += 1);
+    client.create_attestation(&issuer, &subject, &claim_type2, &None, &None, &None);
+
+    let mut claim_types = soroban_sdk::Vec::new(&env);
+    claim_types.push_back(claim_type1.clone());
+    claim_types.push_back(claim_type2.clone());
+    claim_types.push_back(claim_type3.clone());
+
+    assert!(!client.has_all_claims(&subject, &claim_types));
+}
