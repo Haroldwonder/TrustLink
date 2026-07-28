@@ -55,4 +55,30 @@ pub enum Error {
     LimitExceeded = 29,
     /// The proposal has been cancelled by the proposer.
     ProposalCancelled = 30,
+    /// Constraint violation in metadata or claim type.
+    ConstraintViolation = 31,
+    /// Attestation request has expired.
+    RequestExpired = 32,
+    /// Invalid metadata format or content.
+    InvalidMetadata = 33,
+    /// Council proposal could not be executed.
+    CouncilProposalExecuted = 34,
+    /// Timelock has not yet passed.
+    TimelockNotReady = 35,
+    /// Attestation is not disputed.
+    NotDisputed = 36,
+    /// Cannot remove last admin from council.
+    LastAdminCannotBeRemoved = 37,
+    /// Invalid fee token address.
+    InvalidFeeToken = 38,
+    /// Duplicate request already exists.
+    DuplicateRequest = 39,
+    /// Cannot delegate to self.
+    CannotDelegateToSelf = 40,
+    /// Attestation is already disputed.
+    AlreadyDisputed = 41,
+    /// Address has already approved this council proposal.
+    AlreadyApproved = 42,
+    /// Request has already been processed.
+    RequestAlreadyProcessed = 43,
 }

@@ -4,9 +4,10 @@
 
 use crate::constants::{DAY_IN_LEDGERS, DEFAULT_INSTANCE_LIFETIME};
 use crate::types::{
-    Attestation, AttestationRequest, AuditEntry, ClaimTypeInfo, Endorsement, Error, ExpirationHook,
-    FeeConfig, GlobalStats, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal,
-    RateLimitConfig, StorageLimits, TtlConfig,
+    AdminCouncil, Attestation, AttestationRequest, AttestationTemplate, AuditEntry, ClaimTypeInfo,
+    CouncilProposal, DecayConfig, DisputeRecord, Endorsement, Error, ExpirationHook, FeeConfig,
+    GlobalStats, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, PendingAdminTransfer,
+    RateLimitConfig, StorageLimits, TtlConfig, AttestationVersionSnapshot,
 };
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
@@ -59,6 +60,8 @@ pub enum StorageKey {
     SubjectWhitelist(Address, Address),
     /// Ordered list of proposal IDs for a subject (for list_open_proposals).
     ProposalIndex(Address),
+    /// Configurable TTL in days for multisig proposals (default: 7).
+    MultisigTtl,
 }
 
 /// Composite key for per-issuer-per-claim-type last issuance timestamps.
@@ -1010,86 +1013,6 @@ impl Storage {
             let key = StorageKey::Attestation(attestation_id.clone());
             env.storage().persistent().extend_ttl(&key, target_ttl, target_ttl);
         }
-    }
-
-    /// Retrieve global contract statistics, returning zeroed defaults if not yet set.
-    pub fn get_global_stats(env: &Env) -> GlobalStats {
-        env.storage()
-            .instance()
-            .get(&StorageKey::GlobalStats)
-            .unwrap_or(GlobalStats {
-                total_attestations: 0,
-                total_revocations: 0,
-                total_issuers: 0,
-            })
-    }
-
-    /// Persist a multisig proposal and refresh its TTL.
-    pub fn set_multisig_proposal(env: &Env, proposal: &MultiSigProposal) {
-        let key = StorageKey::MultiSigProposal(proposal.id.clone());
-        let ttl = get_ttl_lifetime(env);
-        env.storage().persistent().set(&key, proposal);
-        env.storage().persistent().extend_ttl(&key, ttl, ttl);
-    }
-
-    /// Retrieve a multisig proposal by ID.
-    ///
-    /// # Errors
-    /// - [`Error::NotFound`] — no proposal with that ID exists.
-    pub fn get_multisig_proposal(env: &Env, id: &String) -> Result<MultiSigProposal, Error> {
-        env.storage()
-            .persistent()
-            .get(&StorageKey::MultiSigProposal(id.clone()))
-            .ok_or(Error::NotFound)
-    }
-
-    /// Return all endorsements for `attestation_id`, or an empty [`Vec`] if none.
-    pub fn get_endorsements(env: &Env, attestation_id: &String) -> Vec<Endorsement> {
-        env.storage()
-            .persistent()
-            .get(&StorageKey::Endorsements(attestation_id.clone()))
-            .unwrap_or(Vec::new(env))
-    }
-
-    /// Append an endorsement to the list for `attestation_id`.
-    pub fn add_endorsement(env: &Env, endorsement: &Endorsement) {
-        let key = StorageKey::Endorsements(endorsement.attestation_id.clone());
-        let ttl = get_ttl_lifetime(env);
-        let mut list = Self::get_endorsements(env, &endorsement.attestation_id);
-        list.push_back(endorsement.clone());
-        env.storage().persistent().set(&key, &list);
-        env.storage().persistent().extend_ttl(&key, ttl, ttl);
-    }
-
-    /// Persist the rate limit configuration.
-    pub fn set_rate_limit_config(env: &Env, config: &RateLimitConfig) {
-        let ttl = get_ttl_lifetime(env);
-        env.storage()
-            .instance()
-            .set(&StorageKey::RateLimitConfig, config);
-        env.storage().instance().extend_ttl(ttl, ttl);
-    }
-
-    /// Retrieve the rate limit configuration, or `None` if not set.
-    pub fn get_rate_limit_config(env: &Env) -> Option<RateLimitConfig> {
-        env.storage()
-            .instance()
-            .get(&StorageKey::RateLimitConfig)
-    }
-
-    /// Retrieve the last issuance timestamp for `issuer`, or `None` if never issued.
-    pub fn get_last_issuance_time(env: &Env, issuer: &Address) -> Option<u64> {
-        env.storage()
-            .persistent()
-            .get(&StorageKey::LastIssuanceTime(issuer.clone()))
-    }
-
-    /// Persist the last issuance timestamp for `issuer`.
-    pub fn set_last_issuance_time(env: &Env, issuer: &Address, timestamp: u64) {
-        let key = StorageKey::LastIssuanceTime(issuer.clone());
-        let ttl = get_ttl_lifetime(env);
-        env.storage().persistent().set(&key, &timestamp);
-        env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 
     /// Retrieve the configured multisig proposal TTL in days (default: 7).
