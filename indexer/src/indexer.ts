@@ -9,6 +9,10 @@ import {
   indexerLagLedgers,
   incrementEventProcessed,
   incrementEventFailed,
+  incrementIssuerAttestation,
+  incrementIssuerRevocation,
+  setIssuerRateLimitRatio,
+  issuersTotal,
   EventTypes,
 } from "./metrics";
 import { dispatchWebhooks } from "./webhooks";
@@ -118,6 +122,10 @@ async function processRange(
           }
         } catch (err) {
           console.error(`Error processing event at ledger ${ev.ledger}:`, err);
+          const eventType = normalizeEventType(topicStr);
+          if (eventType) {
+            incrementEventFailed(eventType);
+          }
         }
       }
 
@@ -230,6 +238,13 @@ async function handleEvent(
     });
     // Invalidate issuerStats cache for this issuer
     await cacheInvalidate(redis, `issuerStats:${issuerAddr}`);
+
+    // Calculate rate limit ratio (attestations / rateLimit)
+    const attestationCount = await db.attestation.count({
+      where: { issuer: issuerAddr, isRevoked: false },
+    });
+    const ratio = rateLimit > 0 ? attestationCount / rateLimit : 0;
+    setIssuerRateLimitRatio(issuerAddr, ratio);
     return;
   }
 
@@ -275,6 +290,9 @@ async function handleEvent(
     }
 
     revocationsTotal.inc();
+    if (attestation) {
+      incrementIssuerRevocation(attestation.issuer);
+    }
     dispatchWebhooks(db, "attestation.revoked", { id: attestationId }).catch(
       () => {},
     );
@@ -309,6 +327,10 @@ async function handleEvent(
         tier: "basic",
       },
     });
+
+    // Update issuers total count
+    const totalIssuers = await db.issuer.count();
+    issuersTotal.set(totalIssuers);
 
     // Publish to GraphQL subscription
     pubsub.publish(ISSUER_REGISTERED, {
@@ -387,6 +409,7 @@ async function handleEvent(
   await cacheInvalidate(redis, `issuerStats:${issuer}`);
 
   attestationsTotal.inc();
+  incrementIssuerAttestation(issuer);
 
   dispatchWebhooks(db, `attestation.${topicStr}`, {
     ...attestation,
