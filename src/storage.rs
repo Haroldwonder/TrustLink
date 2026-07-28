@@ -68,6 +68,26 @@ pub enum StorageKey {
     MultisigTtl,
 }
 
+// TODO: Issue #918 - The following StorageKey variants need to be added:
+// These require refactoring due to soroban contracttype macro variant limit (~52 variants max):
+// - BridgeList
+// - ValidAttestations(Address)
+// - PendingAdminTransfer
+// - CouncilProposal(u32)
+// - Dispute(String)
+// - Delegation(Address, Address, String)
+// - DelegatorIndex(Address)
+// - AttestationTemplate(Address, String)
+// - AttestationTemplateList(Address)
+// - DecayConfig
+// - CouncilTimelockDelay
+// - EndorserIndex(Address)
+// - ClaimTypeCount(String)
+// - IssuerRevocations(Address)
+// - ClaimTypeRateLimit(String)
+// - ProposalCounter
+// Potential solutions: composite key approach like ClaimTypeIssuanceKey, or splitting into multiple enums
+
 /// Composite key for per-issuer-per-claim-type last issuance timestamps.
 /// Stored as a separate `contracttype` struct so it doesn't count against
 /// the `StorageKey` enum variant limit.
