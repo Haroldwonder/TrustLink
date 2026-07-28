@@ -8805,3 +8805,28 @@ fn test_issue_922_get_claim_type_constraints() {
     let nonexistent = Storage::get_claim_type_constraints(&env, &String::from_str(&env, "nonexistent"));
     assert!(nonexistent.is_none());
 }
+
+#[test]
+fn test_issue_924_increment_issuer_stats() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let issuer = Address::generate(&env);
+
+    let initial_stats = Storage::get_issuer_stats(&env, &issuer);
+    assert_eq!(initial_stats.total_issued, 0);
+
+    Storage::increment_issuer_stats(&env, &issuer, 5);
+
+    let after_first = Storage::get_issuer_stats(&env, &issuer);
+    assert_eq!(after_first.total_issued, 5);
+
+    Storage::increment_issuer_stats(&env, &issuer, 3);
+
+    let after_second = Storage::get_issuer_stats(&env, &issuer);
+    assert_eq!(after_second.total_issued, 8);
+
+    Storage::increment_issuer_stats(&env, &issuer, 0);
+    let after_zero = Storage::get_issuer_stats(&env, &issuer);
+    assert_eq!(after_zero.total_issued, 8);
+}

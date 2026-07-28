@@ -522,6 +522,12 @@ impl Storage {
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 
+    pub fn increment_issuer_stats(env: &Env, issuer: &Address, count: u32) {
+        let mut stats = Self::get_issuer_stats(env, issuer);
+        stats.total_issued = stats.total_issued.saturating_add(count as u64);
+        Self::set_issuer_stats(env, issuer, &stats);
+    }
+
     pub fn set_issuer_tier(env: &Env, issuer: &Address, tier: &IssuerTier) {
         let key = StorageKey::IssuerTier(issuer.clone());
         let ttl = get_ttl_lifetime(env);
