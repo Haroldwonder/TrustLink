@@ -1,0 +1,161 @@
+{
+  "generated": "2026-07-28T23:13:05.000Z",
+  "source": "src/errors.rs",
+  "errors": [
+    {
+      "code": 1,
+      "name": "AlreadyInitialized",
+      "description": null
+    },
+    {
+      "code": 2,
+      "name": "NotInitialized",
+      "description": null
+    },
+    {
+      "code": 3,
+      "name": "Unauthorized",
+      "description": "Caller lacks required permissions. Includes rejection when `issuer` equals `subject` in `create_attestation`."
+    },
+    {
+      "code": 4,
+      "name": "NotFound",
+      "description": null
+    },
+    {
+      "code": 5,
+      "name": "DuplicateAttestation",
+      "description": null
+    },
+    {
+      "code": 6,
+      "name": "AlreadyRevoked",
+      "description": null
+    },
+    {
+      "code": 7,
+      "name": "Expired",
+      "description": null
+    },
+    {
+      "code": 8,
+      "name": "InvalidValidFrom",
+      "description": null
+    },
+    {
+      "code": 9,
+      "name": "InvalidExpiration",
+      "description": null
+    },
+    {
+      "code": 10,
+      "name": "MetadataTooLong",
+      "description": null
+    },
+    {
+      "code": 11,
+      "name": "InvalidTimestamp",
+      "description": null
+    },
+    {
+      "code": 12,
+      "name": "InvalidFee",
+      "description": null
+    },
+    {
+      "code": 13,
+      "name": "FeeTokenRequired",
+      "description": null
+    },
+    {
+      "code": 14,
+      "name": "TooManyTags",
+      "description": null
+    },
+    {
+      "code": 15,
+      "name": "TagTooLong",
+      "description": null
+    },
+    {
+      "code": 16,
+      "name": "InvalidThreshold",
+      "description": "Threshold must be >= 1 and <= number of required signers."
+    },
+    {
+      "code": 17,
+      "name": "NotRequiredSigner",
+      "description": "The signer is not in the proposal's required_signers list."
+    },
+    {
+      "code": 18,
+      "name": "AlreadySigned",
+      "description": "The signer has already co-signed this proposal."
+    },
+    {
+      "code": 19,
+      "name": "ProposalFinalized",
+      "description": "The proposal has already been finalized."
+    },
+    {
+      "code": 20,
+      "name": "ProposalExpired",
+      "description": "The proposal has expired without reaching threshold."
+    },
+    {
+      "code": 21,
+      "name": "ReasonTooLong",
+      "description": "The revocation reason exceeds the maximum allowed length of 128 characters."
+    },
+    {
+      "code": 22,
+      "name": "CannotEndorseOwn",
+      "description": "Endorser cannot endorse their own attestation."
+    },
+    {
+      "code": 23,
+      "name": "AlreadyEndorsed",
+      "description": "Endorser has already endorsed this attestation."
+    },
+    {
+      "code": 24,
+      "name": "ContractPaused",
+      "description": "The contract is paused; write operations are temporarily disabled."
+    },
+    {
+      "code": 25,
+      "name": "SubjectNotWhitelisted",
+      "description": "Subject is not on the issuer's whitelist and the issuer has whitelist mode enabled."
+    },
+    {
+      "code": 26,
+      "name": "InvalidClaimType",
+      "description": "Claim type string is empty, too long, or contains disallowed characters."
+    },
+    {
+      "code": 27,
+      "name": "InvalidJurisdiction",
+      "description": "Jurisdiction code is not a valid ISO 3166-1 alpha-2 code."
+    },
+    {
+      "code": 28,
+      "name": "RateLimited",
+      "description": "Issuer has exceeded the minimum issuance interval (rate limit)."
+    },
+    {
+      "code": 29,
+      "name": "LimitExceeded",
+      "description": "Storage limit exceeded for issuer or subject."
+    },
+    {
+      "code": 30,
+      "name": "ProposalCancelled",
+      "description": "The proposal has been cancelled by the proposer."
+    },
+    {
+      "code": 44,
+      "name": "InvalidSourceReference",
+      "description": "Source reference string is missing or empty."
+    }
+  ]
+}

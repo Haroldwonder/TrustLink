@@ -100,19 +100,6 @@ class ContractError(TrustLinkError):
         super().__init__(f"Contract error #{code}: {message}")
 
 
-# Contract error codes
-CONTRACT_ERRORS = {
-    0: "AlreadyInitialized",
-    1: "NotInitialized",
-    2: "Unauthorized",
-    3: "NotFound",
-    4: "DuplicateAttestation",
-    5: "AlreadyRevoked",
-    6: "Expired",
-    7: "LimitExceeded",
-    8: "InvalidThreshold",
-    9: "NotRequiredSigner",
-    10: "AlreadySigned",
-    11: "ProposalFinalized",
-    12: "ProposalExpired",
-}
+# Contract error codes are generated from src/errors.rs — do not hand-edit.
+# Run `node scripts/generate-error-codes.mjs` (or `make generate`) to regenerate.
+from trustlink.generated_error_codes import CONTRACT_ERRORS  # noqa: E402, F401
