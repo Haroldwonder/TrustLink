@@ -66,6 +66,7 @@ impl IssuerTier {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IssuerStats {
     pub total_issued: u64,
+    pub total_revoked: u64,
 }
 
 /// A registered expiration notification hook for a subject.
@@ -98,11 +99,16 @@ pub struct MultiSigProposal {
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractConfig {
-    pub ttl_config: TtlConfig,
-    pub fee_config: FeeConfig,
     pub contract_name: String,
     pub contract_version: String,
     pub contract_description: String,
+    pub fee_config: FeeConfig,
+    pub ttl_config: TtlConfig,
+    pub require_registered_claim_type: bool,
+    /// When `true`, the `metadata` field on new attestations must be either
+    /// `None` or a 64-character lowercase hexadecimal string (SHA-256 hash).
+    /// Enables enforcement of GDPR data-minimisation at the contract level.
+    pub metadata_hash_only: bool,
     /// Configurable TTL for multisig proposals in days (default: 7).
     pub multisig_ttl_days: u32,
 }
@@ -152,12 +158,6 @@ pub struct HealthStatus {
     pub total_attestations: u64,
 }
 
-/// Issuer statistics.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct IssuerStats {
-    pub total_issued: u64,
-}
 
 /// TTL configuration.
 #[contracttype]
@@ -173,21 +173,6 @@ pub struct RateLimitConfig {
     pub min_issuance_interval: u64,
 }
 
-/// Contract configuration.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ContractConfig {
-    pub contract_name: String,
-    pub contract_version: String,
-    pub contract_description: String,
-    pub fee_config: FeeConfig,
-    pub ttl_config: TtlConfig,
-    pub require_registered_claim_type: bool,
-    /// When `true`, the `metadata` field on new attestations must be either
-    /// `None` or a 64-character lowercase hexadecimal string (SHA-256 hash).
-    /// Enables enforcement of GDPR data-minimisation at the contract level.
-    pub metadata_hash_only: bool,
-}
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -299,22 +284,6 @@ pub struct Endorsement {
     pub timestamp: u64,
 }
 
-/// A multi-signature attestation proposal requiring threshold signatures.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct MultiSigProposal {
-    pub id: String,
-    pub proposer: Address,
-    pub subject: Address,
-    pub claim_type: String,
-    pub required_signers: Vec<Address>,
-    pub threshold: u32,
-    pub signers: Vec<Address>,
-    pub created_at: u64,
-    pub expires_at: u64,
-    pub finalized: bool,
-}
-
 /// Configurable storage limits to prevent exhaustion attacks.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -330,14 +299,6 @@ impl Default for StorageLimits {
             max_attestations_per_subject: 100,
         }
     }
-}
-
-/// Expiration notification hook configuration.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ExpirationHook {
-    pub callback_contract: Address,
-    pub notify_days_before: u32,
 }
 
 /// Delegation from an issuer to a sub-issuer for specific claim types.
