@@ -8779,3 +8779,29 @@ fn test_get_issuer_expiring_attestations_sorted_by_expiration() {
     assert_eq!(result.get(1).unwrap().expiration, Some(1000 + 10 * 86_400));
     assert_eq!(result.get(2).unwrap().expiration, Some(1000 + 20 * 86_400));
 }
+
+#[test]
+fn test_issue_922_get_claim_type_constraints() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let claim_type = String::from_str(&env, "email");
+    let constraints = crate::types::ClaimTypeConstraints {
+        min_metadata_len: Some(5),
+        max_metadata_len: Some(255),
+        require_metadata: true,
+    };
+
+    Storage::set_claim_type_constraints(&env, &claim_type, &constraints);
+
+    let retrieved = Storage::get_claim_type_constraints(&env, &claim_type);
+    assert!(retrieved.is_some());
+
+    let retrieved_constraints = retrieved.unwrap();
+    assert_eq!(retrieved_constraints.min_metadata_len, Some(5));
+    assert_eq!(retrieved_constraints.max_metadata_len, Some(255));
+    assert_eq!(retrieved_constraints.require_metadata, true);
+
+    let nonexistent = Storage::get_claim_type_constraints(&env, &String::from_str(&env, "nonexistent"));
+    assert!(nonexistent.is_none());
+}

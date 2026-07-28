@@ -393,6 +393,10 @@ impl Storage {
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 
+    pub fn get_claim_type_constraints(env: &Env, claim_type: &String) -> Option<crate::types::ClaimTypeConstraints> {
+        env.storage().persistent().get(&StorageKey::ClaimTypeConstraints(claim_type.clone()))
+    }
+
     pub fn set_whitelist_mode(env: &Env, issuer: &Address, enabled: bool) {
         let key = StorageKey::IssuerWhitelistMode(issuer.clone());
         let ttl = get_ttl_lifetime(env);
