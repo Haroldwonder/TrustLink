@@ -143,6 +143,11 @@ impl TrustLinkContract {
         admin::get_decay_config(&env)
     }
 
+    #[must_use]
+    pub fn is_decay_config_set(env: Env) -> bool {
+        admin::is_decay_config_set(&env)
+    }
+
     pub fn get_issuer_metadata(env: Env, issuer: Address) -> Option<IssuerMetadata> {
         admin::get_issuer_metadata(&env, issuer)
     }

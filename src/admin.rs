@@ -248,6 +248,10 @@ pub fn get_decay_config(env: &Env) -> DecayConfig {
     Storage::get_decay_config(env).unwrap_or_default()
 }
 
+pub fn is_decay_config_set(env: &Env) -> bool {
+    Storage::get_decay_config(env).is_some()
+}
+
 pub fn get_issuer_metadata(env: &Env, issuer: Address) -> Option<IssuerMetadata> {
     Storage::get_issuer_metadata(env, &issuer)
 }

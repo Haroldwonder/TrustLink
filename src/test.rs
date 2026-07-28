@@ -8955,3 +8955,62 @@ fn test_has_all_claims_returns_false_when_not_all_exist() {
 
     assert!(!client.has_all_claims(&subject, &claim_types));
 }
+
+// ── Issue #944: Distinguish decay configured vs unconfigured ──────────────────
+
+#[test]
+fn test_is_decay_config_set_false_when_not_configured() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, _, client) = setup(&env);
+
+    assert!(!client.is_decay_config_set());
+}
+
+#[test]
+fn test_is_decay_config_set_true_after_configuration() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let config = types::DecayConfig {
+        half_life_days: 90,
+        revocation_weight: 50,
+    };
+
+    client.set_decay_config(&admin, &config);
+    assert!(client.is_decay_config_set());
+}
+
+#[test]
+fn test_get_confidence_score_works_when_decay_configured() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    env.ledger().set_timestamp(1000);
+    let attestation_id = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &None,
+        &None,
+        &None,
+    );
+
+    let score_before = client.get_confidence_score(&attestation_id);
+    assert!(score_before.is_some());
+
+    let config = types::DecayConfig {
+        half_life_days: 90,
+        revocation_weight: 50,
+    };
+    client.set_decay_config(&admin, &config);
+
+    let score_after = client.get_confidence_score(&attestation_id);
+    assert!(score_after.is_some());
+}
