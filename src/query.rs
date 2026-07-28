@@ -465,17 +465,22 @@ pub fn get_expiring_attestations(
         }
     }
 
-    // Sort by expiration ascending (simple bubble sort for small vectors)
+    // Sort by expiration ascending using insertion sort (O(n²) worst case, efficient in practice)
     let len = filtered.len();
-    for i in 0..len {
-        for j in 0..len - i - 1 {
-            let a = filtered.get(j).unwrap();
-            let b = filtered.get(j + 1).unwrap();
-            if a.expiration.unwrap_or(u64::MAX) > b.expiration.unwrap_or(u64::MAX) {
-                filtered.set(j, b);
-                filtered.set(j + 1, a);
+    for i in 1..len {
+        let key = filtered.get(i).unwrap();
+        let key_exp = key.expiration.unwrap_or(u64::MAX);
+        let mut j = i;
+        while j > 0 {
+            let prev = filtered.get(j - 1).unwrap();
+            let prev_exp = prev.expiration.unwrap_or(u64::MAX);
+            if prev_exp <= key_exp {
+                break;
             }
+            filtered.set(j, prev);
+            j -= 1;
         }
+        filtered.set(j, key);
     }
 
     let paginated = crate::storage::paginate(env, &filtered, start, limit);
@@ -516,17 +521,22 @@ pub fn get_issuer_expiring_attestations(
         }
     }
 
-    // Sort by expiration ascending (simple bubble sort for small vectors)
+    // Sort by expiration ascending using insertion sort (O(n²) worst case, efficient in practice)
     let len = filtered.len();
-    for i in 0..len {
-        for j in 0..len - i - 1 {
-            let a = filtered.get(j).unwrap();
-            let b = filtered.get(j + 1).unwrap();
-            if a.expiration.unwrap_or(u64::MAX) > b.expiration.unwrap_or(u64::MAX) {
-                filtered.set(j, b);
-                filtered.set(j + 1, a);
+    for i in 1..len {
+        let key = filtered.get(i).unwrap();
+        let key_exp = key.expiration.unwrap_or(u64::MAX);
+        let mut j = i;
+        while j > 0 {
+            let prev = filtered.get(j - 1).unwrap();
+            let prev_exp = prev.expiration.unwrap_or(u64::MAX);
+            if prev_exp <= key_exp {
+                break;
             }
+            filtered.set(j, prev);
+            j -= 1;
         }
+        filtered.set(j, key);
     }
 
     let paginated = crate::storage::paginate(env, &filtered, start, limit);
