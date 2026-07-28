@@ -1,4 +1,11 @@
 //! Shared data types for TrustLink.
+//!
+//! This module defines all contract types including:
+//! - Core attestation types (Attestation, AttestationRequest, MultiSigProposal)
+//! - Configuration types (ContractConfig, FeeConfig, TtlConfig, RateLimitConfig)
+//! - Admin management (AdminCouncil, PendingAdminTransfer, CouncilProposal)
+//! - Advanced features (Delegation, DisputeRecord, DecayConfig, AttestationTemplate, AttestationVersionSnapshot)
+//! - Utility types (GlobalStats, IssuerStats, HealthStatus, AuditEntry, Endorsement)
 
 use soroban_sdk::{contracttype, xdr::ToXdr, Address, Bytes, Env, String, Vec};
 
