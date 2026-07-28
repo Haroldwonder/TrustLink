@@ -14,6 +14,10 @@ import { startIndexer, getLastLedger, reindex } from "./indexer";
 import { buildResolvers } from "./graphql";
 import { getMetrics } from "./metrics";
 import Redis from "ioredis";
+import { validate, parse } from "graphql";
+import { createComplexityLimitRule } from "graphql-query-complexity";
+import { depthLimit } from "graphql-depth-limit";
+import { randomUUID } from "crypto";
 
 const db = new PrismaClient();
 
@@ -27,6 +31,14 @@ if (redis) {
   });
 }
 
+const logger = {
+  info: (...args: unknown[]) => console.log(...args),
+  error: (...args: unknown[]) => console.error(...args),
+  debug: (...args: unknown[]) => console.debug(...args),
+};
+
+const requestLogger = (correlationId: string) => logger;
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -34,6 +46,15 @@ function readBody(req: IncomingMessage): Promise<string> {
     req.on("end", () => resolve(body));
     req.on("error", reject);
   });
+}
+
+function isAuthorized(req: IncomingMessage): boolean {
+  const apiKey = req.headers["x-api-key"] as string | undefined;
+  const expectedKey = process.env.API_KEY;
+  if (!expectedKey) {
+    return true;
+  }
+  return apiKey === expectedKey;
 }
 
 async function main() {
@@ -147,6 +168,12 @@ async function main() {
   fastify.post<{ Body: { url: string; secret: string } }>(
     "/webhooks",
     async (req, reply) => {
+      const apiKey = req.headers["x-api-key"] as string | undefined;
+      const expectedKey = process.env.API_KEY;
+      if (expectedKey && apiKey !== expectedKey) {
+        reply.code(401);
+        return { error: "Unauthorized: valid x-api-key header required" };
+      }
       const { url, secret } = req.body ?? {};
       if (!url || !secret) {
         reply.code(400);
@@ -161,6 +188,12 @@ async function main() {
   fastify.delete<{ Params: { id: string } }>(
     "/webhooks/:id",
     async (req, reply) => {
+      const apiKey = req.headers["x-api-key"] as string | undefined;
+      const expectedKey = process.env.API_KEY;
+      if (expectedKey && apiKey !== expectedKey) {
+        reply.code(401);
+        return { error: "Unauthorized: valid x-api-key header required" };
+      }
       try {
         await db.webhook.delete({ where: { id: req.params.id } });
         reply.code(204);
@@ -175,6 +208,12 @@ async function main() {
   fastify.post<{ Querystring: { from?: string } }>(
     "/admin/reindex",
     async (req, reply) => {
+      const apiKey = req.headers["x-api-key"] as string | undefined;
+      const expectedKey = process.env.API_KEY;
+      if (expectedKey && apiKey !== expectedKey) {
+        reply.code(401);
+        return { error: "Unauthorized: valid x-api-key header required" };
+      }
       const from = req.query.from ? parseInt(req.query.from, 10) : getLastLedger();
       if (isNaN(from) || from < 0) {
         reply.code(400);
@@ -191,6 +230,12 @@ async function main() {
   fastify.get<{
     Querystring: { status?: string; eventType?: string; limit?: string; offset?: string; sort?: string };
   }>("/admin/webhook-failures", async (req, reply) => {
+    const apiKey = req.headers["x-api-key"] as string | undefined;
+    const expectedKey = process.env.API_KEY;
+    if (expectedKey && apiKey !== expectedKey) {
+      reply.code(401);
+      return { error: "Unauthorized: valid x-api-key header required" };
+    }
     const { status, eventType, limit: limitStr, offset: offsetStr, sort } = req.query;
     const limit = Math.min(parseInt(limitStr ?? "50", 10) || 50, 200);
     const offset = parseInt(offsetStr ?? "0", 10) || 0;
