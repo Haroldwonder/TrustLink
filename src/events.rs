@@ -137,7 +137,7 @@ impl Events {
         timestamp: u64,
     ) {
         env.events().publish(
-            (symbol_short!("del_req"), subject.clone()),
+            (TOPIC_DEL_REQ, subject.clone()),
             (attestation_id.clone(), timestamp),
         );
     }
@@ -146,18 +146,6 @@ impl Events {
         env.events().publish(
             (TOPIC_EXPIRED, subject.clone()),
             attestation_id.clone(),
-        );
-    }
-
-    pub fn deletion_requested(
-        env: &Env,
-        subject: &Address,
-        attestation_id: &String,
-        timestamp: u64,
-    ) {
-        env.events().publish(
-            (TOPIC_DEL_REQ, subject.clone()),
-            (attestation_id.clone(), timestamp),
         );
     }
 
@@ -248,6 +236,7 @@ impl Events {
         );
     }
 
+    /// Emitted when an attestation's issuer is changed by the admin.
     pub fn attestation_transferred(
         env: &Env,
         attestation_id: &String,
@@ -255,7 +244,7 @@ impl Events {
         new_issuer: &Address,
     ) {
         env.events().publish(
-            (symbol_short!("att_xfer"), old_issuer.clone()),
+            (symbol_short!("xfer"), old_issuer.clone()),
             (attestation_id.clone(), new_issuer.clone()),
         );
     }
@@ -293,19 +282,6 @@ impl Events {
     pub fn contract_unpaused(env: &Env, admin: &Address, timestamp: u64) {
         env.events()
             .publish((symbol_short!("unpaused"),), (admin.clone(), timestamp));
-    }
-
-    /// Emitted when an attestation's issuer is changed by the admin.
-    pub fn attestation_transferred(
-        env: &Env,
-        attestation_id: &String,
-        old_issuer: &Address,
-        new_issuer: &Address,
-    ) {
-        env.events().publish(
-            (symbol_short!("xfer"), old_issuer.clone()),
-            (attestation_id.clone(), new_issuer.clone()),
-        );
     }
 
     /// Emitted when a proposer cancels a multisig proposal.
