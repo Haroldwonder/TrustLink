@@ -11,6 +11,3 @@ pub const DAY_IN_LEDGERS: u32 = 17_280;
 
 /// Default instance lifetime in ledgers.
 pub const DEFAULT_INSTANCE_LIFETIME: u32 = DAY_IN_LEDGERS * DEFAULT_TTL_DAYS;
-
-/// Only extend TTL on read if remaining TTL drops below this threshold.
-pub const MIN_TTL_THRESHOLD: u32 = 7 * DAY_IN_LEDGERS;
