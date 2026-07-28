@@ -1932,6 +1932,62 @@ fn test_multisig_unregistered_proposer_rejected() {
 }
 
 #[test]
+fn test_multisig_hardcoded_accredited_investor_bypass_for_premium() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let admin = Address::generate(&env);
+    client.initialize(&admin, &None);
+    client.register_issuer(&admin, &issuer);
+    client.set_issuer_tier(&admin, &issuer, &types::IssuerTier::Premium);
+
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "ACCREDITED_INVESTOR");
+
+    env.ledger().set_timestamp(1000);
+
+    let attestation_id = client.propose_attestation(&issuer, &subject, &claim_type, &soroban_sdk::Vec::new(&env), &0);
+
+    assert!(client.has_valid_claim(&subject, &claim_type));
+
+    let attestation = client.get_attestation(&attestation_id);
+    assert_eq!(attestation.issuer, issuer);
+    assert_eq!(attestation.subject, subject);
+    assert_eq!(attestation.claim_type, claim_type);
+}
+
+#[test]
+fn test_multisig_non_accredited_claim_requires_multisig_even_premium() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (issuer1, issuer2, _, admin, client) = setup_multisig(&env);
+    client.set_issuer_tier(&admin, &issuer1, &types::IssuerTier::Premium);
+
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "CUSTOM_CLAIM");
+
+    env.ledger().set_timestamp(1000);
+
+    let mut required = soroban_sdk::Vec::new(&env);
+    required.push_back(issuer1.clone());
+    required.push_back(issuer2.clone());
+
+    let proposal_id = client.propose_attestation(&issuer1, &subject, &claim_type, &required, &2);
+
+    let proposal = client.get_multisig_proposal(&proposal_id);
+    assert!(!proposal.finalized);
+    assert_eq!(proposal.signers.len(), 1);
+
+    client.cosign_attestation(&issuer2, &proposal_id);
+
+    let proposal = client.get_multisig_proposal(&proposal_id);
+    assert!(proposal.finalized);
+    assert!(client.has_valid_claim(&subject, &claim_type));
+}
+
+#[test]
 fn test_revoke_with_reason_stores_reason() {
     let env = Env::default();
     env.mock_all_auths();
