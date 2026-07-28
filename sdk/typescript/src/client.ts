@@ -41,6 +41,17 @@ import {
   type RetryOptions,
 } from "./resilience";
 
+import {
+  validateAddress,
+  validateClaimType,
+  validateAttestationId,
+  validateProposalId,
+  validateRequestId,
+  validateTemplateId,
+  validatePositive,
+  validateNonNegative,
+} from "./validation";
+
 const RPC_URLS: Record<string, string> = {
   testnet: "https://soroban-testnet.stellar.org",
   mainnet: "https://mainnet.stellar.validationcloud.io/v1/XCSmR1nSS3we7PCXV4oMiA",
@@ -81,10 +92,12 @@ export class TrustLinkClient {
 
     // Validate rpcUrl if provided
     if (rpcUrl) {
-      try {
-        new URL(rpcUrl);
-      } catch {
+      if (typeof rpcUrl !== "string" || !rpcUrl.trim()) {
         throw new Error(`Invalid rpcUrl: "${rpcUrl}" is not a valid URL.`);
+      }
+      const trimmed = rpcUrl.trim();
+      if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+        throw new Error(`Invalid rpcUrl: "${rpcUrl}" must start with http:// or https://`);
       }
     }
 
@@ -211,32 +224,41 @@ export class TrustLinkClient {
   // ── Issuer Registry ────────────────────────────────────────────────────────
 
   async isIssuer(address: string): Promise<boolean> {
+    validateAddress(address);
     return this.simulate("is_issuer", this.addr(address));
   }
 
   async getIssuerStats(issuer: string): Promise<IssuerStats> {
+    validateAddress(issuer);
     return this.simulate("get_issuer_stats", this.addr(issuer));
   }
 
   async getIssuerTier(issuer: string): Promise<IssuerTier | null> {
+    validateAddress(issuer);
     return this.simulate("get_issuer_tier", this.addr(issuer));
   }
 
   async getIssuerMetadata(issuer: string): Promise<IssuerMetadata | null> {
+    validateAddress(issuer);
     return this.simulate("get_issuer_metadata", this.addr(issuer));
   }
 
   async getIssuerList(start: number, limit: number): Promise<string[]> {
+    validateNonNegative(start, "start");
+    validatePositive(limit, "limit");
     return this.simulate("get_issuer_list", this.u32(start), this.u32(limit));
   }
 
   // ── Bridge Registry ────────────────────────────────────────────────────────
 
   async isBridge(address: string): Promise<boolean> {
+    validateAddress(address);
     return this.simulate("is_bridge", this.addr(address));
   }
 
   async getBridgeList(start: number, limit: number): Promise<string[]> {
+    validateNonNegative(start, "start");
+    validatePositive(limit, "limit");
     return this.simulate("get_bridge_list", this.u32(start), this.u32(limit));
   }
 
@@ -247,15 +269,19 @@ export class TrustLinkClient {
   // ── Claim Type Registry ────────────────────────────────────────────────────
 
   async getClaimTypeDescription(claimType: string): Promise<string | null> {
+    validateClaimType(claimType);
     return this.simulate("get_claim_type_description", this.str(claimType));
   }
 
   async listClaimTypes(start: number, limit: number): Promise<string[]> {
+    validateNonNegative(start, "start");
+    validatePositive(limit, "limit");
     return this.simulate("list_claim_types", this.u32(start), this.u32(limit));
   }
 
   /** Returns whether the given claim type is registered in the contract registry. */
   async getRegisteredClaimType(claimType: string): Promise<boolean> {
+    validateClaimType(claimType);
     return this.simulate("get_registered_claim_type", this.str(claimType));
   }
 
@@ -274,6 +300,7 @@ export class TrustLinkClient {
    * Distinct from getRateLimit(), which operates at the per-issuer level.
    */
   async getRateLimitForClaimType(claimType: string): Promise<bigint> {
+    validateClaimType(claimType);
     return this.simulate("get_rate_limit_for_claim_type", this.str(claimType));
   }
 
@@ -284,6 +311,9 @@ export class TrustLinkClient {
     delegate: string,
     claimType: string
   ): Promise<Delegation | null> {
+    validateAddress(delegator);
+    validateAddress(delegate);
+    validateClaimType(claimType);
     return this.simulate(
       "get_delegation",
       this.addr(delegator),
@@ -293,16 +323,21 @@ export class TrustLinkClient {
   }
 
   async listDelegationsByDelegator(delegator: string, start: number, limit: number): Promise<Delegation[]> {
+    validateAddress(delegator);
+    validateNonNegative(start, "start");
+    validatePositive(limit, "limit");
     return this.simulate("list_delegations_by_delegator", this.addr(delegator), this.u32(start), this.u32(limit));
   }
 
   // ── Attestation Queries ────────────────────────────────────────────────────
 
   async getAttestation(attestationId: string): Promise<Attestation> {
+    validateAttestationId(attestationId);
     return this.simulate("get_attestation", this.str(attestationId));
   }
 
   async getAttestationStatus(attestationId: string): Promise<AttestationStatus> {
+    validateAttestationId(attestationId);
     return this.simulate("get_attestation_status", this.str(attestationId));
   }
 
@@ -310,6 +345,8 @@ export class TrustLinkClient {
     subject: string,
     claimType: string
   ): Promise<Attestation> {
+    validateAddress(subject);
+    validateClaimType(claimType);
     return this.simulate(
       "get_attestation_by_type",
       this.addr(subject),
@@ -322,6 +359,9 @@ export class TrustLinkClient {
     start: number,
     limit: number
   ): Promise<Attestation[]> {
+    validateAddress(subject);
+    validateNonNegative(start, "start");
+    validatePositive(limit, "limit");
     return this.simulate(
       "get_subject_attestations",
       this.addr(subject),
@@ -335,6 +375,9 @@ export class TrustLinkClient {
     start: number,
     limit: number
   ): Promise<Attestation[]> {
+    validateAddress(issuer);
+    validateNonNegative(start, "start");
+    validatePositive(limit, "limit");
     return this.simulate(
       "get_issuer_attestations",
       this.addr(issuer),
@@ -344,6 +387,9 @@ export class TrustLinkClient {
   }
 
   async getAttestationsByTag(subject: string, tag: string, start = 0, limit = 20): Promise<string[]> {
+    validateAddress(subject);
+    validateNonNegative(start, "start");
+    validatePositive(limit, "limit");
     const all = await this.simulate<string[]>(
       "get_attestations_by_tag",
       this.addr(subject),
@@ -366,6 +412,9 @@ export class TrustLinkClient {
     start: number,
     limit: number
   ): Promise<string[]> {
+    validateAddress(subject);
+    validateNonNegative(start, "start");
+    validatePositive(limit, "limit");
     return this.simulate(
       "get_attestations_by_jurisdiction",
       this.addr(subject),
@@ -376,16 +425,20 @@ export class TrustLinkClient {
   }
 
   async getValidClaims(subject: string): Promise<string[]> {
+    validateAddress(subject);
     return this.simulate("get_valid_claims", this.addr(subject));
   }
 
   async getAuditLog(attestationId: string): Promise<AuditEntry[]> {
+    validateAttestationId(attestationId);
     return this.simulate("get_audit_log", this.str(attestationId));
   }
 
   // ── Claim Verification ─────────────────────────────────────────────────────
 
   async hasValidClaim(subject: string, claimType: string): Promise<boolean> {
+    validateAddress(subject);
+    validateClaimType(claimType);
     return this.simulate(
       "has_valid_claim",
       this.addr(subject),
@@ -398,6 +451,9 @@ export class TrustLinkClient {
     claimType: string,
     issuer: string
   ): Promise<boolean> {
+    validateAddress(subject);
+    validateClaimType(claimType);
+    validateAddress(issuer);
     return this.simulate(
       "has_valid_claim_from_issuer",
       this.addr(subject),
@@ -407,6 +463,8 @@ export class TrustLinkClient {
   }
 
   async hasAnyClaim(subject: string, claimTypes: string[]): Promise<boolean> {
+    validateAddress(subject);
+    claimTypes.forEach(ct => validateClaimType(ct));
     return this.simulate(
       "has_any_claim",
       this.addr(subject),
@@ -415,6 +473,8 @@ export class TrustLinkClient {
   }
 
   async hasAllClaims(subject: string, claimTypes: string[]): Promise<boolean> {
+    validateAddress(subject);
+    claimTypes.forEach(ct => validateClaimType(ct));
     return this.simulate(
       "has_all_claims",
       this.addr(subject),
@@ -427,6 +487,8 @@ export class TrustLinkClient {
     claimType: string,
     minTier: IssuerTier
   ): Promise<boolean> {
+    validateAddress(subject);
+    validateClaimType(claimType);
     // IssuerTier is a Soroban #[contracttype] enum — encode as ScVec([ScSymbol(variant)])
     return this.simulate(
       "has_valid_claim_from_tier",
@@ -437,20 +499,24 @@ export class TrustLinkClient {
   }
 
   async getClaimTypeCount(claimType: string): Promise<bigint> {
+    validateClaimType(claimType);
     return this.simulate("get_claim_type_count", this.str(claimType));
   }
 
   // ── Count Queries ──────────────────────────────────────────────────────────
 
   async getSubjectAttestationCount(subject: string): Promise<bigint> {
+    validateAddress(subject);
     return this.simulate("get_subject_attestation_count", this.addr(subject));
   }
 
   async getIssuerAttestationCount(issuer: string): Promise<bigint> {
+    validateAddress(issuer);
     return this.simulate("get_issuer_attestation_count", this.addr(issuer));
   }
 
   async getValidClaimCount(subject: string): Promise<bigint> {
+    validateAddress(subject);
     return this.simulate("get_valid_claim_count", this.addr(subject));
   }
 
@@ -470,6 +536,10 @@ export class TrustLinkClient {
     start: number,
     limit: number
   ): Promise<Attestation[]> {
+    validateAddress(subject);
+    validateNonNegative(withinDays, "withinDays");
+    validateNonNegative(start, "start");
+    validatePositive(limit, "limit");
     return this.simulate(
       "get_expiring_attestations",
       this.addr(subject),
@@ -493,6 +563,10 @@ export class TrustLinkClient {
     start: number,
     limit: number
   ): Promise<Attestation[]> {
+    validateAddress(issuer);
+    validateNonNegative(daysWindow, "daysWindow");
+    validateNonNegative(start, "start");
+    validatePositive(limit, "limit");
     return this.simulate(
       "get_issuer_expiring_attestations",
       this.addr(issuer),
@@ -505,6 +579,7 @@ export class TrustLinkClient {
   // ── Multi-Sig Proposals ────────────────────────────────────────────────────
 
   async getMultisigProposal(proposalId: string): Promise<MultiSigProposal> {
+    validateProposalId(proposalId);
     return this.simulate("get_multisig_proposal", this.str(proposalId));
   }
 
@@ -517,6 +592,9 @@ export class TrustLinkClient {
     start: number,
     limit: number
   ): Promise<MultiSigProposal[]> {
+    validateAddress(subject);
+    validateNonNegative(start, "start");
+    validatePositive(limit, "limit");
     return this.simulate(
       "list_open_proposals",
       this.addr(subject),
@@ -529,6 +607,8 @@ export class TrustLinkClient {
     proposer: string,
     proposalId: string
   ): Promise<SorobanRpc.Api.SimulateTransactionResponse> {
+    validateAddress(proposer);
+    validateProposalId(proposalId);
     const dummySource = proposer;
     const account = new Account(dummySource, "0");
     const tx = new TransactionBuilder(account, {
@@ -552,6 +632,8 @@ export class TrustLinkClient {
     requestId: string,
     expiration?: bigint
   ): Promise<SorobanRpc.Api.SimulateTransactionResponse> {
+    validateAddress(issuer);
+    validateRequestId(requestId);
     const account = new Account(issuer, "0");
     const tx = new TransactionBuilder(account, {
       fee: BASE_FEE,
@@ -575,6 +657,8 @@ export class TrustLinkClient {
     requestId: string,
     reason?: string
   ): Promise<SorobanRpc.Api.SimulateTransactionResponse> {
+    validateAddress(issuer);
+    validateRequestId(requestId);
     const account = new Account(issuer, "0");
     const tx = new TransactionBuilder(account, {
       fee: BASE_FEE,
@@ -594,6 +678,7 @@ export class TrustLinkClient {
   }
 
   async getAttestationRequest(requestId: string): Promise<AttestationRequest> {
+    validateRequestId(requestId);
     return this.simulate("get_attestation_request", this.str(requestId));
   }
 
@@ -602,45 +687,61 @@ export class TrustLinkClient {
    * Distinct from getAttestationRequest(), which returns the high-level processed object.
    */
   async getRequest(requestId: string): Promise<AttestationRequest> {
+    validateRequestId(requestId);
     return this.simulate("get_request", this.str(requestId));
   }
 
   // ── Endorsements ──────────────────────────────────────────────────────────
 
   async getEndorsements(attestationId: string): Promise<Endorsement[]> {
+    validateAttestationId(attestationId);
     return this.simulate("get_endorsements", this.str(attestationId));
   }
 
   async getEndorsementCount(attestationId: string): Promise<number> {
+    validateAttestationId(attestationId);
     return this.simulate("get_endorsement_count", this.str(attestationId));
   }
 
   async listEndorsementsByEndorser(endorser: string, start: number, limit: number): Promise<Endorsement[]> {
+    validateAddress(endorser);
+    validateNonNegative(start, "start");
+    validatePositive(limit, "limit");
     return this.simulate("list_endorsements_by_endorser", this.addr(endorser), this.u32(start), this.u32(limit));
   }
 
   // ── Templates ─────────────────────────────────────────────────────────────
 
   async getTemplate(issuer: string, templateId: string): Promise<import("./types").AttestationTemplate> {
+    validateAddress(issuer);
+    validateTemplateId(templateId);
     return this.simulate("get_template", this.addr(issuer), this.str(templateId));
   }
 
   async listTemplates(issuer: string, start: number, limit: number): Promise<Template[]> {
+    validateAddress(issuer);
+    validateNonNegative(start, "start");
+    validatePositive(limit, "limit");
     return this.simulate("list_templates", this.addr(issuer), this.u32(start), this.u32(limit));
   }
 
   // ── Whitelist ──────────────────────────────────────────────────────────────
 
   async bulkAddToWhitelist(issuer: string, subjects: string[]): Promise<void> {
+    validateAddress(issuer);
+    subjects.forEach(s => validateAddress(s));
     const subjectsVal = xdr.ScVal.scvVec(subjects.map(s => this.addr(s)));
     return this.simulate("bulk_add_to_whitelist", this.addr(issuer), subjectsVal);
   }
 
   async isWhitelisted(issuer: string, subject: string): Promise<boolean> {
+    validateAddress(issuer);
+    validateAddress(subject);
     return this.simulate("is_whitelisted", this.addr(issuer), this.addr(subject));
   }
 
   async isWhitelistEnabled(issuer: string): Promise<boolean> {
+    validateAddress(issuer);
     return this.simulate("is_whitelist_enabled", this.addr(issuer));
   }
 
@@ -650,6 +751,8 @@ export class TrustLinkClient {
     subject: string,
     pageSize = 20
   ): AsyncGenerator<Attestation> {
+    validateAddress(subject);
+    validatePositive(pageSize, "pageSize");
     let start = 0;
     while (true) {
       const page = await this.getSubjectAttestations(subject, start, pageSize);
@@ -663,6 +766,8 @@ export class TrustLinkClient {
     issuer: string,
     pageSize = 20
   ): AsyncGenerator<Attestation> {
+    validateAddress(issuer);
+    validatePositive(pageSize, "pageSize");
     let start = 0;
     while (true) {
       const page = await this.getIssuerAttestations(issuer, start, pageSize);
@@ -686,6 +791,10 @@ export class TrustLinkClient {
     subject: string,
     options?: { requestIds?: string[] }
   ): Promise<SubjectDataExport> {
+    validateAddress(subject);
+    if (options?.requestIds) {
+      options.requestIds.forEach(id => validateRequestId(id));
+    }
     const attestations: Attestation[] = [];
     for await (const att of this.iterateSubjectAttestations(subject)) {
       attestations.push(att);
