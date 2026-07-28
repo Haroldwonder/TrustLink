@@ -94,19 +94,6 @@ pub struct MultiSigProposal {
     pub cancelled: bool,
 }
 
-/// Full contract configuration snapshot returned by `get_config`.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ContractConfig {
-    pub ttl_config: TtlConfig,
-    pub fee_config: FeeConfig,
-    pub contract_name: String,
-    pub contract_version: String,
-    pub contract_description: String,
-    /// Configurable TTL for multisig proposals in days (default: 7).
-    pub multisig_ttl_days: u32,
-}
-
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractMetadata {
@@ -150,13 +137,6 @@ pub struct HealthStatus {
     pub admin_set: bool,
     pub issuer_count: u64,
     pub total_attestations: u64,
-}
-
-/// Issuer statistics.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct IssuerStats {
-    pub total_issued: u64,
 }
 
 /// TTL configuration.
@@ -299,22 +279,6 @@ pub struct Endorsement {
     pub timestamp: u64,
 }
 
-/// A multi-signature attestation proposal requiring threshold signatures.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct MultiSigProposal {
-    pub id: String,
-    pub proposer: Address,
-    pub subject: Address,
-    pub claim_type: String,
-    pub required_signers: Vec<Address>,
-    pub threshold: u32,
-    pub signers: Vec<Address>,
-    pub created_at: u64,
-    pub expires_at: u64,
-    pub finalized: bool,
-}
-
 /// Configurable storage limits to prevent exhaustion attacks.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -330,14 +294,6 @@ impl Default for StorageLimits {
             max_attestations_per_subject: 100,
         }
     }
-}
-
-/// Expiration notification hook configuration.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ExpirationHook {
-    pub callback_contract: Address,
-    pub notify_days_before: u32,
 }
 
 /// Delegation from an issuer to a sub-issuer for specific claim types.
