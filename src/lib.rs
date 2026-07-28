@@ -711,15 +711,6 @@ impl TrustLinkContract {
         multisig::get_multisig_proposal(&env, proposal_id)
     }
 
-        if proposal.cancelled {
-            return Err(Error::ProposalExpired);
-        }
-
-        let current_time = env.ledger().timestamp();
-        if current_time >= proposal.expires_at {
-            return Err(Error::ProposalExpired);
-        }
-
     pub fn request_attestation(env: Env, subject: Address, issuer: Address, claim_type: String) -> Result<String, Error> {
         request::request_attestation(&env, subject, issuer, claim_type)
     }
