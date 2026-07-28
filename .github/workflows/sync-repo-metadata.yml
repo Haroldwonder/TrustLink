@@ -1,0 +1,94 @@
+name: Sync Repository Metadata
+
+# Applies the description and topics declared in .github/repository.yml
+# to the GitHub repository whenever the file changes on main.
+#
+# Requirements:
+#   - Add a repository secret named REPO_ADMIN_TOKEN containing a classic
+#     Personal Access Token with the `repo` scope (needed because the default
+#     GITHUB_TOKEN cannot update repository metadata).
+#   - The runner's Python 3 installation must include PyYAML (it does on all
+#     GitHub-hosted ubuntu-latest runners).
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/repository.yml
+  workflow_dispatch: # allow manual trigger from the Actions tab
+
+jobs:
+  sync-metadata:
+    name: Apply description and topics
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Apply description and topics via GitHub API
+        env:
+          GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, subprocess, sys
+
+          try:
+              import yaml
+          except ImportError:
+              subprocess.run([sys.executable, "-m", "pip", "install", "pyyaml", "-q"], check=True)
+              import yaml
+
+          with open(".github/repository.yml") as f:
+              data = yaml.safe_load(f)
+
+          repo = os.environ["REPO"]
+          token = os.environ["GH_TOKEN"]
+
+          # Collapse YAML block scalar whitespace
+          description = " ".join(data["description"].split())
+          topics = data["topics"]
+
+          print(f"Repository : {repo}")
+          print(f"Description: {description}")
+          print(f"Topics     : {', '.join(topics)}")
+
+          def gh_api(method, path, payload=None):
+              cmd = ["gh", "api", "--method", method, f"repos/{path}"]
+              if payload:
+                  cmd += ["--input", "-"]
+              result = subprocess.run(
+                  cmd,
+                  input=json.dumps(payload).encode() if payload else None,
+                  capture_output=True,
+              )
+              if result.returncode != 0:
+                  print(f"API error: {result.stderr.decode()}", file=sys.stderr)
+                  sys.exit(1)
+              return json.loads(result.stdout) if result.stdout.strip() else {}
+
+          # 1. Update description
+          gh_api("PATCH", repo, {"description": description})
+          print("✅ Description updated")
+
+          # 2. Replace topic list atomically (PUT replaces the full set)
+          gh_api("PUT", f"{repo}/topics", {"names": topics})
+          print(f"✅ {len(topics)} topics applied")
+
+          # 3. Verify
+          result = gh_api("GET", repo)
+          print("\n=== Applied metadata ===")
+          print(f"description : {result.get('description')}")
+          PYEOF
+
+      - name: Show current repository metadata
+        env:
+          GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
+        run: |
+          gh repo view "${{ github.repository }}" \
+            --json description,repositoryTopics \
+            --jq '{"description": .description, "topics": [.repositoryTopics[].topic.name]}'
