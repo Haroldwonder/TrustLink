@@ -8779,3 +8779,65 @@ fn test_get_issuer_expiring_attestations_sorted_by_expiration() {
     assert_eq!(result.get(1).unwrap().expiration, Some(1000 + 10 * 86_400));
     assert_eq!(result.get(2).unwrap().expiration, Some(1000 + 20 * 86_400));
 }
+
+// ── Issue #942: Cursor pagination tie-break ordering ────────────────────────
+
+#[test]
+fn test_get_attestations_in_range_after_tie_break_ordering_by_id() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    env.ledger().set_timestamp(5000);
+
+    let _id1 = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &None,
+        &None,
+        &None,
+    );
+
+    let _id2 = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &None,
+        &None,
+        &None,
+    );
+
+    let _id3 = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &None,
+        &None,
+        &None,
+    );
+
+    let all = client.get_attestations_in_range(&subject, &5000, &6000, &0, &10);
+    assert_eq!(all.len(), 3);
+
+    let page1 = client.get_attestations_in_range_after(&subject, &5000, &6000, &None, &2);
+    assert_eq!(page1.len(), 2);
+    let first_cursor_id = page1.get(1).unwrap().id.clone();
+
+    let page2 = client.get_attestations_in_range_after(&subject, &5000, &6000, &Some(first_cursor_id), &2);
+    assert_eq!(page2.len(), 1);
+
+    let mut page1_ids = soroban_sdk::Vec::new(&env);
+    for att in page1.iter() {
+        page1_ids.push_back(att.id.clone());
+    }
+
+    for page2_id in page2.iter() {
+        for page1_id in page1_ids.iter() {
+            assert_ne!(page1_id, &page2_id.id, "ID appeared in both pages");
+        }
+    }
+}
