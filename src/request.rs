@@ -20,20 +20,29 @@ pub fn request_attestation(
     Validation::require_issuer(env, &issuer)?;
     Validation::validate_claim_type(&claim_type)?;
 
-    let timestamp = env.ledger().timestamp();
-    let request_id = AttestationRequest::generate_id(env, &subject, &issuer, &claim_type, timestamp);
+    let current_time = env.ledger().timestamp();
 
-    if Storage::get_request(env, &request_id).is_ok() {
-        return Err(Error::DuplicateRequest);
+    // Check if there's already a pending, unexpired request for the same (subject, issuer, claim_type)
+    let pending_ids = Storage::get_pending_request_ids(env, &issuer);
+    for existing_id in pending_ids.iter() {
+        if let Ok(existing_req) = Storage::get_request(env, &existing_id) {
+            if existing_req.subject == subject
+                && existing_req.claim_type == claim_type
+                && existing_req.status == RequestStatus::Pending
+                && current_time < existing_req.expires_at {
+                return Err(Error::DuplicateRequest);
+            }
+        }
     }
 
-    let expires_at = timestamp + ATTESTATION_REQUEST_TTL_SECS;
+    let request_id = AttestationRequest::generate_id(env, &subject, &issuer, &claim_type, current_time);
+    let expires_at = current_time + ATTESTATION_REQUEST_TTL_SECS;
     let request = AttestationRequest {
         id: request_id.clone(),
         subject: subject.clone(),
         issuer: issuer.clone(),
         claim_type: claim_type.clone(),
-        timestamp,
+        timestamp: current_time,
         expires_at,
         status: RequestStatus::Pending,
         rejection_reason: None,
