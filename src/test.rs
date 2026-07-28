@@ -8962,3 +8962,83 @@ fn test_get_issuer_expiring_attestations_sorted_by_expiration() {
     assert_eq!(result.get(1).unwrap().expiration, Some(1000 + 10 * 86_400));
     assert_eq!(result.get(2).unwrap().expiration, Some(1000 + 20 * 86_400));
 }
+
+#[test]
+fn test_expiring_attestations_subject_and_issuer_consistency() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "VERIFIED_KYC");
+
+    env.ledger().set_timestamp(1000);
+
+    let id1 = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &Some(1000 + 5 * 86_400),
+        &None,
+        &None,
+    );
+    env.ledger().set_timestamp(1001);
+
+    let id2 = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &Some(1000 + 15 * 86_400),
+        &None,
+        &None,
+    );
+
+    let subject_result = client.get_expiring_attestations(&subject, &30, &0, &10);
+    let issuer_result = client.get_issuer_expiring_attestations(&issuer, &30, &0, &10);
+
+    assert_eq!(subject_result.len(), 2);
+    assert_eq!(issuer_result.len(), 2);
+
+    assert_eq!(subject_result.get(0).unwrap().expiration, issuer_result.get(0).unwrap().expiration);
+    assert_eq!(subject_result.get(1).unwrap().expiration, issuer_result.get(1).unwrap().expiration);
+
+    assert_eq!(subject_result.get(0).unwrap().expiration, Some(1000 + 5 * 86_400));
+    assert_eq!(subject_result.get(1).unwrap().expiration, Some(1000 + 15 * 86_400));
+}
+
+#[test]
+fn test_expiring_attestations_pagination_works_for_both() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "DOCUMENT_VERIFIED");
+
+    env.ledger().set_timestamp(1000);
+
+    for i in 0..5 {
+        client.create_attestation(
+            &issuer,
+            &subject,
+            &claim_type,
+            &Some(1000 + (i + 1) as u64 * 86_400),
+            &None,
+            &None,
+        );
+    }
+
+    let subject_page1 = client.get_expiring_attestations(&subject, &30, &0, &2);
+    let subject_page2 = client.get_expiring_attestations(&subject, &30, &2, &2);
+
+    let issuer_page1 = client.get_issuer_expiring_attestations(&issuer, &30, &0, &2);
+    let issuer_page2 = client.get_issuer_expiring_attestations(&issuer, &30, &2, &2);
+
+    assert_eq!(subject_page1.len(), 2);
+    assert_eq!(subject_page2.len(), 2);
+    assert_eq!(issuer_page1.len(), 2);
+    assert_eq!(issuer_page2.len(), 2);
+
+    assert_eq!(subject_page1.get(0).unwrap().id, issuer_page1.get(0).unwrap().id);
+    assert_eq!(subject_page2.get(0).unwrap().id, issuer_page2.get(0).unwrap().id);
+}
