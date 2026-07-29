@@ -21,3 +21,5 @@
 export * from "./types";
 export * from "./client";
 export * from "./validation";
+export * from "./events";
+export * from "./eventSubscriptions";
