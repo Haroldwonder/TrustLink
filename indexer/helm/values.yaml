@@ -1,0 +1,82 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/od-hunter/trustlink/indexer
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Soroban RPC endpoint (maps to RPC_URL)
+rpcUrl: https://soroban-testnet.stellar.org
+
+# PostgreSQL connection string (maps to DATABASE_URL; stored in Secret)
+databaseUrl: ""
+
+# HTTP port for the REST API (maps to PORT)
+port: 3000
+
+# Required: deployed TrustLink contract ID
+contractId: ""
+
+# First ledger to index (contract deployment ledger)
+genesisLedger: "0"
+
+service:
+  type: ClusterIP
+  port: 3000
+
+resources: {}
+
+# Allows prisma migrate deploy to finish before liveness/readiness checks apply
+startupProbe:
+  httpGet:
+    path: /health
+    port: http
+  failureThreshold: 30
+  periodSeconds: 10
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  periodSeconds: 5
+
+# Database backup configuration
+backup:
+  enabled: false # Enable automated backups
+  schedule: "0 2 * * *" # Cron schedule (daily at 2 AM UTC)
+
+  # Storage backend: local, s3, or gcs
+  storage: local
+
+  # Local storage (requires PVC)
+  localPath: /backups
+
+  # S3 configuration
+  s3Bucket: "" # Required if storage=s3
+  s3Prefix: trustlink-db-backups
+  awsProfile: default
+  awsAccessKeyId: "" # Optional, uses IAM role if not set
+  awsSecretAccessKey: ""
+
+  # GCS configuration
+  gcsBucket: "" # Required if storage=gcs
+  gcServiceAccountJson: "" # Base64-encoded service account JSON
+
+  # Backup settings
+  retentionDays: 30
+  compressionEnabled: true
+
+  # Resource limits for backup job
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"

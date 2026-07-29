@@ -17,3 +17,11 @@ Thumbs.db
 
 # Soroban
 .soroban/
+
+# Kiro
+.kiro
+
+# Formal specifications (TLA+ output)
+docs/formal/__*
+docs/formal/TLCResults/
+docs/formal/*.log

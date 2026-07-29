@@ -1,0 +1,20 @@
+# Cargo Audit Configuration
+# 
+# This file documents accepted vulnerabilities in TrustLink dependencies.
+# Only add entries here after thorough review and risk assessment.
+#
+# Format:
+# [[advisories]]
+# id = "RUSTSEC-YYYY-NNNNN"
+# reason = "Brief explanation of why this is accepted"
+# date = "YYYY-MM-DD"
+# reviewer = "GitHub username"
+#
+# See: https://docs.rs/cargo-audit/latest/cargo_audit/
+
+# Example (uncomment and update if needed):
+# [[advisories]]
+# id = "RUSTSEC-2024-00001"
+# reason = "Vulnerability does not affect our usage pattern - we do not use feature X"
+# date = "2024-01-15"
+# reviewer = "maintainer-name"

@@ -34,19 +34,21 @@ pub struct Attestation {
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct IssuerMetadata {
-    pub name: String,
-    pub url: String,
-    pub description: String,
+pub enum AuditAction {
+    Created,
+    Revoked,
+    Renewed,
+    Updated,
+    Transferred,
+    Deleted,
+    Amended,
 }
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum AttestationStatus {
-    Valid,
-    Expired,
-    Revoked,
-    Pending,
+pub struct StorageLimits {
+    pub max_attestations_per_issuer: u32,
+    pub max_attestations_per_subject: u32,
 }
 
 #[contracterror]
@@ -102,5 +104,43 @@ impl Attestation {
             }
         }
         AttestationStatus::Valid
+    }
+}
+
+
+impl AttestationRequest {
+    pub fn generate_id(
+        env: &Env,
+        subject: &Address,
+        issuer: &Address,
+        claim_type: &String,
+        timestamp: u64,
+    ) -> String {
+        let mut payload = Bytes::new(env);
+        payload.append(&Bytes::from_slice(env, b"req:"));
+        payload.append(&subject.clone().to_xdr(env));
+        payload.append(&issuer.clone().to_xdr(env));
+        payload.append(&claim_type.clone().to_xdr(env));
+        payload.append(&timestamp.to_xdr(env));
+        Attestation::hash_payload(env, &payload)
+    }
+}
+
+
+impl MultiSigProposal {
+    pub fn generate_id(
+        env: &Env,
+        proposer: &Address,
+        subject: &Address,
+        claim_type: &String,
+        timestamp: u64,
+    ) -> String {
+        let mut payload = Bytes::new(env);
+        payload.append(&Bytes::from_slice(env, b"multisig:"));
+        payload.append(&proposer.clone().to_xdr(env));
+        payload.append(&subject.clone().to_xdr(env));
+        payload.append(&claim_type.clone().to_xdr(env));
+        payload.append(&timestamp.to_xdr(env));
+        Attestation::hash_payload(env, &payload)
     }
 }
