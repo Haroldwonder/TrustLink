@@ -546,6 +546,37 @@ impl TrustLinkContract {
         query::get_attestation_status(&env, attestation_id)
     }
 
+    /// Export a revocation list for an issuer.
+    ///
+    /// Provides a compact, standards-adjacent format for external verifiers to
+    /// check revocation status for many attestations at once without individually
+    /// querying each one.
+    ///
+    /// # Parameters
+    /// - `issuer` — the issuer address whose revocations to export
+    /// - `claim_type` — optional claim type filter (None = all claim types)
+    /// - `format` — the desired output format
+    ///
+    /// # Returns
+    /// A `RevocationList` containing the issuer, claim type filter, generation timestamp,
+    /// revoked attestation IDs, optional bitstring encoding, total count, and revoked count.
+    ///
+    /// # Auth
+    /// Caller must be the issuer or an admin.
+    ///
+    /// # Errors
+    /// Returns `Error::Unauthorized` if caller is not authorized.
+    /// Returns `Error::NotFound` if issuer is not registered.
+    #[must_use]
+    pub fn export_revocation_list(
+        env: Env,
+        issuer: Address,
+        claim_type: Option<String>,
+        format: RevocationListFormat,
+    ) -> Result<RevocationList, Error> {
+        query::export_revocation_list(&env, issuer, claim_type, format)
+    }
+
     #[must_use]
     pub fn get_subject_attestations(env: Env, subject: Address, start: u32, limit: u32) -> Vec<String> {
         query::get_subject_attestations(&env, subject, start, limit)

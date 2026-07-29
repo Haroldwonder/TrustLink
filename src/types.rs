@@ -416,6 +416,39 @@ pub struct AttestationTemplate {
     pub default_expiration_days: Option<u32>,
 }
 
+/// Revocation list export format following the Status List 2021 standard pattern.
+/// Returns a compact bitstring representation of revoked attestations.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RevocationList {
+    /// The issuer that created this revocation list
+    pub issuer: Address,
+    /// The claim type these revocations apply to (None = all claim types)
+    pub claim_type: Option<String>,
+    /// Unix timestamp when this list was generated
+    pub generated_at: u64,
+    /// List of revoked attestation IDs
+    pub revoked_attestation_ids: Vec<String>,
+    /// Optional: bitstring encoding for compact representation
+    /// When provided, each bit represents whether the attestation at that
+    /// position in the sorted list is revoked (1) or not (0)
+    pub bitstring: Option<Vec<u8>>,
+    /// Total count of attestations (valid + revoked) at the time of export
+    pub total_attestation_count: u64,
+    /// Count of revoked attestations in this list
+    pub revoked_count: u64,
+}
+
+/// Export format selector for revocation lists
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum RevocationListFormat {
+    /// Simple list of revoked attestation IDs
+    SimpleList = 0,
+    /// Compact bitstring encoding (Status List 2021 compatible)
+    Bitstring = 1,
+}
+
 impl Attestation {
     pub fn hash_payload(env: &Env, payload: &Bytes) -> String {
         let hash = env.crypto().sha256(payload).to_array();

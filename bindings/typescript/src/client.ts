@@ -51,7 +51,7 @@ import {
 export type { Attestation, AttestationStatus, AuditEntry, ClaimTypeInfo,
   ContractConfig, ContractMetadata, Delegation, Endorsement, FeeConfig, GlobalStats,
   HealthStatus, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal,
-  TtlConfig };
+  TtlConfig, RevocationList, RevocationListFormat };
 
 // ─── Client options ───────────────────────────────────────────────────────────
 
@@ -719,6 +719,31 @@ export class TrustLinkClient {
   /** Return a lightweight health status for monitoring dashboards. */
   async healthCheck(): Promise<HealthStatus> {
     return this.simulate("health_check", []) as Promise<HealthStatus>;
+  }
+
+  /**
+   * Export a revocation list for an issuer.
+   *
+   * Provides a compact, standards-adjacent format for external verifiers to
+   * check revocation status for many attestations at once without individually
+   * querying each one.
+   *
+   * @param issuer - The issuer address whose revocations to export
+   * @param claimType - Optional claim type filter (null = all claim types)
+   * @param format - The desired output format
+   * @returns RevocationList with revoked IDs and metadata
+   */
+  async exportRevocationList(
+    issuer: string,
+    claimType?: string,
+    format: RevocationListFormat = RevocationListFormat.SimpleList,
+  ): Promise<RevocationList> {
+    validateAddress(issuer);
+    return this.simulate("export_revocation_list", [
+      addr(issuer),
+      optionVal(claimType !== undefined ? str(claimType) : null),
+      nativeToScVal(format, { type: "u32" }),
+    ]) as Promise<RevocationList>;
   }
 }
 
