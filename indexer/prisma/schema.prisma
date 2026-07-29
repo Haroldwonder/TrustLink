@@ -9,6 +9,7 @@ datasource db {
 
 model Attestation {
   id          String   @id           // deterministic hash ID from the contract
+  contractId  String                 // the contract that emitted this attestation
   issuer      String
   subject     String
   claimType   String
@@ -28,10 +29,15 @@ model Attestation {
   @@index([claimType])
   @@index([subject, claimType])
   @@index([timestamp])
+  @@index([contractId])
+  @@index([contractId, subject])
+  @@index([contractId, issuer])
+  @@index([contractId, claimType])
 }
 
 model MultisigProposal {
   id              String   @id           // proposal ID from the contract
+  contractId      String                 // the contract that emitted this proposal
   subject         String
   proposer        String
   claimType       String
@@ -45,12 +51,13 @@ model MultisigProposal {
 
   @@index([subject])
   @@index([proposer])
+  @@index([contractId])
 }
 
-// Singleton row (id=1) tracking the last fully-processed ledger sequence.
+// One row per watched contract, tracking the last fully-processed ledger.
 model Checkpoint {
-  id     Int @id @default(1)
-  ledger Int
+  contractId String @id
+  ledger     Int
 }
 
 model Webhook {

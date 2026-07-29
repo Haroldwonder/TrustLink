@@ -9,6 +9,8 @@ enum Status {
 
 type Attestation {
   id: String!
+  """The TrustLink contract instance that emitted this attestation."""
+  contractId: String!
   issuer: String!
   subject: String!
   claimType: String!
@@ -26,6 +28,8 @@ type Attestation {
 
 type MultisigProposal {
   id: String!
+  """The TrustLink contract instance that emitted this proposal."""
+  contractId: String!
   subject: String!
   proposer: String!
   claimType: String!
@@ -40,6 +44,8 @@ type MultisigProposal {
 
 type IssuerStats {
   issuer: String!
+  """Contract instance scope, null means across all tracked contracts."""
+  contractId: String
   total: Int!
   active: Int!
   revoked: Int!
@@ -68,38 +74,76 @@ type AttestationConnection {
 }
 
 type Query {
-  """Query attestations with optional filters and pagination"""
+  """
+  Query attestations with optional filters and pagination.
+
+  Pass `contractId` to scope results to a single TrustLink deployment.
+  Omit it to query across all tracked contracts simultaneously.
+  """
   attestations(
-    subject: String, 
-    claimType: String, 
-    status: Status,
-    first: Int,
+    contractId: String
+    subject: String
+    claimType: String
+    status: Status
+    first: Int
     after: String
   ): AttestationConnection!
 
-  """Query attestations by issuer with pagination"""
+  """
+  Query attestations by issuer.
+
+  Pass `contractId` to scope to a single deployment.
+  """
   attestationsByIssuer(
-    issuer: String!,
-    first: Int,
+    issuer: String!
+    contractId: String
+    first: Int
     after: String
   ): AttestationConnection!
 
-  """Get statistics for a specific issuer"""
-  issuerStats(issuer: String!): IssuerStats!
+  """
+  Get statistics for a specific issuer.
+
+  Pass `contractId` to scope to a single deployment; omit for totals
+  across all tracked contracts.
+  """
+  issuerStats(issuer: String!, contractId: String): IssuerStats!
 
   """Get a multi-sig proposal by ID"""
   proposal(id: String!): MultisigProposal
 
-  """List all multi-sig proposals"""
-  proposals(subject: String, finalized: Boolean): [MultisigProposal!]!
+  """
+  List multi-sig proposals.
+
+  Pass `contractId` to scope to a single deployment.
+  """
+  proposals(
+    contractId: String
+    subject: String
+    finalized: Boolean
+  ): [MultisigProposal!]!
+
+  """
+  Return the list of contract IDs currently being tracked by this indexer.
+  Useful for discovery when CONTRACT_IDS contains multiple entries.
+  """
+  trackedContracts: [String!]!
 }
 
 type Subscription {
-  """Subscribe to new attestation creation events, optionally filtered by subject"""
-  onAttestationCreated(subject: String): Attestation!
+  """
+  Subscribe to new attestation creation events.
 
-  """Subscribe to attestation revocation events, optionally filtered by issuer"""
-  onAttestationRevoked(issuer: String): AttestationRevoked!
+  Filter by `subject`, `contractId`, or both.
+  """
+  onAttestationCreated(subject: String, contractId: String): Attestation!
+
+  """
+  Subscribe to attestation revocation events.
+
+  Filter by `issuer`, `contractId`, or both.
+  """
+  onAttestationRevoked(issuer: String, contractId: String): AttestationRevoked!
 
   """Subscribe to issuer registration events"""
   onIssuerRegistered: IssuerRegistered!
@@ -108,6 +152,7 @@ type Subscription {
 type AttestationRevoked {
   id: String!
   issuer: String!
+  contractId: String!
   revokedAt: String!
 }
 
