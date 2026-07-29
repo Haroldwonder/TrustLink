@@ -1972,6 +1972,51 @@ fn test_id_determinism_same_inputs_same_id() {
     assert_eq!(id1, id2, "identical inputs must always produce the same ID");
 }
 
+/// Issue #951: `generate_id`'s second-granularity timestamp means two
+/// distinct, legitimate creation attempts for the same
+/// (issuer, subject, claim_type) triple collide if they land in the same
+/// ledger-close second — e.g. a direct `create_attestation` call racing a
+/// `fulfill_request` call for the same underlying claim. This test
+/// demonstrates that documented behavior, plus the documented workaround
+/// (retrying on a later ledger).
+#[test]
+fn test_same_second_collision_between_direct_create_and_fulfilled_request() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    env.ledger().with_mut(|li| li.timestamp = 1_000);
+
+    // Subject requests an attestation from the issuer.
+    let request_id = client.request_attestation(&subject, &issuer, &claim_type);
+
+    // In the same ledger-close second, the issuer separately creates a
+    // native attestation for the same (issuer, subject, claim_type) triple —
+    // a genuinely distinct action, unrelated to the pending request.
+    client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+
+    // Fulfilling the request now derives the *same* ID (same issuer,
+    // subject, claim_type, and second), so it collides with the attestation
+    // created above and is rejected — even though it is not a retry of the
+    // same action.
+    let result = client.try_fulfill_request(&issuer, &request_id, &None);
+    assert_eq!(result, Err(Ok(types::Error::DuplicateAttestation)));
+
+    // The pending request itself is untouched by the failed fulfillment.
+    assert_eq!(client.get_request(&request_id).status, types::RequestStatus::Pending);
+
+    // Documented workaround: retrying on the next ledger changes the
+    // timestamp fed into generate_id, so a fresh request/fulfill pair for
+    // the same triple no longer collides.
+    env.ledger().with_mut(|li| li.timestamp = 1_001);
+    let request_id_2 = client.request_attestation(&subject, &issuer, &claim_type);
+    let fulfilled_id = client.fulfill_request(&issuer, &request_id_2, &None);
+    assert_eq!(client.get_attestation(&fulfilled_id).issuer, issuer);
+}
+
 /// No collisions across 100 generated IDs (varying subjects, issuers, claim types, timestamps).
 #[test]
 fn test_id_no_collisions_across_100_combinations() {

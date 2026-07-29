@@ -461,6 +461,36 @@ impl Attestation {
         String::from_bytes(env, &hex)
     }
 
+    /// Derives a deterministic attestation ID from `(issuer, subject, claim_type, timestamp)`.
+    ///
+    /// # Same-second collisions (issue #951)
+    ///
+    /// `timestamp` is the Stellar ledger close time, which has **second**
+    /// granularity. Two distinct creation attempts for the same
+    /// `(issuer, subject, claim_type)` triple that land in the same
+    /// ledger-close second — for example, a direct [`create_attestation`]
+    /// call racing a [`fulfill_request`] call for the same underlying claim —
+    /// derive the *same* ID. Whichever call is applied first succeeds; the
+    /// second is rejected with [`Error::DuplicateAttestation`], even though
+    /// from the caller's perspective these may be two genuinely different
+    /// attestation attempts rather than a retry of the same one.
+    ///
+    /// This is a deliberate trade-off: the ID intentionally excludes fields
+    /// like `metadata` so that it stays fully derivable off-chain (e.g. by
+    /// [`crate::attestation::simulate_create_attestation`]) from only the
+    /// four inputs above, and so that legitimate retries of the *same*
+    /// attempt are naturally idempotent rather than creating duplicates. No
+    /// nonce is added, since that would make the ID non-deterministic from
+    /// the caller's point of view and break that off-chain derivability.
+    ///
+    /// If a caller genuinely needs two distinct attestations for the same
+    /// triple within one ledger-close second, they must vary `claim_type`
+    /// (e.g. suffix it with a synthetic differentiator) or retry on the next
+    /// ledger, which advances `timestamp`. `metadata` cannot be used as a
+    /// differentiator, since it is not part of the hashed payload.
+    ///
+    /// [`create_attestation`]: crate::attestation::create_attestation
+    /// [`fulfill_request`]: crate::request::fulfill_request
     pub fn generate_id(
         env: &Env,
         issuer: &Address,
