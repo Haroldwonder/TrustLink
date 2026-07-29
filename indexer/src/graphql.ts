@@ -1,7 +1,22 @@
-import { PubSub } from "graphql-subscriptions";
+import { RedisPubSub } from "graphql-redis-subscriptions";
+import Redis from "ioredis";
 import { PrismaClient, Attestation, MultisigProposal } from "@prisma/client";
 
-export const pubsub = new PubSub();
+const REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
+
+function createRedisClient() {
+  return new Redis(REDIS_URL, {
+    maxRetriesPerRequest: null,
+    retryStrategy(times: number) {
+      return Math.min(times * 50, 2000);
+    },
+  });
+}
+
+export const pubsub = new RedisPubSub({
+  publisher: createRedisClient(),
+  subscriber: createRedisClient(),
+});
 export const ATTESTATION_CREATED = "ATTESTATION_CREATED";
 export const ATTESTATION_REVOKED = "ATTESTATION_REVOKED";
 export const ISSUER_REGISTERED = "ISSUER_REGISTERED";

@@ -25,6 +25,7 @@ Copy `.env.example` to `.env` and fill in the values:
 | `RPC_URL` | Soroban RPC endpoint | `https://soroban-testnet.stellar.org` |
 | `GENESIS_LEDGER` | First ledger to index (contract deployment ledger) | `0` |
 | `PORT` | HTTP port for the REST API | `3000` |
+| `REDIS_URL` | Redis connection URL used for the GraphQL subscription PubSub bus | `redis://localhost:6379` |
 
 ## Quick Start (Docker)
 

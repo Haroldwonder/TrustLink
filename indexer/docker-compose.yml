@@ -16,11 +16,24 @@ services:
       timeout: 5s
       retries: 10
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   indexer:
     build: .
     restart: unless-stopped
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://trustlink:trustlink@db:5432/trustlink
@@ -28,6 +41,7 @@ services:
       RPC_URL: ${RPC_URL:-https://soroban-testnet.stellar.org}
       GENESIS_LEDGER: ${GENESIS_LEDGER:-0}
       PORT: 3000
+      REDIS_URL: redis://redis:6379
     ports:
       - "3000:3000"
 
