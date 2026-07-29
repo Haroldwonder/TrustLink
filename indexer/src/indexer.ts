@@ -1,7 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { rpc as SorobanRpc, scValToNative } from "@stellar/stellar-sdk";
 import type { Redis } from "ioredis";
-import { pubsub, ATTESTATION_CREATED, cacheInvalidate } from "./graphql";
+import { pubsub, ATTESTATION_CREATED, ATTESTATION_REVOKED, ISSUER_REGISTERED, cacheInvalidate } from "./graphql";
 import {
   attestationsTotal,
   revocationsTotal,
@@ -13,6 +13,8 @@ import {
 } from "./metrics";
 import { dispatchWebhooks } from "./webhooks";
 import { scheduleArchivalJob } from "./archival";
+import { scheduleReconciliationJob } from "./reconciliation";
+import { handleMsSign } from "./ms-sign";
 
 const CONTRACT_ID = process.env.CONTRACT_ID!;
 const RPC_URL = process.env.RPC_URL ?? "https://soroban-testnet.stellar.org";
@@ -49,6 +51,22 @@ export async function startIndexer(db: PrismaClient, redis: Redis | null = null)
     10,
   );
   scheduleArchivalJob(db, ARCHIVAL_INTERVAL_HOURS);
+
+  // Cross-check indexed rows against live contract state on a schedule
+  const RECONCILE_INTERVAL_MINUTES = parseInt(
+    process.env.RECONCILE_INTERVAL_MINUTES ?? "60",
+    10,
+  );
+  const RECONCILE_SAMPLE_SIZE = parseInt(
+    process.env.RECONCILE_SAMPLE_SIZE ?? "50",
+    10,
+  );
+  scheduleReconciliationJob(db, {
+    intervalMinutes: RECONCILE_INTERVAL_MINUTES,
+    sampleSize: RECONCILE_SAMPLE_SIZE,
+    contractId: CONTRACT_ID,
+    rpcUrl: RPC_URL,
+  });
 
   // ── Backfill ───────────────────────────────────────────────────────────────
   const checkpoint = await db.checkpoint.findUnique({ where: { id: 1 } });
@@ -153,7 +171,9 @@ async function processRange(
 
 // ── Event handler ─────────────────────────────────────────────────────────────
 
-async function handleEvent(
+/** Exported for unit tests that exercise real event-handler code paths. */
+export /** Exported for unit tests that exercise real event-handler code paths. */
+export async function handleEvent(
   db: PrismaClient,
   ev: SorobanRpc.Api.EventResponse,
   redis: Redis | null
@@ -198,12 +218,11 @@ async function handleEvent(
   }
 
   if (topicStr === "ms_sign") {
+    // Event: topics = [ms_sign, signer], data = [proposal_id, signatures_so_far, threshold]
     const proposalId = String(data[0]);
     const signatureCount = Number(data[1]);
-    await db.multisigProposal.update({
-      where: { id: proposalId },
-      data: { signatureCount, signers: updatedSigners },
-    });
+    const signer = ev.topic[1] ? String(scValToNative(ev.topic[1])) : "";
+    await handleMsSign(db, proposalId, signatureCount, signer);
     return;
   }
 

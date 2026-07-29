@@ -203,6 +203,8 @@ RawEvent table (hot) ──[older than N days]──> Archive files (cold)
 | Variable                  | Type   | Default                         | Description                                             |
 | ------------------------- | ------ | ------------------------------- | ------------------------------------------------------- |
 | `ARCHIVAL_INTERVAL_HOURS` | int    | `6`                             | How often to run archival job (hours)                   |
+| `RECONCILE_INTERVAL_MINUTES` | int | `60`                            | How often to reconcile indexed rows vs live contract    |
+| `RECONCILE_SAMPLE_SIZE`   | int    | `50`                            | How many recent attestations to compare each run        |
 | `ARCHIVE_PATH`            | string | `s3://trustlink-events-archive` | Destination for archived files (S3, GCS, or local path) |
 
 #### Database Configuration

@@ -8,7 +8,30 @@ The end-to-end (E2E) test suite validates the complete attestation request workf
 
 ```
 sdk/typescript/e2e/attestation-request-flow.e2e.test.ts
+sdk/typescript/e2e/trustlink.e2e.test.ts
+sdk/typescript/e2e/contract-indexer-consistency.e2e.test.ts
 ```
+
+| File | Scope |
+| --- | --- |
+| `attestation-request-flow.e2e.test.ts` | Request → fulfill → verify workflow |
+| `trustlink.e2e.test.ts` | Core SDK happy path against local Quickstart |
+| `contract-indexer-consistency.e2e.test.ts` | Same attestation ID: live contract state vs indexer GraphQL |
+
+### Contract ↔ indexer consistency
+
+`contract-indexer-consistency.e2e.test.ts` closes the gap where contract and
+indexer were only tested independently. It:
+
+1. Creates a happy-path attestation on the local Soroban network
+2. Waits for the indexer to process the `created` event
+3. Loads the attestation via `get_attestation` on the contract
+4. Queries the indexer's GraphQL API for the same ID
+5. Asserts field-for-field equality (`id`, `issuer`, `subject`, `claimType`,
+   `timestamp`, `expiration`, `isRevoked`, `metadata`)
+
+Requires the indexer GraphQL endpoint (default `http://localhost:4000/graphql`,
+override with `INDEXER_GRAPHQL_URL`).
 
 ## Workflow Steps
 
