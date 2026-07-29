@@ -1,15 +1,67 @@
 # TrustLink Deployment Guide
 
+## Testnet Deployment (Current)
+
+| Field            | Value                                                          |
+|------------------|----------------------------------------------------------------|
+| Network          | Stellar Testnet                                                |
+| Contract ID      | `CAK7PYYSWWQH6ML3ZPO4OB2EIONODOEESE3MIV3YGFDMHEU4EUOBUJQN`  |
+| Admin Address    | `GAZVF7TR4TVVSQDRK3BFSJ45B346GXDJIN2UWFHQKR7VIC4YK22DURP3`  |
+| Deploy Tx        | `8f71db61279bde4667f216ad7e5d3a6c34155ccf7ac13862d8b7b11327acd68d` |
+| Init Tx          | `c52d9687ac81205ddece7bef9736b0a882c80aadc08505ebd2b1431ba8177add` |
+| WASM Hash        | `241d5e76ed3425335ad0220d2d73d8622fc71da9add7bee47eac35227cc5d4ff` |
+| Explorer         | https://stellar.expert/explorer/testnet/contract/CAK7PYYSWWQH6ML3ZPO4OB2EIONODOEESE3MIV3YGFDMHEU4EUOBUJQN |
+
+### Verified
+```
+$ stellar contract invoke --id CAK7PYYSWWQH6ML3ZPO4OB2EIONODOEESE3MIV3YGFDMHEU4EUOBUJQN \
+    --source deployer --network testnet -- get_admin
+"GAZVF7TR4TVVSQDRK3BFSJ45B346GXDJIN2UWFHQKR7VIC4YK22DURP3"
+```
+
+## Deployment Verification Script
+
+`scripts/verify_deployment.sh` runs an end-to-end check against a deployed contract:
+
+1. Verifies `get_admin` returns the expected admin address
+2. Registers a temporary test issuer
+3. Creates a test attestation (`VERIFY_TEST` claim type)
+4. Asserts `has_valid_claim` returns `true`
+5. Revokes the attestation
+6. Asserts `has_valid_claim` returns `false`
+7. Cleans up temporary test identities
+
+### Usage
+
+```bash
+./scripts/verify_deployment.sh \
+  --contract CAK7PYYSWWQH6ML3ZPO4OB2EIONODOEESE3MIV3YGFDMHEU4EUOBUJQN \
+  --source deployer \
+  --network testnet
+```
+
+Against mainnet:
+```bash
+./scripts/verify_deployment.sh \
+  --contract <MAINNET_CONTRACT_ID> \
+  --source <ADMIN_KEY_ALIAS> \
+  --network mainnet
+```
+
+Exits with code `0` on success, non-zero on any failure. All steps are logged to stdout.
+
 ## Prerequisites
 
 Before deploying TrustLink, ensure you have:
 
 1. **Rust** (1.70 or later)
+
    ```bash
    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
    ```
 
 2. **Soroban CLI**
+
    ```bash
    cargo install --locked soroban-cli
    ```
@@ -19,33 +71,76 @@ Before deploying TrustLink, ensure you have:
    rustup target add wasm32-unknown-unknown
    ```
 
+4. **wasm-opt** (binaryen) — required for the `make optimize` and `make check-size` targets
+
+   ```bash
+   # Ubuntu / Debian
+   sudo apt-get install binaryen
+
+   # macOS
+   brew install binaryen
+
+   # Cargo (cross-platform fallback)
+   cargo install --locked wasm-opt
+   ```
+
 ## Building
 
 ### Development Build
+
 ```bash
 cargo build --target wasm32-unknown-unknown --release
 ```
 
 ### Optimized Build
+
+The production binary must be processed with `wasm-opt -Oz` before deployment to minimize
+ledger storage costs. Use the Makefile target which handles both steps and prints a size report:
+
 ```bash
-cargo build --target wasm32-unknown-unknown --release
-soroban contract optimize \
-  --wasm target/wasm32-unknown-unknown/release/trustlink.wasm
+make optimize
 ```
+
+Example output:
+```
+Building TrustLink (testnet)...
+Optimizing WASM with wasm-opt -Oz...
+--- Size report ---
+  Before: 185344 bytes (181 KB)
+  After:  68420 bytes  (66 KB)
+  Saved:  116924 bytes (~63%)
+Optimized artifact: target/wasm32-unknown-unknown/release/trustlink.optimized.wasm
+```
+
+Typical size reduction is **40–65%** compared to the raw release binary. The Cargo release
+profile already applies `opt-level = "z"`, LTO, and symbol stripping; `wasm-opt -Oz` then
+performs additional dead-code elimination and instruction-level optimizations that the Rust
+compiler cannot do at the WASM IR level.
+
+To verify the optimized binary stays under the 100 KB CI threshold locally:
+
+```bash
+make check-size
+```
+
+Always deploy `trustlink.optimized.wasm`, never the raw `trustlink.wasm`.
 
 ## Testing
 
 ### Run All Tests
+
 ```bash
 cargo test
 ```
 
 ### Run Specific Test
+
 ```bash
 cargo test test_create_attestation
 ```
 
 ### Run with Output
+
 ```bash
 cargo test -- --nocapture
 ```
@@ -131,7 +226,7 @@ make optimize
 
 # 2. Deploy to mainnet
 soroban contract deploy \
-  --wasm target/wasm32-unknown-unknown/release/trustlink_optimized.wasm \
+  --wasm target/wasm32-unknown-unknown/release/trustlink.optimized.wasm \
   --source ADMIN_SECRET_KEY \
   --network mainnet
 
@@ -153,6 +248,53 @@ soroban contract invoke \
   --admin PRODUCTION_ADMIN_ADDRESS \
   --issuer ISSUER_ADDRESS
 ```
+
+## Rollback to a previously built WASM hash
+
+Use rollback only for emergency recovery or when you need to restore a previously audited and verified release artifact.
+It is not intended for normal feature upgrades.
+
+### When to use rollback
+
+- Recover from a live mainnet regression
+- Redeploy a previously verified WASM release artifact
+- Restore service after a failed or unsafe deployment
+
+### Locate a previous WASM hash
+
+If you already have a prior artifact available locally, compute its hash with:
+
+```bash
+find target/wasm32-unknown-unknown/release -name '*.wasm' -exec sha256sum {} +
+```
+
+If you do not have the artifact locally, restore it from your CI/release artifact archive, prior build cache, or deployment records.
+Then verify the hash before running rollback.
+
+### Execute rollback
+
+1. Build or restore the exact release artifact locally:
+
+```bash
+make optimize
+```
+
+2. Run the rollback command for the selected network:
+
+```bash
+make rollback NETWORK=mainnet WASM_HASH=<hash>
+```
+
+3. Confirm the prompt when targeting `mainnet`.
+
+The Makefile rollback target searches `target/wasm32-unknown-unknown/release` for a matching compiled `.wasm` file and deploys it.
+If the hash is not found, restore the matching binary and retry.
+
+### Notes
+
+- Prior deployment logs, release notes, or CI artifact metadata should record the trusted WASM hash.
+- The rollback command requires the exact binary hash and will not deploy a different build.
+- Mainnet rollback includes an explicit confirmation prompt to prevent accidental redeployments.
 
 ## Configuration
 
@@ -181,6 +323,30 @@ soroban events \
   --start-ledger LEDGER_NUMBER
 ```
 
+### Health Check
+
+The `health_check` function returns a lightweight status snapshot without requiring authentication – ideal for uptime probes and monitoring dashboards.
+
+```bash
+soroban contract invoke \
+  --id $CONTRACT_ID \
+  --network testnet \
+  -- health_check
+```
+
+Example response:
+
+```json
+{
+  "initialized": true,
+  "admin_set": true,
+  "issuer_count": 3,
+  "total_attestations": 142
+}
+```
+
+Integrate this into automated monitoring by polling periodically and alerting when `initialized` is `false` or `issuer_count` drops to zero unexpectedly.
+
 ### Query Contract State
 
 ```bash
@@ -203,6 +369,7 @@ soroban contract invoke \
 ### Build Errors
 
 If you encounter build errors:
+
 ```bash
 cargo clean
 cargo update
@@ -212,6 +379,7 @@ cargo build --target wasm32-unknown-unknown --release
 ### Test Failures
 
 Run tests with verbose output:
+
 ```bash
 cargo test -- --nocapture --test-threads=1
 ```
@@ -219,6 +387,7 @@ cargo test -- --nocapture --test-threads=1
 ### Deployment Issues
 
 Check network connectivity:
+
 ```bash
 soroban network ls
 soroban config identity ls
@@ -238,13 +407,13 @@ TrustLink supports in-place WASM upgrades via Soroban's built-in upgrade mechani
 ### Step-by-Step Upgrade Process
 
 **1. Build and optimize the new contract version**
+
 ```bash
-cargo build --target wasm32-unknown-unknown --release
-stellar contract optimize \
-  --wasm target/wasm32-unknown-unknown/release/trustlink.wasm
+make optimize
 ```
 
 **2. Upload the new WASM to the network**
+
 ```bash
 stellar contract upload \
   --source ADMIN_SECRET_KEY \
@@ -254,6 +423,7 @@ stellar contract upload \
 ```
 
 **3. Invoke the upgrade function**
+
 ```bash
 stellar contract invoke \
   --id $CONTRACT_ID \
@@ -267,6 +437,7 @@ stellar contract invoke \
 **4. (If applicable) Run migration**
 
 If the new contract version includes a `migrate` function for storage schema changes, call it immediately after upgrading:
+
 ```bash
 stellar contract invoke \
   --id $CONTRACT_ID \
@@ -276,6 +447,7 @@ stellar contract invoke \
 ```
 
 **5. Verify the upgrade**
+
 ```bash
 # Confirm admin and state are intact
 stellar contract invoke \
@@ -292,19 +464,20 @@ stellar contract invoke \
 - Always test the upgrade on testnet before mainnet.
 - Use a multisig or hardware wallet for the admin key on mainnet.
 
-
-
 1. **Key Management**
+
    - Never commit private keys to version control
    - Use environment variables or secure key management systems
    - Rotate keys regularly
 
 2. **Access Control**
+
    - Limit the number of authorized issuers
    - Implement a process for issuer vetting
    - Monitor issuer activity
 
 3. **Monitoring**
+
    - Set up alerts for unusual activity
    - Monitor attestation creation rates
    - Track revocation patterns
@@ -317,6 +490,7 @@ stellar contract invoke \
 ## Support
 
 For issues or questions:
+
 - GitHub Issues: [Your Repository]
 - Documentation: See README.md
 - Community: [Your Discord/Forum]

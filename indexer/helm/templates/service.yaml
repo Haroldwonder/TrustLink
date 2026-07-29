@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "trustlink-indexer.fullname" . }}
+  labels:
+    {{- include "trustlink-indexer.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port | default .Values.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "trustlink-indexer.selectorLabels" . | nindent 4 }}

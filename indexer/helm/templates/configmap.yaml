@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "trustlink-indexer.fullname" . }}
+  labels:
+    {{- include "trustlink-indexer.labels" . | nindent 4 }}
+data:
+  RPC_URL: {{ .Values.rpcUrl | quote }}
+  PORT: {{ .Values.port | quote }}
+  CONTRACT_ID: {{ required "contractId is required" .Values.contractId | quote }}
+  GENESIS_LEDGER: {{ .Values.genesisLedger | quote }}

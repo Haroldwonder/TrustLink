@@ -1,0 +1,189 @@
+name: Post-Release SDK & Indexer Compatibility Smoke Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      sdk_version:
+        description: 'TypeScript SDK version to test (e.g., 1.2.3)'
+        required: true
+        type: string
+      indexer_image:
+        description: 'Indexer Docker image (e.g., ghcr.io/org/indexer:1.2.3)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  smoke-test:
+    name: Test SDK and Indexer Compatibility
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: trustlink_test
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      indexer:
+        image: ${{ github.event.inputs.indexer_image }}
+        env:
+          DATABASE_URL: postgresql://testuser:testpass@postgres:5432/trustlink_test
+          RPC_URL: https://soroban-testnet.stellar.org
+          CONTRACT_ID: CBFUV7JBJUUV5QMK27PIFZK5YQRXGRDLTBF7JLMQXHFPHZ7WCEPXV4Q
+          PORT: 4000
+        options: >-
+          --health-cmd "curl -f http://localhost:4000/health || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 4000:4000
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Wait for indexer to be ready
+        run: |
+          max_attempts=30
+          attempt=0
+          until [ $attempt -ge $max_attempts ]; do
+            if curl -f http://localhost:4000/health; then
+              echo "✓ Indexer is healthy"
+              exit 0
+            fi
+            echo "Waiting for indexer to be ready... (attempt $((attempt + 1))/$max_attempts)"
+            sleep 2
+            attempt=$((attempt + 1))
+          done
+          echo "✗ Indexer failed to become healthy"
+          exit 1
+
+      - name: Install SDK
+        run: npm install @trustlink/sdk@${{ github.event.inputs.sdk_version }}
+
+      - name: Smoke Test - SDK Connects to Indexer
+        run: |
+          cat > smoke-test.mjs << 'EOF'
+          import { TrustLinkSDK } from '@trustlink/sdk';
+
+          async function runSmokeTest() {
+            try {
+              const sdk = new TrustLinkSDK({
+                indexerUrl: 'http://localhost:4000',
+                contractId: 'CBFUV7JBJUUV5QMK27PIFZK5YQRXGRDLTBF7JLMQXHFPHZ7WCEPXV4Q',
+              });
+
+              // Test 1: Verify SDK can reach indexer health endpoint
+              console.log('Test 1: Checking indexer health...');
+              const health = await sdk.getIndexerHealth();
+              if (!health || health.status !== 'ok') {
+                throw new Error('Indexer health check failed: ' + JSON.stringify(health));
+              }
+              console.log('✓ Indexer health: OK');
+
+              // Test 2: Verify GraphQL schema is accessible
+              console.log('\nTest 2: Querying GraphQL schema...');
+              const introspection = await sdk.queryIndexer(`
+                query {
+                  __schema {
+                    types {
+                      name
+                    }
+                  }
+                }
+              `);
+              if (!introspection || !introspection.data) {
+                throw new Error('GraphQL introspection failed');
+              }
+              console.log('✓ GraphQL schema is accessible');
+
+              // Test 3: Verify expected types exist
+              console.log('\nTest 3: Checking for expected GraphQL types...');
+              const typeNames = introspection.data.__schema.types.map(t => t.name);
+              const requiredTypes = ['Attestation', 'Query'];
+              const missingTypes = requiredTypes.filter(t => !typeNames.includes(t));
+              
+              if (missingTypes.length > 0) {
+                throw new Error('Missing expected GraphQL types: ' + missingTypes.join(', '));
+              }
+              console.log('✓ All expected GraphQL types present');
+
+              console.log('\n✓ All smoke tests passed!');
+              console.log(`\nSDK version: @trustlink/sdk@${{ github.event.inputs.sdk_version }}`);
+              console.log(`Indexer: ${{ github.event.inputs.indexer_image }}`);
+              process.exit(0);
+            } catch (error) {
+              console.error('\n✗ Smoke test failed:', error.message);
+              process.exit(1);
+            }
+          }
+
+          await runSmokeTest();
+          EOF
+          
+          node smoke-test.mjs
+
+      - name: Mark release as latest (on success)
+        if: success()
+        run: |
+          echo "## ✓ SDK & Indexer Compatibility Verified" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **SDK:** @trustlink/sdk@${{ github.event.inputs.sdk_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Indexer:** ${{ github.event.inputs.indexer_image }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✓ Release is ready to be marked as latest/stable" >> $GITHUB_STEP_SUMMARY
+
+      - name: Report failure (on failure)
+        if: failure()
+        run: |
+          echo "## ✗ SDK & Indexer Compatibility Check Failed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **SDK:** @trustlink/sdk@${{ github.event.inputs.sdk_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Indexer:** ${{ github.event.inputs.indexer_image }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "❌ Version mismatch detected. Do not mark as latest/stable until resolved." >> $GITHUB_STEP_SUMMARY
+
+      - name: Post to Slack (on success)
+        if: success() && env.SLACK_WEBHOOK_URL != ''
+        uses: 8398a7/action-slack@77eaa4f1c608a7d68b38af4e3f739dcd8cba273e # v3.19.0
+        with:
+          status: success
+          text: |
+            SDK & Indexer Compatibility Verified ✓
+            SDK: @trustlink/sdk@${{ github.event.inputs.sdk_version }}
+            Indexer: ${{ github.event.inputs.indexer_image }}
+            Ready to mark as latest/stable
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Post to Slack (on failure)
+        if: failure() && env.SLACK_WEBHOOK_URL != ''
+        uses: 8398a7/action-slack@77eaa4f1c608a7d68b38af4e3f739dcd8cba273e # v3.19.0
+        with:
+          status: failure
+          text: |
+            SDK & Indexer Compatibility Check Failed ✗
+            SDK: @trustlink/sdk@${{ github.event.inputs.sdk_version }}
+            Indexer: ${{ github.event.inputs.indexer_image }}
+            Check logs for details before marking as latest/stable
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
