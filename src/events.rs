@@ -34,6 +34,7 @@ const TOPIC_WL_ADD: Symbol = symbol_short!("wl_add");
 const TOPIC_WL_REM: Symbol = symbol_short!("wl_rem");
 const TOPIC_TPL_DEL: Symbol = symbol_short!("tpl_del");
 const TOPIC_BUNDLE: Symbol = symbol_short!("bundle");
+const TOPIC_MAX_SUBJ: Symbol = symbol_short!("mx_subj");
 
 pub struct Events;
 
@@ -486,7 +487,6 @@ impl Events {
             (proposal_id, quorum_reached_at),
         );
     }
-}
 
     /// Emitted when a bundle of attestations is created.
     pub fn bundle_created(env: &Env, bundle: &crate::types::AttestationBundle) {
@@ -498,6 +498,17 @@ impl Events {
                 bundle.claim_types.clone(),
                 bundle.timestamp,
                 bundle.attestation_ids.clone(),
+            ),
+        );
+    }
+
+    /// Emitted when the admin sets the max attestations per subject limit.
+    pub fn max_attestations_per_subject_changed(env: &Env, admin: &Address, limit: Option<u32>) {
+        env.events().publish(
+            (TOPIC_MAX_SUBJ, admin.clone()),
+            (
+                "max_per_subject",
+                limit.unwrap_or(0),
             ),
         );
     }

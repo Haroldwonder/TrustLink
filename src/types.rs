@@ -187,6 +187,10 @@ pub struct ContractConfig {
     /// `None` or a 64-character lowercase hexadecimal string (SHA-256 hash).
     /// Enables enforcement of GDPR data-minimisation at the contract level.
     pub metadata_hash_only: bool,
+    /// Optional maximum number of attestations per subject.
+    /// When set, new attestations exceeding this limit will be rejected.
+    /// When `None`, attestations are unlimited (default for backward compatibility).
+    pub max_attestations_per_subject: Option<u32>,
 }
 
 #[contracttype]
