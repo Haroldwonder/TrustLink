@@ -1,7 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { rpc as SorobanRpc, scValToNative } from "@stellar/stellar-sdk";
 import type { Redis } from "ioredis";
-import { pubsub, ATTESTATION_CREATED, cacheInvalidate } from "./graphql";
+import { pubsub, ATTESTATION_CREATED, ATTESTATION_REVOKED, ISSUER_REGISTERED, cacheInvalidate } from "./graphql";
 import {
   attestationsTotal,
   revocationsTotal,
@@ -21,6 +21,14 @@ const START_LEDGER = process.env.START_LEDGER
   : undefined;
 const PAGE_LIMIT = 200;
 const POLL_MS = 5_000;
+// Maximum number of events processed concurrently within a single page batch.
+// Independently-shaped events (different topics, different subjects) can be
+// handled in parallel up to this limit without losing ordering guarantees for
+// the checkpoint — all events in a page complete before the checkpoint is
+// advanced. Defaults to 8; set EVENT_CONCURRENCY env var to override.
+const EVENT_CONCURRENCY = process.env.EVENT_CONCURRENCY
+  ? Math.max(1, parseInt(process.env.EVENT_CONCURRENCY, 10))
+  : 8;
 
 const WATCHED = new Set([
   "created",
@@ -104,22 +112,30 @@ async function processRange(
         limit: PAGE_LIMIT,
       });
 
-      for (const ev of response.events) {
+      // ── Bounded-concurrency pool ────────────────────────────────────────
+      // Process up to EVENT_CONCURRENCY events in parallel within each page.
+      // All tasks complete before the checkpoint is advanced, preserving
+      // exactly-once-per-checkpoint semantics. Failed events are written to
+      // the dead-letter table rather than silently dropped.
+      const tasks = response.events.map((ev) => async () => {
         const topicStr = ev.topic[0]
           ? (scValToNative(ev.topic[0]) as string)
           : "unknown";
         try {
           await handleEvent(db, ev, redis);
           processedCount++;
-          // Track by event type
           const eventType = normalizeEventType(topicStr);
           if (eventType) {
             incrementEventProcessed(eventType);
           }
         } catch (err) {
           console.error(`Error processing event at ledger ${ev.ledger}:`, err);
+          incrementEventFailed(topicStr);
+          await routeToDeadLetter(db, ev, err);
         }
-      }
+      });
+
+      await runWithConcurrency(tasks, EVENT_CONCURRENCY);
 
       const lastProcessed =
         response.events.length > 0
@@ -279,11 +295,13 @@ async function handleEvent(
       () => {},
     );
 
-    // Publish to GraphQL subscription
+    // Publish to GraphQL subscription (#974: include subject and claimType for consistent filtering)
     pubsub.publish(ATTESTATION_REVOKED, {
       onAttestationRevoked: {
         id: attestationId,
         issuer: attestation?.issuer ?? "",
+        subject: attestation?.subject ?? "",
+        claimType: attestation?.claimType ?? "",
         revokedAt: new Date().toISOString(),
       },
     });
@@ -412,6 +430,83 @@ async function handleEvent(
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+// ── Bounded-concurrency helpers ───────────────────────────────────────────────
+
+/**
+ * Runs an array of async task functions with at most `concurrency` running
+ * simultaneously. Resolves when all tasks have settled (never rejects —
+ * individual task failures must be handled inside each task function).
+ */
+async function runWithConcurrency(
+  tasks: Array<() => Promise<void>>,
+  concurrency: number
+): Promise<void> {
+  const queue = [...tasks];
+  const workers: Promise<void>[] = [];
+
+  async function worker(): Promise<void> {
+    while (queue.length > 0) {
+      const task = queue.shift();
+      if (task) await task();
+    }
+  }
+
+  const workerCount = Math.min(concurrency, tasks.length);
+  for (let i = 0; i < workerCount; i++) {
+    workers.push(worker());
+  }
+  await Promise.all(workers);
+}
+
+/**
+ * Persists a failed event to the event_dead_letters table so it can be
+ * inspected and reprocessed by operators rather than silently lost.
+ * Errors from this write are swallowed to avoid masking the original failure.
+ */
+async function routeToDeadLetter(
+  db: PrismaClient,
+  ev: SorobanRpc.Api.EventResponse,
+  err: unknown
+): Promise<void> {
+  try {
+    const error = err instanceof Error ? err : new Error(String(err));
+    const topicStr = ev.topic[0]
+      ? (scValToNative(ev.topic[0]) as string)
+      : "unknown";
+
+    // Serialise the raw event value safely
+    let eventDataJson = "{}";
+    try {
+      eventDataJson = JSON.stringify(scValToNative(ev.value));
+    } catch {
+      eventDataJson = JSON.stringify({ raw: String(ev.value) });
+    }
+
+    await (db as unknown as {
+      eventDeadLetter: {
+        create: (args: { data: Record<string, unknown> }) => Promise<void>;
+      };
+    }).eventDeadLetter.create({
+      data: {
+        ledger: ev.ledger,
+        eventType: topicStr,
+        contractId: ev.contractId ?? CONTRACT_ID,
+        topic0: ev.topic[0] ? String(scValToNative(ev.topic[0])) : null,
+        topic1: ev.topic[1] ? String(scValToNative(ev.topic[1])) : null,
+        topic2: ev.topic[2] ? String(scValToNative(ev.topic[2])) : null,
+        eventDataJson,
+        errorMessage: error.message,
+        errorStack: error.stack ?? null,
+        attemptCount: 1,
+        status: "PENDING",
+        updatedAt: new Date(),
+      },
+    });
+  } catch (writeErr) {
+    console.error("Failed to write event to dead-letter table:", writeErr);
+  }
 }
 
 // Map raw event topics to normalized event type labels

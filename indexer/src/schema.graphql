@@ -1,5 +1,12 @@
 """
 TrustLink Attestation GraphQL API
+
+Schema version: 2 (2026-07-29)
+
+Federation readiness (#976): core entity types carry @id-field annotations in
+comments, identifying the fields that would become @key directives if this
+schema is split across Apollo Federation subgraphs. See
+docs/adr/ADR-011-graphql-federation-schema-versioning.md.
 """
 
 enum Status {
@@ -7,6 +14,12 @@ enum Status {
   REVOKED
 }
 
+"""
+Core attestation entity.
+
+Federation key candidate: `id` (globally unique deterministic hash from the contract).
+In a future subgraph split, this type would carry `@key(fields: "id")`.
+"""
 type Attestation {
   id: String!
   issuer: String!
@@ -51,6 +64,12 @@ type MultisigProposal {
   updatedAt: String!
 }
 
+"""
+Issuer entity.
+
+Federation key candidate: `address` (unique Stellar address).
+In a future subgraph split, this type would carry `@key(fields: "address")`.
+"""
 type Issuer {
   address: String!
   name: String!
@@ -146,11 +165,39 @@ type Query {
 }
 
 type Subscription {
-  """Subscribe to new attestation creation events, optionally filtered by subject"""
-  onAttestationCreated(subject: String): Attestation!
+  """
+  Subscribe to new attestation creation events.
 
-  """Subscribe to attestation revocation events, optionally filtered by issuer"""
-  onAttestationRevoked(issuer: String): AttestationRevoked!
+  All three filter arguments are optional and combinable (AND logic):
+  - subject: only emit events where the attestation subject matches
+  - issuer: only emit events where the attestation issuer matches
+  - claimType: only emit events where the claim type matches (e.g. "KYC_PASSED")
+
+  Omit all arguments to receive every created attestation.
+  """
+  # #974: consistent filter args across all subscription types
+  onAttestationCreated(
+    subject: String
+    issuer: String
+    claimType: String
+  ): Attestation!
+
+  """
+  Subscribe to attestation revocation events.
+
+  All three filter arguments are optional and combinable (AND logic):
+  - subject: only emit events where the attestation subject matches
+  - issuer: only emit events where the revoking issuer matches
+  - claimType: only emit events where the claim type matches (e.g. "KYC_PASSED")
+
+  Omit all arguments to receive every revocation.
+  """
+  # #974: consistent filter args across all subscription types
+  onAttestationRevoked(
+    subject: String
+    issuer: String
+    claimType: String
+  ): AttestationRevoked!
 
   """Subscribe to issuer registration events"""
   onIssuerRegistered: IssuerRegistered!
@@ -159,6 +206,8 @@ type Subscription {
 type AttestationRevoked {
   id: String!
   issuer: String!
+  subject: String!
+  claimType: String!
   revokedAt: String!
 }
 
