@@ -493,6 +493,60 @@ fn test_create_attestation_rejects_without_fee_payment() {
     assert_eq!(client.get_subject_attestations(&subject, &0, &10).len(), 0);
 }
 
+/// Issue #953: create_attestation_internal stores the attestation and emits
+/// Events::attestation_created before calling charge_attestation_fee. This is
+/// only safe because Soroban reverts *all* state changes for the whole
+/// invocation when any part fails, including the fee token transfer. This
+/// test locks in that all-or-nothing behavior explicitly, rather than relying
+/// solely on undocumented host-runtime revert semantics.
+#[test]
+fn test_fee_charge_failure_fully_rolls_back_attestation_creation() {
+    let env = Env::default();
+    env.mock_all_auths_allowing_non_root_auth();
+
+    let (admin, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let collector = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let fee_token = register_test_token(&env, &admin);
+    let token_client = TokenClient::new(&env, &fee_token);
+
+    let timestamp = 1_000u64;
+    env.ledger().with_mut(|li| li.timestamp = timestamp);
+
+    // Configure a fee but never mint the issuer any of the fee token, so the
+    // transfer inside charge_attestation_fee fails for insufficient balance.
+    client.set_fee(&admin, &25, &collector, &Some(fee_token));
+
+    // The ID that would be generated for this attestation, so we can assert
+    // no record was stored under it.
+    let expected_id =
+        types::Attestation::generate_id(&env, &issuer, &subject, &claim_type, timestamp);
+
+    let result = client.try_create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+    assert!(result.is_err());
+
+    // No attestation was stored under the ID that would have been generated.
+    assert!(client.try_get_attestation(&expected_id).is_err());
+
+    // No fee was transferred and no indices were populated.
+    assert_eq!(token_client.balance(&collector), 0);
+    assert_eq!(client.get_subject_attestations(&subject, &0, &10).len(), 0);
+    assert_eq!(client.get_issuer_attestations(&issuer, &0, &10).len(), 0);
+
+    // No attestation_created event was emitted as part of the failed call.
+    let events = env.events().all();
+    for (_, topic, _) in events.iter() {
+        let topic0: soroban_sdk::Symbol =
+            soroban_sdk::TryFromVal::try_from_val(&env, &topic.get(0).unwrap()).unwrap();
+        assert_ne!(
+            topic0,
+            soroban_sdk::symbol_short!("created"),
+            "attestation_created must not be emitted when the fee charge fails"
+        );
+    }
+}
+
 #[test]
 fn test_create_attestation_rejects_self_attestation() {
     let env = Env::default();
