@@ -33,6 +33,7 @@ const TOPIC_WL_ON: Symbol = symbol_short!("wl_on");
 const TOPIC_WL_ADD: Symbol = symbol_short!("wl_add");
 const TOPIC_WL_REM: Symbol = symbol_short!("wl_rem");
 const TOPIC_TPL_DEL: Symbol = symbol_short!("tpl_del");
+const TOPIC_BUNDLE: Symbol = symbol_short!("bundle");
 
 pub struct Events;
 
@@ -483,6 +484,21 @@ impl Events {
         env.events().publish(
             (symbol_short!("tl_start"),),
             (proposal_id, quorum_reached_at),
+        );
+    }
+}
+
+    /// Emitted when a bundle of attestations is created.
+    pub fn bundle_created(env: &Env, bundle: &crate::types::AttestationBundle) {
+        env.events().publish(
+            (TOPIC_BUNDLE, bundle.subject.clone()),
+            (
+                bundle.id.clone(),
+                bundle.issuer.clone(),
+                bundle.claim_types.clone(),
+                bundle.timestamp,
+                bundle.attestation_ids.clone(),
+            ),
         );
     }
 }

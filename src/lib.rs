@@ -6,6 +6,7 @@ extern crate std;
 
 mod admin;
 mod attestation;
+mod bundle;
 mod errors;
 mod events;
 mod multisig;
@@ -435,6 +436,18 @@ impl TrustLinkContract {
         expiration: Option<u64>,
     ) -> Result<Vec<String>, Error> {
         attestation::create_attestations_batch(&env, issuer, subjects, claim_type, expiration)
+    }
+
+    pub fn create_attestation_bundle(
+        env: Env,
+        issuer: Address,
+        subject: Address,
+        claim_types: Vec<String>,
+        expiration: Option<u64>,
+        metadata: Option<String>,
+        tags: Option<Vec<String>>,
+    ) -> Result<String, Error> {
+        bundle::create_attestation_bundle(&env, issuer, subject, claim_types, expiration, metadata, tags)
     }
 
     pub fn revoke_attestation(env: Env, issuer: Address, attestation_id: String, reason: Option<String>) -> Result<(), Error> {
@@ -1101,3 +1114,27 @@ impl TrustLinkContract {
         Storage::get_template(&env, &issuer, &template_id).ok_or(Error::NotFound)
     }
 }
+
+    // -----------------------------------------------------------------------
+    // Bundle Queries
+    // -----------------------------------------------------------------------
+
+    pub fn get_bundle(env: Env, bundle_id: String) -> Result<crate::types::AttestationBundle, Error> {
+        Storage::get_bundle(&env, &bundle_id)
+    }
+
+    pub fn get_bundle_attestations(env: Env, bundle_id: String) -> Result<Vec<Attestation>, Error> {
+        bundle::get_bundle_attestations(&env, &bundle_id)
+    }
+
+    pub fn is_bundle_valid(env: Env, bundle_id: String) -> Result<bool, Error> {
+        bundle::is_bundle_valid(&env, &bundle_id)
+    }
+
+    pub fn get_issuer_bundles(env: Env, issuer: Address) -> Vec<String> {
+        Storage::get_issuer_bundles(&env, &issuer)
+    }
+
+    pub fn get_subject_bundles(env: Env, subject: Address) -> Vec<String> {
+        Storage::get_subject_bundles(&env, &subject)
+    }
