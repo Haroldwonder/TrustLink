@@ -342,6 +342,28 @@ pub fn create_attestation_valid_from(
     create_attestation_internal(env, issuer, subject, claim_type, expiration, metadata, None, tags, Some(valid_from))
 }
 
+/// Same as [`create_attestation`], but demonstrates the version-guard
+/// pattern from issue #952: if `expected_version` is `Some`, it must match
+/// the contract's currently deployed version (as returned by `get_version()`)
+/// or the call is rejected with `Error::VersionMismatch` before any other
+/// validation runs. Passing `None` behaves exactly like `create_attestation`.
+///
+/// See [`crate::validation::Validation::require_version_match`] for the full
+/// pattern documentation aimed at SDK authors.
+pub fn create_attestation_versioned(
+    env: &Env,
+    issuer: Address,
+    subject: Address,
+    claim_type: String,
+    expiration: Option<u64>,
+    metadata: Option<String>,
+    tags: Option<Vec<String>>,
+    expected_version: Option<String>,
+) -> Result<String, Error> {
+    Validation::require_version_match(env, &expected_version)?;
+    create_attestation_internal(env, issuer, subject, claim_type, expiration, metadata, None, tags, None)
+}
+
 pub fn create_attestation_jurisdiction(
     env: &Env,
     issuer: Address,

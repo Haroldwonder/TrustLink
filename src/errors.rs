@@ -55,4 +55,9 @@ pub enum Error {
     LimitExceeded = 29,
     /// The proposal has been cancelled by the proposer.
     ProposalCancelled = 30,
+    /// The caller's `expected_version` argument does not match the contract's
+    /// currently deployed version, as returned by `get_version()`. Returned
+    /// by state-changing entry points that opt into the version-guard
+    /// pattern documented on [`crate::validation::Validation::require_version_match`].
+    VersionMismatch = 31,
 }

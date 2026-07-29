@@ -515,6 +515,75 @@ fn test_create_attestation_rejects_self_attestation() {
     assert_eq!(client.get_subject_attestations(&issuer, &0, &10).len(), 0);
 }
 
+// ── Issue #952: client version-compatibility guard ───────────────────────────
+
+#[test]
+fn test_create_attestation_versioned_accepts_matching_expected_version() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    let deployed_version = client.get_version();
+
+    let id = client.create_attestation_versioned(
+        &issuer,
+        &subject,
+        &claim_type,
+        &None,
+        &None,
+        &None,
+        &Some(deployed_version),
+    );
+    assert_eq!(client.get_attestation(&id).issuer, issuer);
+}
+
+#[test]
+fn test_create_attestation_versioned_accepts_no_expected_version() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    // Backward compatible: omitting expected_version skips the guard entirely.
+    let id = client.create_attestation_versioned(
+        &issuer, &subject, &claim_type, &None, &None, &None, &None,
+    );
+    assert_eq!(client.get_attestation(&id).issuer, issuer);
+}
+
+#[test]
+fn test_create_attestation_versioned_rejects_mismatched_expected_version() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    let stale_version = String::from_str(&env, "0.0.1-stale");
+    let deployed_version = client.get_version();
+    assert_ne!(stale_version, deployed_version);
+
+    let result = client.try_create_attestation_versioned(
+        &issuer,
+        &subject,
+        &claim_type,
+        &None,
+        &None,
+        &None,
+        &Some(stale_version),
+    );
+    assert_eq!(result, Err(Ok(types::Error::VersionMismatch)));
+
+    // Nothing was created as a result of the rejected call.
+    assert_eq!(client.get_subject_attestations(&subject, &0, &10).len(), 0);
+}
+
 #[test]
 fn test_create_attestation_rejects_past_expiration() {
     let env = Env::default();

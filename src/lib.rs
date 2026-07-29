@@ -391,6 +391,31 @@ impl TrustLinkContract {
         attestation::create_attestation_valid_from(&env, issuer, subject, claim_type, expiration, metadata, tags, valid_from)
     }
 
+    /// Same as `create_attestation`, but demonstrates the version-guard
+    /// pattern from issue #952. When `expected_version` is `Some`, it is
+    /// checked against `get_version()` before any other validation runs; a
+    /// mismatch returns `Error::VersionMismatch` instead of proceeding with
+    /// possibly-different semantics than the caller assumed. Pass `None` to
+    /// skip the check.
+    ///
+    /// # Errors
+    /// - [`Error::VersionMismatch`] — `expected_version` is `Some` and does
+    ///   not match the contract's currently deployed version.
+    pub fn create_attestation_versioned(
+        env: Env,
+        issuer: Address,
+        subject: Address,
+        claim_type: String,
+        expiration: Option<u64>,
+        metadata: Option<String>,
+        tags: Option<Vec<String>>,
+        expected_version: Option<String>,
+    ) -> Result<String, Error> {
+        attestation::create_attestation_versioned(
+            &env, issuer, subject, claim_type, expiration, metadata, tags, expected_version,
+        )
+    }
+
     pub fn create_attestation_jurisdiction(
         env: Env,
         issuer: Address,
