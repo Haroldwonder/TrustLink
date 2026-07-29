@@ -12,6 +12,12 @@ soroban-sdk = "21.0.0"
 [dev-dependencies]
 soroban-sdk = { version = "21.0.0", features = ["testutils"] }
 
+# Verifier-of-verifiers carbon-credit example (see examples/carbon-credit-verification).
+# Run with: cargo run --example carbon-credit-verification
+[[example]]
+name = "carbon-credit-verification"
+path = "examples/carbon-credit-verification/main.rs"
+
 [profile.release]
 opt-level = "z"
 overflow-checks = true
