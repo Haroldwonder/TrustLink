@@ -820,6 +820,7 @@ impl TrustLinkContract {
         proposal_id: String,
     ) -> Result<(), Error> {
         proposer.require_auth();
+        Validation::require_not_paused(&env)?;
 
         let mut proposal = Storage::get_multisig_proposal(&env, &proposal_id)?;
 
