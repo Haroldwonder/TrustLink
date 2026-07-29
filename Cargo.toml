@@ -12,6 +12,12 @@ soroban-sdk = "21.0.0"
 [dev-dependencies]
 soroban-sdk = { version = "21.0.0", features = ["testutils"] }
 
+# DID-style guardian social-recovery example (see examples/guardian-recovery).
+# Run with: cargo run --example guardian-recovery
+[[example]]
+name = "guardian-recovery"
+path = "examples/guardian-recovery/main.rs"
+
 [profile.release]
 opt-level = "z"
 overflow-checks = true
