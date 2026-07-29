@@ -491,6 +491,18 @@ impl TrustLinkContract {
         attestation::create_attestation_as_delegate(&env, delegate, delegator, subject, claim_type, expiration, metadata)
     }
 
+    pub fn simulate_create_attestation(
+        env: Env,
+        issuer: Address,
+        subject: Address,
+        claim_type: String,
+        expiration: Option<u64>,
+        metadata: Option<String>,
+        tags: Option<Vec<String>>,
+    ) -> Result<(String, i128), Error> {
+        attestation::simulate_create_attestation(&env, issuer, subject, claim_type, expiration, metadata, tags)
+    }
+
     // -----------------------------------------------------------------------
     // Query
     // -----------------------------------------------------------------------

@@ -682,7 +682,34 @@ export class TrustLinkClient {
     return this.simulate("get_endorsement_count", [str(attestationId)]) as Promise<number>;
   }
 
-  // ─── Stats & health ──────────────────────────────────────────────────────────
+
+  // -----------------------------------------------------------------------
+  // Attestation simulation
+  // -----------------------------------------------------------------------
+
+  /** Simulate creating an attestation without committing state. */
+  async simulateCreateAttestation(
+    issuer: string,
+    subject: string,
+    claimType: string,
+    expiration?: bigint,
+    metadata?: string,
+    tags?: string[],
+  ): Promise<{ attestationId: string; fee: bigint }> {
+    const result = await this.simulate("simulate_create_attestation", [
+      addr(issuer),
+      addr(subject),
+      str(claimType),
+      optionVal(expiration !== undefined ? u64(expiration) : null),
+      optionVal(metadata !== undefined ? str(metadata) : null),
+      optionVal(tags !== undefined ? vecStr(tags) : null),
+    ]) as [string, string];
+
+    return {
+      attestationId: result[0],
+      fee: BigInt(result[1]),
+    };
+  }
 
   /** Return global contract statistics. */
   async getGlobalStats(): Promise<GlobalStats> {
@@ -694,3 +721,4 @@ export class TrustLinkClient {
     return this.simulate("health_check", []) as Promise<HealthStatus>;
   }
 }
+
