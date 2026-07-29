@@ -491,6 +491,18 @@ impl TrustLinkContract {
         attestation::create_attestation_as_delegate(&env, delegate, delegator, subject, claim_type, expiration, metadata)
     }
 
+    pub fn simulate_create_attestation(
+        env: Env,
+        issuer: Address,
+        subject: Address,
+        claim_type: String,
+        expiration: Option<u64>,
+        metadata: Option<String>,
+        tags: Option<Vec<String>>,
+    ) -> Result<(String, i128), Error> {
+        attestation::simulate_create_attestation(&env, issuer, subject, claim_type, expiration, metadata, tags)
+    }
+
     // -----------------------------------------------------------------------
     // Query
     // -----------------------------------------------------------------------
@@ -532,6 +544,37 @@ impl TrustLinkContract {
     #[must_use]
     pub fn get_attestation_status(env: Env, attestation_id: String) -> Result<AttestationStatus, Error> {
         query::get_attestation_status(&env, attestation_id)
+    }
+
+    /// Export a revocation list for an issuer.
+    ///
+    /// Provides a compact, standards-adjacent format for external verifiers to
+    /// check revocation status for many attestations at once without individually
+    /// querying each one.
+    ///
+    /// # Parameters
+    /// - `issuer` — the issuer address whose revocations to export
+    /// - `claim_type` — optional claim type filter (None = all claim types)
+    /// - `format` — the desired output format
+    ///
+    /// # Returns
+    /// A `RevocationList` containing the issuer, claim type filter, generation timestamp,
+    /// revoked attestation IDs, optional bitstring encoding, total count, and revoked count.
+    ///
+    /// # Auth
+    /// Caller must be the issuer or an admin.
+    ///
+    /// # Errors
+    /// Returns `Error::Unauthorized` if caller is not authorized.
+    /// Returns `Error::NotFound` if issuer is not registered.
+    #[must_use]
+    pub fn export_revocation_list(
+        env: Env,
+        issuer: Address,
+        claim_type: Option<String>,
+        format: RevocationListFormat,
+    ) -> Result<RevocationList, Error> {
+        query::export_revocation_list(&env, issuer, claim_type, format)
     }
 
     #[must_use]

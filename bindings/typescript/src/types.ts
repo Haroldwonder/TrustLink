@@ -149,6 +149,32 @@ export interface TtlConfig {
   ttl_days: number;
 }
 
+/** Revocation list format selector */
+export enum RevocationListFormat {
+  /** Simple list of revoked attestation IDs */
+  SimpleList = 0,
+  /** Compact bitstring encoding (Status List 2021 compatible) */
+  Bitstring = 1,
+}
+
+/** Revocation list export response */
+export interface RevocationList {
+  /** The issuer that created this revocation list */
+  issuer: string;
+  /** The claim type these revocations apply to (null = all claim types) */
+  claim_type: string | null;
+  /** Unix timestamp when this list was generated */
+  generated_at: bigint;
+  /** List of revoked attestation IDs */
+  revoked_attestation_ids: string[];
+  /** Optional: bitstring encoding for compact representation */
+  bitstring: Uint8Array | null;
+  /** Total count of attestations (valid + revoked) at the time of export */
+  total_attestation_count: bigint;
+  /** Count of revoked attestations in this list */
+  revoked_count: bigint;
+}
+
 // ─── Errors ───────────────────────────────────────────────────────────────────
 
 export enum ContractErrorCode {
