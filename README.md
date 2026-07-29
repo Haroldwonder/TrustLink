@@ -1058,6 +1058,7 @@ Key design choices are documented as ADRs in [docs/adr/](docs/adr/):
 | [ADR-007](docs/adr/ADR-007-attestation-requests.md)  | Pull-based attestation request workflow          |
 | [ADR-008](docs/adr/ADR-008-rate-limiting.md)         | Rate limiting design and known limitations       |
 | [ADR-009](docs/adr/ADR-009-delegation-model.md)      | Delegation model and trust chain implications    |
+| [ADR-011](docs/adr/ADR-011-schema-federation-versioning.md) | Indexer GraphQL schema federation and versioning |
 
 A blank [template](docs/adr/ADR-000-template.md) is available for new decisions.
 
