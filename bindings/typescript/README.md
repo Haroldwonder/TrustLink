@@ -1,4 +1,9 @@
-# TrustLink TypeScript Bindings
+# TrustLink TypeScript Bindings (`@trustlink/contract`)
+
+> **Not sure which TypeScript package to use?**
+> See [docs/integration-guide.md — Which TypeScript package do I need?](../../docs/integration-guide.md#which-typescript-package-do-i-need) for a side-by-side comparison.
+>
+> **TL;DR** — most application developers should use [`@trustlink/sdk`](../../sdk/typescript/README.md) instead.
 
 Auto-generated TypeScript bindings for the TrustLink smart contract.
 

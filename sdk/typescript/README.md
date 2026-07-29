@@ -1,5 +1,8 @@
 # @trustlink/sdk
 
+> **Not sure which TypeScript package to use?**
+> See [docs/integration-guide.md — Which TypeScript package do I need?](../../docs/integration-guide.md#which-typescript-package-do-i-need) for a side-by-side comparison.
+
 TypeScript SDK for the [TrustLink](https://github.com/afurious/TrustLink) on-chain attestation contract on Stellar.
 
 [![npm version](https://badge.fury.io/js/@trustlink%2Fsdk.svg)](https://badge.fury.io/js/@trustlink%2Fsdk)

@@ -2,6 +2,69 @@
 
 This guide walks through integrating TrustLink into your dApp — whether you're building a Rust smart contract that needs on-chain claim verification, or a JavaScript/TypeScript frontend that interacts with the contract directly.
 
+---
+
+## Which TypeScript package do I need?
+
+TrustLink ships two TypeScript packages and the split often confuses newcomers. Here is the short answer:
+
+| I want to… | Use |
+|---|---|
+| Call the contract from a **frontend, backend service, or dApp** | **[`@trustlink/sdk`](../sdk/typescript/README.md)** |
+| Write a custom tool that needs **raw low-level contract bindings** or auto-completion on every contract method | **[`@trustlink/contract`](../bindings/typescript/README.md)** |
+
+### `@trustlink/sdk` — the recommended choice for most integrators
+
+Located at `sdk/typescript/`. Published as [`@trustlink/sdk`](https://www.npmjs.com/package/@trustlink/sdk).
+
+This is the **full-featured, ergonomic SDK** intended for application developers. It wraps the raw contract calls with:
+
+- Friendly camelCase method names (`hasValidClaim`, `getAttestation`, …)
+- `async`/`await` helpers that handle transaction building and simulation for you
+- Pagination helpers (`iterateSubjectAttestations`, `iterateIssuerAttestations`) that handle multi-page fetches transparently
+- Typed error constants (`TrustLinkError.NotFound`, …)
+- React integration examples
+
+```bash
+npm install @trustlink/sdk @stellar/stellar-sdk
+```
+
+```typescript
+import { TrustLinkClient } from "@trustlink/sdk";
+
+const client = new TrustLinkClient({ contractId: "C...", network: "testnet" });
+const hasKyc = await client.hasValidClaim(subject, "KYC_PASSED");
+```
+
+### `@trustlink/contract` — auto-generated low-level bindings
+
+Located at `bindings/typescript/`. Published as [`@trustlink/contract`](https://www.npmjs.com/package/@trustlink/contract).
+
+These bindings are **auto-generated** from the contract ABI by the Stellar CLI (`make bindings`). They expose every contract method at the XDR level with snake_case names matching the on-chain function signatures exactly. Use this package when:
+
+- You are building tooling that must stay in sync with the raw contract interface (e.g. a CLI that regenerates bindings after contract upgrades).
+- You need a method or type that `@trustlink/sdk` does not yet expose.
+- You are writing tests that assert exact XDR round-trips.
+
+```bash
+npm install @trustlink/contract @stellar/stellar-sdk
+```
+
+```typescript
+import { Client } from "@trustlink/contract";
+
+const client = new Client({ rpcUrl: "https://soroban-testnet.stellar.org", contractId: "C..." });
+const result = await client.has_valid_claim({ subject: "G...", claim_type: "KYC_PASSED" });
+```
+
+### Why do two packages exist?
+
+The split reflects the read/write surface of the contract. `@trustlink/contract` was generated first to provide 1-to-1 coverage of every contract method. `@trustlink/sdk` was layered on top to give frontend and backend developers a friendlier API without requiring knowledge of XDR or Soroban transaction mechanics.
+
+A tracked issue exists to unify the two packages into a single `@trustlink/sdk` that subsumes `@trustlink/contract`. Until that work is complete, `@trustlink/sdk` is the recommended choice for **all new integrations** that don't have a specific reason to use the raw bindings.
+
+---
+
 ## Testnet Contract
 
 A deployed TrustLink instance is available on Stellar Testnet for immediate testing:
