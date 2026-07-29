@@ -55,4 +55,32 @@ pub enum Error {
     LimitExceeded = 29,
     /// The proposal has been cancelled by the proposer.
     ProposalCancelled = 30,
+    /// A pending attestation request already exists for this subject/issuer/claim.
+    DuplicateRequest = 31,
+    /// The attestation request was already fulfilled, rejected, or cancelled.
+    RequestAlreadyProcessed = 32,
+    /// The attestation request TTL has elapsed.
+    RequestExpired = 33,
+    /// Metadata is present but is not a valid hex-encoded hash (when hash-only mode is on).
+    InvalidMetadata = 34,
+    /// Metadata does not satisfy the claim type's registered constraints.
+    ConstraintViolation = 35,
+    /// Claim type is not in the registry when registration is required.
+    NotRegisteredClaimType = 36,
+    /// Cannot remove the last remaining admin from the council.
+    LastAdminCannotBeRemoved = 37,
+    /// Issuer cannot delegate a claim type to themselves.
+    CannotDelegateToSelf = 38,
+    /// The admin-council proposal has already been executed.
+    CouncilProposalExecuted = 39,
+    /// The admin has already approved this council proposal.
+    AlreadyApproved = 40,
+    /// The council proposal timelock has not elapsed yet.
+    TimelockNotReady = 41,
+    /// No active dispute exists for this attestation.
+    NotDisputed = 42,
+    /// A dispute is already open for this attestation.
+    AlreadyDisputed = 43,
+    /// The configured fee token address is invalid or unusable.
+    InvalidFeeToken = 45,
 }

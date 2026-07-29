@@ -2,6 +2,8 @@
 
 Thanks for your interest in contributing! This guide covers everything you need to go from zero to a merged PR.
 
+Please read and follow our [Code of Conduct](CODE_OF_CONDUCT.md). Reports of unacceptable behavior can be sent to **conduct@trustlink.io**.
+
 ## Local Development Setup
 
 TrustLink uses [pre-commit](https://pre-commit.com) to enforce formatting and linting before every commit.
