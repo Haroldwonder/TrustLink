@@ -237,14 +237,15 @@ export function buildResolvers(db: PrismaClient, redis: Redis | null = null) {
 
     Subscription: {
       onAttestationCreated: {
-        subscribe: (_: unknown, args: { subject?: string }) => {
+        subscribe: (_: unknown, args: { subject?: string; issuer?: string; claimType?: string }) => {
           const iter = pubsub.asyncIterableIterator<{
             onAttestationCreated: ReturnType<typeof mapAttestation>;
           }>(ATTESTATION_CREATED);
 
-          if (!args.subject) return iter;
+          // If no filters, pass the iterator through unchanged
+          if (!args.subject && !args.issuer && !args.claimType) return iter;
 
-          const subject = args.subject;
+          const { subject, issuer, claimType } = args;
           return {
             [Symbol.asyncIterator]() {
               return this;
@@ -254,7 +255,11 @@ export function buildResolvers(db: PrismaClient, redis: Redis | null = null) {
                 const result = await iter.next();
                 if (result.done) return result;
                 const att = result.value?.onAttestationCreated;
-                if (!att || att.subject === subject) return result;
+                if (!att) return result;
+                if (subject && att.subject !== subject) continue;
+                if (issuer && att.issuer !== issuer) continue;
+                if (claimType && att.claimType !== claimType) continue;
+                return result;
               }
             },
             async return() {
@@ -268,14 +273,15 @@ export function buildResolvers(db: PrismaClient, redis: Redis | null = null) {
       },
 
       onAttestationRevoked: {
-        subscribe: (_: unknown, args: { issuer?: string }) => {
+        subscribe: (_: unknown, args: { subject?: string; issuer?: string; claimType?: string }) => {
           const iter = pubsub.asyncIterableIterator<{
-            onAttestationRevoked: { id: string; issuer: string; revokedAt: string };
+            onAttestationRevoked: { id: string; issuer: string; subject: string; claimType: string; revokedAt: string };
           }>(ATTESTATION_REVOKED);
 
-          if (!args.issuer) return iter;
+          // If no filters, pass the iterator through unchanged
+          if (!args.subject && !args.issuer && !args.claimType) return iter;
 
-          const issuer = args.issuer;
+          const { subject, issuer, claimType } = args;
           return {
             [Symbol.asyncIterator]() {
               return this;
@@ -285,7 +291,11 @@ export function buildResolvers(db: PrismaClient, redis: Redis | null = null) {
                 const result = await iter.next();
                 if (result.done) return result;
                 const data = result.value?.onAttestationRevoked;
-                if (!data || data.issuer === issuer) return result;
+                if (!data) return result;
+                if (subject && data.subject !== subject) continue;
+                if (issuer && data.issuer !== issuer) continue;
+                if (claimType && data.claimType !== claimType) continue;
+                return result;
               }
             },
             async return() {
@@ -294,7 +304,7 @@ export function buildResolvers(db: PrismaClient, redis: Redis | null = null) {
           };
         },
         resolve: (payload: {
-          onAttestationRevoked: { id: string; issuer: string; revokedAt: string };
+          onAttestationRevoked: { id: string; issuer: string; subject: string; claimType: string; revokedAt: string };
         }) => payload.onAttestationRevoked,
       },
 

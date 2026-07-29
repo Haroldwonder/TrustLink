@@ -1,7 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { rpc as SorobanRpc, scValToNative } from "@stellar/stellar-sdk";
 import type { Redis } from "ioredis";
-import { pubsub, ATTESTATION_CREATED, cacheInvalidate } from "./graphql";
+import { pubsub, ATTESTATION_CREATED, ATTESTATION_REVOKED, ISSUER_REGISTERED, cacheInvalidate } from "./graphql";
 import {
   attestationsTotal,
   revocationsTotal,
@@ -284,6 +284,8 @@ async function handleEvent(
       onAttestationRevoked: {
         id: attestationId,
         issuer: attestation?.issuer ?? "",
+        subject: attestation?.subject ?? "",
+        claimType: attestation?.claimType ?? "",
         revokedAt: new Date().toISOString(),
       },
     });

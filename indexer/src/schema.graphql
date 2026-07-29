@@ -146,11 +146,31 @@ type Query {
 }
 
 type Subscription {
-  """Subscribe to new attestation creation events, optionally filtered by subject"""
-  onAttestationCreated(subject: String): Attestation!
+  """
+  Subscribe to new attestation creation events.
+  All filter arguments are optional and applied with AND logic when combined.
+  """
+  onAttestationCreated(
+    """Only emit events for this subject address"""
+    subject: String
+    """Only emit events issued by this issuer address"""
+    issuer: String
+    """Only emit events for this claim type (e.g. \"KYC_PASSED\")"""
+    claimType: String
+  ): Attestation!
 
-  """Subscribe to attestation revocation events, optionally filtered by issuer"""
-  onAttestationRevoked(issuer: String): AttestationRevoked!
+  """
+  Subscribe to attestation revocation events.
+  All filter arguments are optional and applied with AND logic when combined.
+  """
+  onAttestationRevoked(
+    """Only emit events for this subject address"""
+    subject: String
+    """Only emit events issued by this issuer address"""
+    issuer: String
+    """Only emit events for this claim type (e.g. \"KYC_PASSED\")"""
+    claimType: String
+  ): AttestationRevoked!
 
   """Subscribe to issuer registration events"""
   onIssuerRegistered: IssuerRegistered!
@@ -159,6 +179,8 @@ type Subscription {
 type AttestationRevoked {
   id: String!
   issuer: String!
+  subject: String!
+  claimType: String!
   revokedAt: String!
 }
 
