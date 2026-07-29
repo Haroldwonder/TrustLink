@@ -132,7 +132,6 @@ mod test;
 
 
 use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String, Vec};
-use soroban_sdk::{contract, contractimpl, Address, Env, String, Vec};
 use types::{Attestation, AttestationStatus, ClaimTypeInfo, ContractMetadata, Error, IssuerMetadata};
 use storage::Storage;
 use validation::Validation;
@@ -248,6 +247,7 @@ impl TrustLinkContract {
             expiration,
             revoked: false,
             metadata,
+            valid_from: None,
         };
 
         Storage::set_attestation(&env, &attestation);
@@ -317,6 +317,7 @@ impl TrustLinkContract {
                 timestamp,
                 expiration,
                 revoked: false,
+                metadata: None,
                 valid_from: None,
             };
 
@@ -567,38 +568,6 @@ impl TrustLinkContract {
             // No valid attestation found for this claim type
             return false;
         }
-        true
-    }
-
-    /// Get a specific attestation by ID
-    /// Fetch the full attestation record by ID.
-    ///
-    /// # Parameters
-    /// - `attestation_id` — the attestation ID returned by [`create_attestation`].
-    ///
-    /// Returns `true` if `claim_types` is empty (vacuous truth).
-    /// Short-circuits and returns `false` as soon as any claim is missing/invalid.
-    pub fn has_all_claims(env: Env, subject: Address, claim_types: Vec<String>) -> bool {
-        if claim_types.is_empty() {
-            return true;
-        }
-        let attestation_ids = Storage::get_subject_attestations(&env, &subject);
-        let current_time = env.ledger().timestamp();
-
-        'outer: for claim_type in claim_types.iter() {
-            for id in attestation_ids.iter() {
-                if let Ok(attestation) = Storage::get_attestation(&env, &id) {
-                    if attestation.claim_type == claim_type
-                        && attestation.get_status(current_time) == AttestationStatus::Valid
-                    {
-                        continue 'outer;
-                    }
-                }
-            }
-            // No valid attestation found for this claim type
-            return false;
-        }
-
         true
     }
 

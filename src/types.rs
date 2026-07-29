@@ -1,47 +1,6 @@
+//! Shared data types and error codes for TrustLink.
 
-//! Core types for TrustLink.
-//!
-//! Defines the [`Attestation`] struct, [`AttestationStatus`] enum, [`Error`]
-//! codes, and supporting metadata types used throughout the contract.
-
-use soroban_sdk::{contracttype, contracterror, Address, Env, String};
-//! Shared data types, error codes, and core attestation logic for TrustLink.
-//!
-//! ## Types
-//!
-//! - [`Attestation`] — the primary on-chain record. Stores the issuer, subject,
-//!   claim type, creation timestamp, optional expiration, optional `valid_from`,
-//!   and revocation flag. Its [`Attestation::generate_id`] method produces a
-//!   deterministic 32-character hex ID from a SHA-256 hash of the key fields,
-//!   and [`Attestation::get_status`] computes the current [`AttestationStatus`]
-//!   from the ledger timestamp.
-//! - [`AttestationStatus`] — four-variant enum: `Pending`, `Valid`, `Expired`,
-//!   `Revoked`. Priority order: Pending > Revoked > Expired > Valid.
-//! - [`IssuerMetadata`] — optional public profile an issuer can attach to their
-//!   address (name, URL, description).
-//! - [`ClaimTypeInfo`] — a registered claim type identifier paired with a
-//!   human-readable description.
-//! - [`ContractMetadata`] — static contract info (name, version, description)
-//!   returned by `get_contract_metadata`.
-//!
-//! ## Error codes
-//!
-//! [`Error`] is a `#[contracterror]` enum whose `u32` discriminants are the
-//! values surfaced to callers as `Error(Contract, #N)`:
-//!
-//! | # | Variant                | When raised                                      |
-//! |---|------------------------|--------------------------------------------------|
-//! | 1 | `AlreadyInitialized`   | `initialize` called a second time                |
-//! | 2 | `NotInitialized`       | Any call before `initialize`                     |
-//! | 3 | `Unauthorized`         | Caller is not admin or not a registered issuer   |
-//! | 4 | `NotFound`             | Attestation ID does not exist in storage         |
-//! | 5 | `DuplicateAttestation` | ID collision (same inputs at same timestamp)     |
-//! | 6 | `AlreadyRevoked`       | Attempt to revoke or renew an already-revoked attestation |
-//! | 7 | `Expired`              | Reserved                                         |
-//! | 8 | `InvalidValidFrom`     | `valid_from` ≤ current ledger timestamp          |
-//! | 9 | `InvalidExpiration`    | New expiration ≤ current ledger timestamp        |
-
-use soroban_sdk::{contracterror, contracttype, Address, Env, String};
+use soroban_sdk::{contracterror, contracttype, xdr::ToXdr, Address, Bytes, Env, String};
 
 /// Contract metadata returned by `get_contract_metadata`.
 #[contracttype]
@@ -52,7 +11,7 @@ pub struct ContractMetadata {
     pub description: String,
 }
 
-/// A registered claim type with its description.
+/// A registered claim type and its human-readable description.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClaimTypeInfo {
@@ -60,7 +19,7 @@ pub struct ClaimTypeInfo {
     pub description: String,
 }
 
-/// A single attestation record stored on-chain.
+/// A single issuer-created claim about a subject address.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Attestation {
@@ -71,30 +30,16 @@ pub struct Attestation {
     pub timestamp: u64,
     pub expiration: Option<u64>,
     pub revoked: bool,
-
-    /// Optional free-form metadata string (max 256 characters).
     pub metadata: Option<String>,
-
     pub valid_from: Option<u64>,
-
 }
 
-/// Metadata an issuer can associate with their address.
+/// Public metadata associated with an issuer.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct IssuerMetadata {
     pub name: String,
     pub url: String,
-    pub description: String,
-}
-
-/// Info stored for a registered claim type.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ClaimTypeInfo {
-    /// Claim type identifier string.
-    pub claim_type: String,
-    /// Human-readable description.
     pub description: String,
 }
 
@@ -112,44 +57,19 @@ pub enum AttestationStatus {
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Error {
-
-    /// Contract has not been initialized.
-    NotInitialized = 1,
-    /// [`initialize`] was called more than once.
-    AlreadyInitialized = 2,
-    /// The caller lacks the required admin or issuer role.
-
     AlreadyInitialized = 1,
     NotInitialized = 2,
-
     Unauthorized = 3,
     NotFound = 4,
-
-    /// The attestation has already been revoked.
-    AlreadyRevoked = 5,
-    /// An attestation with the same deterministic ID already exists.
-    DuplicateAttestation = 6,
-    /// The provided expiration timestamp is in the past.
-    InvalidExpiration = 7,
-    /// The provided metadata exceeds the maximum allowed length of 256 characters.
-    MetadataTooLong = 8,
-
     DuplicateAttestation = 5,
     AlreadyRevoked = 6,
-    Expired = 7,
-    InvalidValidFrom = 8,
-    InvalidExpiration = 9,
-
+    InvalidValidFrom = 7,
+    InvalidExpiration = 8,
+    MetadataTooLong = 9,
 }
 
 impl Attestation {
-    /// Generate a deterministic attestation ID by SHA-256 hashing
-
-    /// `(issuer, subject, claim_type, timestamp)`.
-
-    /// `(issuer, subject, claim_type, timestamp)` and hex-encoding the first
-    /// 16 bytes of the digest into a 32-character ASCII string.
-
+    /// Generate a compact deterministic identifier for an attestation.
     pub fn generate_id(
         env: &Env,
         issuer: &Address,
@@ -157,55 +77,35 @@ impl Attestation {
         claim_type: &String,
         timestamp: u64,
     ) -> String {
-        use soroban_sdk::Bytes;
-        let mut issuer_buf = [0u8; 56];
-        let mut subject_buf = [0u8; 56];
-        issuer.to_string().copy_into_slice(&mut issuer_buf);
-        subject.to_string().copy_into_slice(&mut subject_buf);
+        let mut bytes = Bytes::new(env);
+        bytes.append(&issuer.clone().to_xdr(env));
+        bytes.append(&subject.clone().to_xdr(env));
+        bytes.append(&claim_type.clone().to_xdr(env));
+        bytes.append(&Bytes::from_slice(env, &timestamp.to_be_bytes()));
 
-        let claim_len = claim_type.len() as usize;
-        let mut claim_buf = [0u8; 128];
-        claim_type.copy_into_slice(&mut claim_buf[..claim_len]);
-
-        let mut buf = Bytes::new(env);
-        buf.append(&Bytes::from_slice(env, &issuer_buf));
-        buf.append(&Bytes::from_slice(env, &subject_buf));
-        buf.append(&Bytes::from_slice(env, &claim_buf[..claim_len]));
-        buf.append(&Bytes::from_slice(env, &timestamp.to_be_bytes()));
-
-        let hash = env.crypto().sha256(&buf);
-        let hash_arr = hash.to_array();
-
+        let hash = env.crypto().sha256(&bytes).to_array();
         const HEX: &[u8; 16] = b"0123456789abcdef";
-        let mut hex_bytes = [0u8; 32];
+        let mut id = [0u8; 32];
         for i in 0..16 {
-            hex_bytes[i * 2]     = HEX[(hash_arr[i] >> 4) as usize];
-            hex_bytes[i * 2 + 1] = HEX[(hash_arr[i] & 0x0f) as usize];
+            id[i * 2] = HEX[(hash[i] >> 4) as usize];
+            id[i * 2 + 1] = HEX[(hash[i] & 0x0f) as usize];
         }
-
-        String::from_bytes(env, &arr)
+        String::from_str(env, core::str::from_utf8(&id).unwrap_or(""))
     }
 
-    /// Compute the current [`AttestationStatus`] given `current_time`.
-
-        String::from_str(env, core::str::from_utf8(&hex_bytes).unwrap_or(""))
-    }
-
-    /// Compute the current [`AttestationStatus`] given `current_time`.
-    ///
-    /// Priority: Pending > Revoked > Expired > Valid.
-
+    /// Compute the current validity state. A pending attestation is not usable,
+    /// and revocation permanently takes precedence over expiration.
     pub fn get_status(&self, current_time: u64) -> AttestationStatus {
-        if let Some(vf) = self.valid_from {
-            if current_time < vf {
+        if let Some(valid_from) = self.valid_from {
+            if current_time < valid_from {
                 return AttestationStatus::Pending;
             }
         }
         if self.revoked {
             return AttestationStatus::Revoked;
         }
-        if let Some(exp) = self.expiration {
-            if current_time >= exp {
+        if let Some(expiration) = self.expiration {
+            if current_time >= expiration {
                 return AttestationStatus::Expired;
             }
         }
