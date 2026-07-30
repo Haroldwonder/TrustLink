@@ -323,7 +323,7 @@ async function handleEvent(
       () => {},
     );
 
-    // Publish to GraphQL subscription
+    // Publish to GraphQL subscription (#974: include subject and claimType for consistent filtering)
     pubsub.publish(ATTESTATION_REVOKED, {
       onAttestationRevoked: {
         id: attestationId,

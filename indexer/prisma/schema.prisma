@@ -46,10 +46,18 @@ model AuditEntry {
   @@index([attestationId])
 }
 
+// Issuer registry — tracks on-chain registered issuers and their metadata
 model Issuer {
-  address    String   @id
-  rateLimit  Int?
-  updatedAt  DateTime @updatedAt
+  address      String   @id // issuer address
+  name         String   @default("")
+  url          String?
+  description  String?
+  tier         String   @default("basic")
+  rateLimit    Int?
+  registeredAt DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([tier])
 }
 
 model MultisigProposal {
@@ -125,6 +133,45 @@ model RawEvent {
   @@index([contractId])
 }
 
+// #975: Dead-letter table for events that failed processing.
+// Failed events are written here instead of being silently dropped, so
+// operators can inspect and reprocess them. Status transitions:
+//   PENDING  → RETRYING  (operator/automated retry in progress)
+//   RETRYING → RESOLVED  (retry succeeded)
+//   RETRYING → PENDING   (retry failed again, back to queue)
+enum DeadLetterStatus {
+  PENDING
+  RETRYING
+  RESOLVED
+}
+
+// #975: Persists events whose handler threw an unhandled error.
+// Operators can query this table, fix the root cause, and reprocess by
+// setting status back to PENDING and triggering the reprocess endpoint.
+model EventDeadLetter {
+  id             String           @id @default(cuid())
+  ledger         Int
+  eventType      String           // raw topic string (e.g. "created", "revoked")
+  contractId     String
+  topic0         String?
+  topic1         String?
+  topic2         String?
+  eventDataJson  String           // serialised scValToNative(ev.value)
+  errorMessage   String
+  errorStack     String?
+  attemptCount   Int              @default(1)
+  status         DeadLetterStatus @default(PENDING)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  resolvedAt     DateTime?
+
+  @@index([status])
+  @@index([eventType])
+  @@index([ledger])
+  @@index([createdAt])
+  @@map("event_dead_letters")
+}
+
 model Webhook {
   id        String   @id @default(cuid())
   url       String
@@ -159,54 +206,6 @@ model WebhookFailure {
   @@index([eventType])
   @@index([failedAt])
   @@map("webhook_failures")
-}
-
-enum DeadLetterStatus {
-  PENDING   // Waiting for manual reprocessing
-  RETRYING  // Currently being retried
-  RESOLVED  // Successfully reprocessed
-  ABANDONED // Permanently failed after exhausting retries
-}
-
-/// Captures individual on-chain event processing failures.
-/// Events that throw during handleEvent are routed here instead of being
-/// silently lost. Operators can inspect the error, fix root causes, and
-/// trigger reprocessing via the /admin/dead-letter API.
-model EventDeadLetter {
-  id           String           @id @default(cuid())
-  ledger       Int                              // Ledger sequence where the event originated
-  eventType    String                           // Topic string (e.g. "created", "revoked")
-  contractId   String                           // Source contract ID
-  topic0       String?                          // Raw topic[0] value
-  topic1       String?                          // Raw topic[1] value (usually subject/address)
-  topic2       String?                          // Raw topic[2] if present
-  eventDataJson String                          // Full serialised event data (JSON)
-  errorMessage String                           // Error message from the failed handler
-  errorStack   String?                          // Stack trace if available
-  attemptCount Int              @default(1)     // How many times processing was attempted
-  status       DeadLetterStatus @default(PENDING)
-  failedAt     DateTime         @default(now())
-  resolvedAt   DateTime?                        // Set when status becomes RESOLVED
-  updatedAt    DateTime         @updatedAt
-
-  @@index([status])
-  @@index([ledger])
-  @@index([eventType])
-  @@index([contractId])
-  @@index([failedAt])
-  @@map("event_dead_letters")
-}
-
-model Issuer {
-  address      String   @id // issuer address
-  name         String
-  url          String?
-  description  String?
-  tier         String   @default("basic")
-  registeredAt DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  @@index([tier])
 }
 
 enum RequestStatus {
