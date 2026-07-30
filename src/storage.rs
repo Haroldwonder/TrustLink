@@ -1139,6 +1139,66 @@ impl Storage {
         env.storage().persistent().set(&key, &index);
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
+
+    // ── Attestation Bundles ──────────────────────────────────────────────────
+
+    /// Store metadata for a bundle of attestations.
+    pub fn set_bundle(env: &Env, bundle: &crate::types::AttestationBundle) {
+        let key = StorageKey::AttestationBundle(bundle.id.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, bundle);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    /// Retrieve bundle metadata by ID.
+    pub fn get_bundle(env: &Env, bundle_id: &String) -> Option<crate::types::AttestationBundle> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::AttestationBundle(bundle_id.clone()))
+    }
+
+    /// Check if a bundle exists.
+    pub fn has_bundle(env: &Env, bundle_id: &String) -> bool {
+        env.storage()
+            .persistent()
+            .has(&StorageKey::AttestationBundle(bundle_id.clone()))
+    }
+
+    /// Add a bundle ID to an issuer's bundle list.
+    pub fn add_issuer_bundle(env: &Env, issuer: &Address, bundle_id: &String) {
+        let key = StorageKey::IssuerBundles(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut list: Vec<String> = env.storage().persistent().get(&key).unwrap_or(Vec::new(env));
+        list.push_back(bundle_id.clone());
+        env.storage().persistent().set(&key, &list);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    /// Get list of all bundles created by an issuer.
+    pub fn get_issuer_bundles(env: &Env, issuer: &Address) -> Vec<String> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::IssuerBundles(issuer.clone()))
+            .unwrap_or(Vec::new(env))
+    }
+
+    /// Add a bundle ID to a subject's bundle list.
+    pub fn add_subject_bundle(env: &Env, subject: &Address, bundle_id: &String) {
+        let key = StorageKey::SubjectBundles(subject.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut list: Vec<String> = env.storage().persistent().get(&key).unwrap_or(Vec::new(env));
+        list.push_back(bundle_id.clone());
+        env.storage().persistent().set(&key, &list);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    /// Get list of all bundles issued to a subject.
+    pub fn get_subject_bundles(env: &Env, subject: &Address) -> Vec<String> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::SubjectBundles(subject.clone()))
+            .unwrap_or(Vec::new(env))
+    }
 }
 
 pub fn paginate(env: &Env, list: &Vec<String>, start: u32, limit: u32) -> Vec<String> {
@@ -1376,66 +1436,5 @@ impl ChunkedIndex {
 
     pub fn get_issuer_all(env: &Env, issuer: &Address) -> Vec<String> {
         Self::get_issuer_ids(env, issuer)
-    }
-}
-
-    // ── Attestation Bundles ──────────────────────────────────────────────────
-
-    /// Store metadata for a bundle of attestations.
-    pub fn set_bundle(env: &Env, bundle: &crate::types::AttestationBundle) {
-        let key = StorageKey::AttestationBundle(bundle.id.clone());
-        let ttl = get_ttl_lifetime(env);
-        env.storage().persistent().set(&key, bundle);
-        env.storage().persistent().extend_ttl(&key, ttl, ttl);
-    }
-
-    /// Retrieve bundle metadata by ID.
-    pub fn get_bundle(env: &Env, bundle_id: &String) -> Option<crate::types::AttestationBundle> {
-        env.storage()
-            .persistent()
-            .get(&StorageKey::AttestationBundle(bundle_id.clone()))
-    }
-
-    /// Check if a bundle exists.
-    pub fn has_bundle(env: &Env, bundle_id: &String) -> bool {
-        env.storage()
-            .persistent()
-            .has(&StorageKey::AttestationBundle(bundle_id.clone()))
-    }
-
-    /// Add a bundle ID to an issuer's bundle list.
-    pub fn add_issuer_bundle(env: &Env, issuer: &Address, bundle_id: &String) {
-        let key = StorageKey::IssuerBundles(issuer.clone());
-        let ttl = get_ttl_lifetime(env);
-        let mut list: Vec<String> = env.storage().persistent().get(&key).unwrap_or(Vec::new(env));
-        list.push_back(bundle_id.clone());
-        env.storage().persistent().set(&key, &list);
-        env.storage().persistent().extend_ttl(&key, ttl, ttl);
-    }
-
-    /// Get list of all bundles created by an issuer.
-    pub fn get_issuer_bundles(env: &Env, issuer: &Address) -> Vec<String> {
-        env.storage()
-            .persistent()
-            .get(&StorageKey::IssuerBundles(issuer.clone()))
-            .unwrap_or(Vec::new(env))
-    }
-
-    /// Add a bundle ID to a subject's bundle list.
-    pub fn add_subject_bundle(env: &Env, subject: &Address, bundle_id: &String) {
-        let key = StorageKey::SubjectBundles(subject.clone());
-        let ttl = get_ttl_lifetime(env);
-        let mut list: Vec<String> = env.storage().persistent().get(&key).unwrap_or(Vec::new(env));
-        list.push_back(bundle_id.clone());
-        env.storage().persistent().set(&key, &list);
-        env.storage().persistent().extend_ttl(&key, ttl, ttl);
-    }
-
-    /// Get list of all bundles issued to a subject.
-    pub fn get_subject_bundles(env: &Env, subject: &Address) -> Vec<String> {
-        env.storage()
-            .persistent()
-            .get(&StorageKey::SubjectBundles(subject.clone()))
-            .unwrap_or(Vec::new(env))
     }
 }

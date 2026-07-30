@@ -397,17 +397,18 @@ impl TrustLinkContract {
         attestation::create_attestation(&env, issuer, subject, claim_type, expiration, metadata, tags)
     }
 
-        let attestation = Attestation {
-            id: attestation_id.clone(),
-            issuer: issuer.clone(),
-            subject: subject.clone(),
-            claim_type: claim_type.clone(),
-            timestamp,
-            expiration,
-            revoked: false,
-            metadata,
-            valid_from: None,
-        };
+    pub fn create_attestation_valid_from(
+        env: Env,
+        issuer: Address,
+        subject: Address,
+        claim_type: String,
+        expiration: Option<u64>,
+        metadata: Option<String>,
+        tags: Option<Vec<String>>,
+        valid_from: u64,
+    ) -> Result<String, Error> {
+        attestation::create_attestation_valid_from(&env, issuer, subject, claim_type, expiration, metadata, tags, valid_from)
+    }
 
     pub fn create_attestation_jurisdiction(
         env: Env,
@@ -474,26 +475,6 @@ impl TrustLinkContract {
     pub fn renew_attestation(env: Env, issuer: Address, attestation_id: String, new_expiration: Option<u64>) -> Result<(), Error> {
         attestation::renew_attestation(&env, issuer, attestation_id, new_expiration)
     }
-
-            let attestation = Attestation {
-                id: attestation_id.clone(),
-                issuer: issuer.clone(),
-                subject: subject.clone(),
-                claim_type: claim_type.clone(),
-                timestamp,
-                expiration,
-                revoked: false,
-                metadata: None,
-                valid_from: None,
-            };
-
-            Storage::set_attestation(&env, &attestation);
-            Storage::add_subject_attestation(&env, &subject, &attestation_id);
-            Storage::add_issuer_attestation(&env, &issuer, &attestation_id);
-            Events::attestation_created(&env, &attestation);
-
-            ids.push_back(attestation_id);
-        }
 
     pub fn update_expiration(env: Env, issuer: Address, attestation_id: String, new_expiration: Option<u64>) -> Result<(), Error> {
         attestation::update_expiration(&env, issuer, attestation_id, new_expiration)
@@ -804,15 +785,6 @@ impl TrustLinkContract {
     pub fn get_multisig_ttl(env: Env) -> u32 {
         multisig::get_multisig_ttl(&env)
     }
-
-        if proposal.cancelled {
-            return Err(Error::ProposalExpired);
-        }
-
-        let current_time = env.ledger().timestamp();
-        if current_time >= proposal.expires_at {
-            return Err(Error::ProposalExpired);
-        }
 
     pub fn request_attestation(env: Env, subject: Address, issuer: Address, claim_type: String) -> Result<String, Error> {
         request::request_attestation(&env, subject, issuer, claim_type)
