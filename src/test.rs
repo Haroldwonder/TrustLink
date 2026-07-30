@@ -4588,6 +4588,35 @@ mod pause_tests {
         let result = client.try_propose_attestation(&issuer, &subject, &claim, &required, &2);
         assert_eq!(result, Err(Ok(Error::ContractPaused)));
     }
+
+    /// Issue #950: cancel_multisig_proposal was missing the require_not_paused
+    /// check that every other mutating entry point performs, so a paused
+    /// contract could still have its open proposals cancelled.
+    #[test]
+    fn test_paused_blocks_cancel_multisig_proposal() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, client) = setup(&env);
+        let issuer2 = Address::generate(&env);
+        client.register_issuer(&admin, &issuer2);
+
+        let subject = Address::generate(&env);
+        let claim = String::from_str(&env, "KYC_PASSED");
+        let mut required = soroban_sdk::Vec::new(&env);
+        required.push_back(issuer.clone());
+        required.push_back(issuer2.clone());
+
+        let proposal_id = client.propose_attestation(&issuer, &subject, &claim, &required, &2);
+
+        client.pause(&admin);
+
+        let result = client.try_cancel_multisig_proposal(&issuer, &proposal_id);
+        assert_eq!(result, Err(Ok(Error::ContractPaused)));
+
+        // Proposal must remain uncancelled while the contract is paused.
+        let proposal = client.get_multisig_proposal(&proposal_id);
+        assert!(!proposal.cancelled);
+    }
 }
 
 // =============================================================================
