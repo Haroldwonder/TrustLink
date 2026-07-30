@@ -11,6 +11,84 @@ pub struct ContractMetadata {
     pub description: String,
 }
 
+/// Metadata about a registered issuer.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IssuerMetadata {
+    pub name: String,
+    pub url: String,
+    pub description: String,
+}
+
+/// Fee configuration for attestation creation.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FeeConfig {
+    pub attestation_fee: i128,
+    pub fee_collector: Address,
+    pub fee_token: Option<Address>,
+}
+
+/// Global contract statistics.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GlobalStats {
+    pub total_attestations: u64,
+    pub total_revocations: u64,
+    pub total_issuers: u64,
+}
+
+/// Health status for monitoring.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HealthStatus {
+    pub initialized: bool,
+    pub admin_set: bool,
+    pub issuer_count: u64,
+    pub total_attestations: u64,
+}
+
+/// Issuer statistics.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IssuerStats {
+    pub total_issued: u64,
+}
+
+/// TTL configuration.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TtlConfig {
+    pub ttl_days: u32,
+}
+
+/// Rate limiting configuration.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RateLimitConfig {
+    pub min_issuance_interval: u64,
+}
+
+/// Contract configuration.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractConfig {
+    pub contract_name: String,
+    pub contract_version: String,
+    pub contract_description: String,
+    pub fee_config: FeeConfig,
+    pub ttl_config: TtlConfig,
+    pub require_registered_claim_type: bool,
+    /// When `true`, the `metadata` field on new attestations must be either
+    /// `None` or a 64-character lowercase hexadecimal string (SHA-256 hash).
+    /// Enables enforcement of GDPR data-minimisation at the contract level.
+    pub metadata_hash_only: bool,
+    /// Optional maximum number of attestations per subject.
+    /// When set, new attestations exceeding this limit will be rejected.
+    /// When `None`, attestations are unlimited (default for backward compatibility).
+    pub max_attestations_per_subject: Option<u32>,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClaimTypeInfo {

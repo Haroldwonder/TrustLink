@@ -111,7 +111,19 @@ pub fn create_attestation_bundle(
     if issuer_count.saturating_add(claim_types.len()) > limits.max_attestations_per_issuer {
         return Err(Error::LimitExceeded);
     }
-    if subject_count.saturating_add(claim_types.len()) > limits.max_attestations_per_subject {
+    
+    // Check optional per-subject limit from ContractConfig if configured
+    let max_subject_limit = if let Some(config) = Storage::get_contract_config(env) {
+        if let Some(max_per_subject) = config.max_attestations_per_subject {
+            max_per_subject as usize
+        } else {
+            limits.max_attestations_per_subject as usize
+        }
+    } else {
+        limits.max_attestations_per_subject as usize
+    };
+    
+    if subject_count.saturating_add(claim_types.len()) > max_subject_limit {
         return Err(Error::LimitExceeded);
     }
 

@@ -284,6 +284,20 @@ impl TrustLinkContract {
         admin::get_metadata_hash_only(&env)
     }
 
+    /// Set the optional maximum number of attestations per subject.
+    /// When set, new attestations exceeding this limit will be rejected.
+    /// When `None`, attestations are unlimited (default for backward compatibility).
+    pub fn set_max_attestations_per_subject(env: Env, admin: Address, limit: Option<u32>) -> Result<(), Error> {
+        admin::set_max_attestations_per_subject(&env, admin, limit)
+    }
+
+    /// Get the optional maximum number of attestations per subject.
+    /// Returns `None` if unlimited (default).
+    #[must_use]
+    pub fn get_max_attestations_per_subject(env: Env) -> Option<u32> {
+        admin::get_max_attestations_per_subject(&env)
+    }
+
     // -----------------------------------------------------------------------
     // Limits
     // -----------------------------------------------------------------------
@@ -1011,26 +1025,28 @@ impl TrustLinkContract {
     }
 
     pub fn get_config(env: Env) -> ContractConfig {
-        let ttl_config = Storage::get_ttl_config(&env).unwrap_or(TtlConfig { ttl_days: 30 });
-
-        let fee_config = Storage::get_fee_config(&env).unwrap_or_else(|| FeeConfig {
-            attestation_fee: 0,
-            fee_collector: env.current_contract_address(),
-            fee_token: None,
-        });
-
-        let version = Storage::get_version(&env).unwrap_or_else(|| String::from_str(&env, ""));
-
-        ContractConfig {
-            ttl_config,
-            fee_config,
-            contract_name: String::from_str(&env, "TrustLink"),
-            contract_version: version,
-            contract_description: String::from_str(
-                &env,
-                "On-chain attestation and verification system for the Stellar blockchain.",
-            ),
-            multisig_ttl_days: Storage::get_multisig_ttl(&env),
+        // Try to get the stored config, or build one with defaults
+        if let Some(config) = Storage::get_contract_config(&env) {
+            config
+        } else {
+            // Provide defaults for backward compatibility
+            ContractConfig {
+                contract_name: String::from_str(&env, "TrustLink"),
+                contract_version: String::from_str(&env, ""),
+                contract_description: String::from_str(
+                    &env,
+                    "On-chain attestation and verification system for the Stellar blockchain.",
+                ),
+                ttl_config: Storage::get_ttl_config(&env).unwrap_or(TtlConfig { ttl_days: 30 }),
+                fee_config: Storage::get_fee_config(&env).unwrap_or_else(|| FeeConfig {
+                    attestation_fee: 0,
+                    fee_collector: env.current_contract_address(),
+                    fee_token: None,
+                }),
+                require_registered_claim_type: false,
+                metadata_hash_only: false,
+                max_attestations_per_subject: None,
+            }
         }
     }
 
