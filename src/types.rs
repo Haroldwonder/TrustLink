@@ -2,6 +2,7 @@
 
 use soroban_sdk::{contracterror, contracttype, xdr::ToXdr, Address, Bytes, Env, String};
 
+/// Contract metadata returned by `get_contract_metadata`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractMetadata {
@@ -89,6 +90,8 @@ impl Attestation {
         String::from_str(env, core::str::from_utf8(&id).unwrap_or(""))
     }
 
+    /// Compute the current validity state. A pending attestation is not usable,
+    /// and revocation permanently takes precedence over expiration.
     pub fn get_status(&self, current_time: u64) -> AttestationStatus {
         if let Some(valid_from) = self.valid_from {
             if current_time < valid_from {
