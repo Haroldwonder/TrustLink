@@ -143,7 +143,7 @@ pub struct RateLimitConfig {
     pub min_issuance_interval: u64,
 }
 
-/// Contract configuration.
+/// Full contract configuration snapshot returned by `get_config`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractConfig {
@@ -161,6 +161,15 @@ pub struct ContractConfig {
     /// When set, new attestations exceeding this limit will be rejected.
     /// When `None`, attestations are unlimited (default for backward compatibility).
     pub max_attestations_per_subject: Option<u32>,
+    /// Number of attestation IDs stored per chunk in the `ChunkedIndex`.
+    ///
+    /// Larger values reduce storage-read counts for high-volume issuers/subjects
+    /// at the cost of larger individual reads/writes. Smaller values keep each
+    /// read/write cheap at the cost of more round-trips for large indexes.
+    /// Must be ≥ 1. Defaults to 50 when not explicitly set.
+    /// **Should only be changed before any attestations are written**; changing
+    /// it afterwards requires a full index migration.
+    pub chunk_size: u32,
 }
 
 #[contracttype]

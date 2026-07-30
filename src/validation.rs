@@ -18,6 +18,33 @@ use crate::storage::Storage;
 use crate::types::Error;
 use soroban_sdk::{Address, Env, String};
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared byte-copy helper
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Copies the bytes of a Soroban SDK `String` into a fixed 64-byte stack
+/// buffer and returns both the buffer and the number of bytes written.
+///
+/// This single helper eliminates the duplicate hand-written buffer-copy logic
+/// that previously appeared in both `validate_claim_type` and
+/// `validate_metadata_hash_only`. Both validators now call this function,
+/// ensuring consistent behaviour if the buffer size or bounds-check ever
+/// needs to change.
+///
+/// # Panics
+/// Panics (via an out-of-bounds slice) if `s.len() > 64`.
+/// All callers **must** validate length ≤ 64 before invoking this helper.
+fn copy_into_fixed_buffer(s: &String) -> ([u8; 64], usize) {
+    let len = s.len() as usize;
+    let mut buf = [0u8; 64];
+    s.copy_into_slice(&mut buf[..len]);
+    (buf, len)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Validation guards
+// ─────────────────────────────────────────────────────────────────────────────
+
 /// Authorization checks used by contract entry points.
 pub struct Validation;
 
@@ -103,12 +130,9 @@ impl Validation {
         if len == 0 || len > 64 {
             return Err(Error::InvalidClaimType);
         }
-        // Copy bytes out of the host-side String for inspection.
-        // len is u32 in Soroban SDK; safe to cast since we already checked <= 64.
-        let mut buf = [0u8; 64];
-        let slice = &mut buf[..len as usize];
-        claim_type.copy_into_slice(slice);
-        for &b in slice.iter() {
+        // Use the shared helper; length is already verified <= 64 above.
+        let (buf, byte_len) = copy_into_fixed_buffer(claim_type);
+        for &b in buf[..byte_len].iter() {
             let is_alpha = b.is_ascii_alphabetic();
             let is_digit = b.is_ascii_digit();
             let is_underscore = b == b'_';
@@ -151,8 +175,8 @@ impl Validation {
                 if value.len() != 64 {
                     return Err(Error::InvalidMetadata);
                 }
-                let mut buf = [0u8; 64];
-                value.copy_into_slice(&mut buf);
+                // Use the shared helper; length is exactly 64 verified above.
+                let (buf, _) = copy_into_fixed_buffer(value);
                 for &b in buf.iter() {
                     if !matches!(b, b'0'..=b'9' | b'a'..=b'f') {
                         return Err(Error::InvalidMetadata);

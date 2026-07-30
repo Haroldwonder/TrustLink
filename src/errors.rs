@@ -81,4 +81,6 @@ pub enum Error {
     CannotDelegateToSelf = 42,
     /// Already approved.
     AlreadyApproved = 43,
+    /// `chunk_size` passed to `set_chunk_size` is 0 or otherwise out of range.
+    InvalidChunkSize = 45,
 }

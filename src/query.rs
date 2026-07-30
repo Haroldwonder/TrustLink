@@ -244,7 +244,6 @@ pub fn get_attestations_in_range_after(
     if let Some(cursor_id) = after_attestation_id {
         let mut cursor_found = false;
         let mut cursor_timestamp: u64 = 0;
-        let cursor_id_ref = cursor_id.clone();
         if let Ok(cursor_attestation) = Storage::get_attestation(env, &cursor_id) {
             cursor_timestamp = cursor_attestation.timestamp;
             for i in 0..filtered.len() {
@@ -264,7 +263,7 @@ pub fn get_attestations_in_range_after(
             for i in 0..filtered.len() {
                 if let Some(attestation) = filtered.get(i) {
                     if attestation.timestamp > cursor_timestamp
-                        || (attestation.timestamp == cursor_timestamp && attestation.id > cursor_id_ref)
+                        || (attestation.timestamp == cursor_timestamp && attestation.id > cursor_id)
                     {
                         start_index = i;
                         cursor_found = true;

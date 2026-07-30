@@ -299,6 +299,19 @@ impl TrustLinkContract {
         admin::get_max_attestations_per_subject(&env)
     }
 
+    /// Sets the `ChunkedIndex` chunk size (number of attestation IDs per
+    /// storage entry). Admin-only. See [`admin::set_chunk_size`] for
+    /// important caveats about calling this after data has been written.
+    pub fn set_chunk_size(env: Env, admin: Address, chunk_size: u32) -> Result<(), Error> {
+        admin::set_chunk_size(&env, admin, chunk_size)
+    }
+
+    /// Returns the currently configured `ChunkedIndex` chunk size (default: 50).
+    #[must_use]
+    pub fn get_chunk_size(env: Env) -> u32 {
+        admin::get_chunk_size(&env)
+    }
+
     // -----------------------------------------------------------------------
     // Limits
     // -----------------------------------------------------------------------
@@ -1029,6 +1042,7 @@ impl TrustLinkContract {
                 require_registered_claim_type: false,
                 metadata_hash_only: false,
                 max_attestations_per_subject: None,
+                chunk_size: admin::get_chunk_size(&env),
             }
         }
     }

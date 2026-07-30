@@ -4,10 +4,11 @@
 
 use crate::constants::{DAY_IN_LEDGERS, DEFAULT_INSTANCE_LIFETIME};
 use crate::types::{
-    AdminCouncil, Attestation, AttestationRequest, AttestationTemplate, AuditEntry, ClaimTypeInfo,
-    CouncilProposal, DecayConfig, DisputeRecord, Endorsement, Error, ExpirationHook, FeeConfig,
-    GlobalStats, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, PendingAdminTransfer,
-    RateLimitConfig, StorageLimits, TtlConfig, AttestationVersionSnapshot,
+    AdminCouncil, Attestation, AttestationRequest, AttestationTemplate, AttestationVersionSnapshot,
+    AuditEntry, ClaimTypeConstraints, ClaimTypeInfo, CouncilProposal, DecayConfig, Delegation,
+    DisputeRecord, Endorsement, Error, ExpirationHook, FeeConfig, GlobalStats, IssuerMetadata,
+    IssuerStats, IssuerTier, MultiSigProposal, PendingAdminTransfer, RateLimitConfig,
+    StorageLimits, TtlConfig,
 };
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
@@ -21,6 +22,8 @@ pub enum StorageKey {
     ContractConfig,
     Issuer(Address),
     Bridge(Address),
+    /// Ordered list of all registered bridge addresses.
+    BridgeList,
     Attestation(String),
     SubjectAttestations(Address),
     IssuerAttestations(Address),
@@ -31,12 +34,18 @@ pub enum StorageKey {
     ClaimTypeList,
     /// Constraints for a specific claim type.
     ClaimTypeConstraints(String),
+    /// Per-claim-type attestation count across all issuers.
+    ClaimTypeCount(String),
+    /// Per-claim-type minimum issuance interval (rate limit).
+    ClaimTypeRateLimit(String),
     IssuerList,
     IssuerTier(Address),
     IssuerStats(Address),
     GlobalStats,
     ExpirationHook(Address),
     Endorsements(String),
+    /// Index of attestation IDs endorsed by a given endorser.
+    EndorserIndex(Address),
     StorageLimits,
     IssuerWhitelistMode(Address),
     /// Version history for an attestation (Vec<AttestationVersionSnapshot>).
@@ -47,6 +56,10 @@ pub enum StorageKey {
     AuditLog(String),
     /// Multi-sig proposal keyed by proposal ID.
     MultiSigProposal(String),
+    /// Admin council proposal keyed by proposal ID.
+    CouncilProposal(u32),
+    /// Monotonic counter for admin council proposal IDs.
+    ProposalCounter,
     /// An attestation request record.
     AttestationRequest(String),
     IssuerPendingRequests(Address),
@@ -66,6 +79,26 @@ pub enum StorageKey {
     IssuerBundles(Address),
     /// List of bundles issued to a subject.
     SubjectBundles(Address),
+    /// Pending two-step admin transfer.
+    PendingAdminTransfer,
+    /// Attestation template keyed by (issuer, template_id).
+    AttestationTemplate(Address, String),
+    /// Ordered list of template IDs for a given issuer.
+    AttestationTemplateList(Address),
+    /// Index of valid attestation IDs for a subject (optimised lookup).
+    ValidAttestations(Address),
+    /// Delegation record keyed by (delegator, delegate, claim_type).
+    Delegation(Address, Address, String),
+    /// Index of active delegations for a delegator.
+    DelegatorIndex(Address),
+    /// Decay configuration for issuer reputation scoring.
+    DecayConfig,
+    /// Active dispute record for an attestation.
+    Dispute(String),
+    /// Timelock delay in seconds for council action execution.
+    CouncilTimelockDelay,
+    /// Cumulative revocation count for an issuer (used in confidence scoring).
+    IssuerRevocations(Address),
 }
 
 // TODO: Issue #918 - The following StorageKey variants need to be added:
@@ -1124,7 +1157,18 @@ pub fn paginate_addresses(env: &Env, list: &Vec<Address>, start: u32, limit: u32
     result
 }
 
-const CHUNKED_INDEX_CHUNK_SIZE: u32 = 50;
+/// Default chunk size used when no value has been configured in `ContractConfig`.
+const DEFAULT_CHUNK_SIZE: u32 = 50;
+
+/// Returns the configured `ChunkedIndex` chunk size, falling back to
+/// `DEFAULT_CHUNK_SIZE` when the contract has not been initialised yet or
+/// when `chunk_size` was not explicitly stored.
+fn get_chunk_size(env: &Env) -> u32 {
+    Storage::get_contract_config(env)
+        .map(|cfg| cfg.chunk_size)
+        .filter(|&s| s >= 1)
+        .unwrap_or(DEFAULT_CHUNK_SIZE)
+}
 
 pub struct ChunkedIndex;
 
@@ -1167,11 +1211,12 @@ impl ChunkedIndex {
 
     fn write_subject_chunks(env: &Env, subject: &Address, ids: &Vec<String>) {
         let ttl = get_ttl_lifetime(env);
+        let chunk_size = get_chunk_size(env);
         let mut chunk_index = 0;
         let mut offset = 0;
         while offset < ids.len() {
             let mut chunk = Vec::new(env);
-            for _ in 0..CHUNKED_INDEX_CHUNK_SIZE {
+            for _ in 0..chunk_size {
                 if let Some(id) = ids.get(offset) {
                     chunk.push_back(id.clone());
                     offset += 1;
@@ -1200,11 +1245,12 @@ impl ChunkedIndex {
 
     fn write_issuer_chunks(env: &Env, issuer: &Address, ids: &Vec<String>) {
         let ttl = get_ttl_lifetime(env);
+        let chunk_size = get_chunk_size(env);
         let mut chunk_index = 0;
         let mut offset = 0;
         while offset < ids.len() {
             let mut chunk = Vec::new(env);
-            for _ in 0..CHUNKED_INDEX_CHUNK_SIZE {
+            for _ in 0..chunk_size {
                 if let Some(id) = ids.get(offset) {
                     chunk.push_back(id.clone());
                     offset += 1;
