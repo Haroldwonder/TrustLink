@@ -899,7 +899,7 @@ For the pre-mainnet line-by-line authorization audit, see
 - **Stellar Anchors**: End-to-end anchor KYC attestation flow example in [examples/anchor-integration/README.md](examples/anchor-integration/README.md)
 - **Soroban Tokens**: KYC-restricted token transfer example in [examples/kyc-token/README.md](examples/kyc-token/README.md)
 - **DAO Governance**: Voter eligibility-gated voting example in [examples/governance/README.md](examples/governance/README.md)
-- **NFT Marketplace**: KYC- and jurisdiction-gated listing/bidding — see [examples/nft-marketplace/README.md](examples/nft-marketplace/README.md)
+- **SaaS Seat Licensing**: Multi-tenant per-seat `SEAT_LICENSED` issuance, access gating, and offboarding revocation — see [examples/seat-licensing/README.md](examples/seat-licensing/README.md)
 
 ## Release Process
 
