@@ -21,7 +21,7 @@ export const eventsProcessedTotal = new Counter({
 });
 
 export const eventsProcessedByType = new Counter({
-  name: "trustlink_events_processed_total",
+  name: "trustlink_events_processed_by_type_total",
   help: "Total number of events processed by type",
   labelNames: ["type"],
 });

@@ -207,7 +207,16 @@ async function handleEvent(
 
   if (topicStr === "ms_sign") {
     const proposalId = String(data[0]);
+    const signer = String(data[2]);
     const signatureCount = Number(data[1]);
+    const existing = await db.multisigProposal.findUnique({
+      where: { id: proposalId },
+      select: { signers: true },
+    });
+    if (!existing) return;
+    const updatedSigners = existing.signers.includes(signer)
+      ? existing.signers
+      : [...existing.signers, signer];
     await db.multisigProposal.update({
       where: { id: proposalId },
       data: { signatureCount, signers: updatedSigners },
