@@ -161,6 +161,42 @@ model WebhookFailure {
   @@map("webhook_failures")
 }
 
+enum DeadLetterStatus {
+  PENDING   // Waiting for manual reprocessing
+  RETRYING  // Currently being retried
+  RESOLVED  // Successfully reprocessed
+  ABANDONED // Permanently failed after exhausting retries
+}
+
+/// Captures individual on-chain event processing failures.
+/// Events that throw during handleEvent are routed here instead of being
+/// silently lost. Operators can inspect the error, fix root causes, and
+/// trigger reprocessing via the /admin/dead-letter API.
+model EventDeadLetter {
+  id           String           @id @default(cuid())
+  ledger       Int                              // Ledger sequence where the event originated
+  eventType    String                           // Topic string (e.g. "created", "revoked")
+  contractId   String                           // Source contract ID
+  topic0       String?                          // Raw topic[0] value
+  topic1       String?                          // Raw topic[1] value (usually subject/address)
+  topic2       String?                          // Raw topic[2] if present
+  eventDataJson String                          // Full serialised event data (JSON)
+  errorMessage String                           // Error message from the failed handler
+  errorStack   String?                          // Stack trace if available
+  attemptCount Int              @default(1)     // How many times processing was attempted
+  status       DeadLetterStatus @default(PENDING)
+  failedAt     DateTime         @default(now())
+  resolvedAt   DateTime?                        // Set when status becomes RESOLVED
+  updatedAt    DateTime         @updatedAt
+
+  @@index([status])
+  @@index([ledger])
+  @@index([eventType])
+  @@index([contractId])
+  @@index([failedAt])
+  @@map("event_dead_letters")
+}
+
 model Issuer {
   address      String   @id // issuer address
   name         String
