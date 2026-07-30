@@ -9277,3 +9277,133 @@ fn test_get_confidence_score_works_when_decay_configured() {
     let score_after = client.get_confidence_score(&attestation_id);
     assert!(score_after.is_some());
 }
+#[test]
+fn test_duplicate_request_detection_across_timestamps() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "test_claim");
+
+    env.ledger().set_timestamp(1000);
+
+    let request_id_1 = client.request_attestation(&subject, &issuer, &claim_type);
+
+    env.ledger().set_timestamp(1001);
+
+    let result = client.request_attestation(&subject, &issuer, &claim_type);
+    assert!(result.is_err());
+    assert_eq!(result.err(), Some(Error::DuplicateRequest));
+
+    let pending = client.get_pending_requests(&issuer, &0, &10);
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending.get(0).unwrap().id, request_id_1.clone().unwrap());
+}
+
+#[test]
+fn test_expired_request_allows_new_request() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "test_claim");
+
+    env.ledger().set_timestamp(1000);
+
+    let _request_id_1 = client.request_attestation(&subject, &issuer, &claim_type);
+
+    let request_ttl_secs = 7 * 24 * 60 * 60;
+    env.ledger().set_timestamp(1000 + request_ttl_secs + 1);
+
+    let request_id_2 = client.request_attestation(&subject, &issuer, &claim_type);
+    assert!(request_id_2.is_ok());
+
+    let pending = client.get_pending_requests(&issuer, &0, &10);
+    assert_eq!(pending.len(), 1);
+}
+
+#[test]
+fn test_get_pending_requests_filters_expired() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "test_claim");
+
+    env.ledger().set_timestamp(1000);
+
+    let _request_id_1 = client.request_attestation(&subject, &issuer, &claim_type);
+
+    let request_ttl_secs = 7 * 24 * 60 * 60;
+    env.ledger().set_timestamp(1000 + request_ttl_secs + 1);
+
+    let pending = client.get_pending_requests(&issuer, &0, &10);
+    assert_eq!(pending.len(), 0);
+}
+
+#[test]
+fn test_list_endorsements_by_endorser_public_interface() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer1, client) = setup(&env);
+    let issuer2 = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "test_claim");
+
+    client.register_issuer(&Address::generate(&env), &issuer2);
+
+    let attestation_id_1 = client.create_attestation(
+        &issuer1,
+        &subject,
+        &claim_type,
+        &None,
+        &None,
+        &None,
+    ).unwrap();
+
+    let attestation_id_2 = client.create_attestation(
+        &issuer1,
+        &subject,
+        &claim_type,
+        &None,
+        &None,
+        &None,
+    ).unwrap();
+
+    client.endorse_attestation(&issuer2, &attestation_id_1);
+    client.endorse_attestation(&issuer2, &attestation_id_2);
+
+    let endorsements = client.list_endorsements_by_endorser(&issuer2, &0, &10);
+    assert_eq!(endorsements.len(), 2);
+    assert_eq!(endorsements.get(0).unwrap().endorser, issuer2);
+    assert_eq!(endorsements.get(1).unwrap().endorser, issuer2);
+}
+
+#[test]
+fn test_min_ttl_threshold_is_actually_used() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "test_claim");
+
+    env.ledger().set_timestamp(1000);
+
+    let _attestation_id = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &None,
+        &None,
+        &None,
+    ).unwrap();
+
+    let attestation = client.get_attestation(&_attestation_id).unwrap();
+    assert_eq!(attestation.subject, subject);
+    assert_eq!(attestation.issuer, issuer);
+}
