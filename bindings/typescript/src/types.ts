@@ -62,6 +62,8 @@ export interface Attestation {
   revocation_reason: string | null;
   /** True when the subject has requested GDPR deletion. */
   deleted: boolean;
+  /** Optional: shared bundle ID if this attestation was created as part of a bundle. */
+  bundle_id: string | null;
 }
 
 export interface AuditEntry {
@@ -69,6 +71,23 @@ export interface AuditEntry {
   actor: string;
   timestamp: bigint;
   details: string | null;
+}
+
+export interface AttestationBundle {
+  /** Unique bundle identifier */
+  id: string;
+  /** Issuer who created the bundle */
+  issuer: string;
+  /** Subject to whom all attestations were issued */
+  subject: string;
+  /** List of claim types in the bundle (fixed order) */
+  claim_types: string[];
+  /** Timestamp when the bundle was created */
+  timestamp: bigint;
+  /** IDs of all attestations in this bundle */
+  attestation_ids: string[];
+  /** Whether all attestations in the bundle are still valid */
+  all_valid: boolean;
 }
 
 export interface ClaimTypeInfo {

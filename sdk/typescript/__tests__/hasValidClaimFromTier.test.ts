@@ -21,8 +21,9 @@ function encodeTier(tier: IssuerTier): xdr.ScVal {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("TrustLinkClient.hasValidClaimFromTier", () => {
-  const CONTRACT_ID = "CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
-  const SUBJECT = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
+  // Valid StrKey values (stellar-sdk ≥14 rejects placeholder / checksum-invalid ids).
+  const CONTRACT_ID = "CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526";
+  const SUBJECT = "GDD4AYCIMALJPW2DPPM45Z2EEIS5X4PPH5ZPWQZY7EISHUZVDOFKZ2UH";
   const CLAIM_TYPE = "KYC_PASSED";
 
   let client: TrustLinkClient;

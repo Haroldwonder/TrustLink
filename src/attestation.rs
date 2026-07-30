@@ -264,9 +264,21 @@ pub fn create_attestation_internal(
     if issuer_count >= limits.max_attestations_per_issuer {
         return Err(Error::LimitExceeded);
     }
-    let subject_count = Storage::get_subject_attestations(env, &subject).len();
-    if subject_count >= limits.max_attestations_per_subject {
-        return Err(Error::LimitExceeded);
+    
+    // Check optional per-subject limit from ContractConfig if configured
+    if let Some(config) = Storage::get_contract_config(env) {
+        if let Some(max_per_subject) = config.max_attestations_per_subject {
+            let subject_count = Storage::get_subject_attestations(env, &subject).len();
+            if subject_count >= max_per_subject as usize {
+                return Err(Error::LimitExceeded);
+            }
+        }
+    } else {
+        // Fallback to StorageLimits for backward compatibility if no config is set
+        let subject_count = Storage::get_subject_attestations(env, &subject).len();
+        if subject_count >= limits.max_attestations_per_subject as usize {
+            return Err(Error::LimitExceeded);
+        }
     }
 
     let timestamp = env.ledger().timestamp();
@@ -370,6 +382,28 @@ pub fn import_attestation(
     Validation::require_issuer(env, &issuer)?;
     validate_import_timestamps(env, timestamp, expiration)?;
 
+    let limits = Storage::get_limits(env);
+    let issuer_count = Storage::get_issuer_attestations(env, &issuer).len();
+    if issuer_count >= limits.max_attestations_per_issuer {
+        return Err(Error::LimitExceeded);
+    }
+    
+    // Check optional per-subject limit from ContractConfig if configured
+    if let Some(config) = Storage::get_contract_config(env) {
+        if let Some(max_per_subject) = config.max_attestations_per_subject {
+            let subject_count = Storage::get_subject_attestations(env, &subject).len();
+            if subject_count >= max_per_subject as usize {
+                return Err(Error::LimitExceeded);
+            }
+        }
+    } else {
+        // Fallback to StorageLimits for backward compatibility if no config is set
+        let subject_count = Storage::get_subject_attestations(env, &subject).len();
+        if subject_count >= limits.max_attestations_per_subject as usize {
+            return Err(Error::LimitExceeded);
+        }
+    }
+
     let attestation_id = Attestation::generate_id(env, &issuer, &subject, &claim_type, timestamp);
     if Storage::has_attestation(env, &attestation_id) {
         return Err(Error::DuplicateAttestation);
@@ -421,6 +455,29 @@ pub fn bridge_attestation(
     Validation::require_bridge(env, &bridge)?;
     Validation::require_not_paused(env)?;
     validate_source_reference(&source_chain, &source_tx)?;
+
+    // Check limits before creating attestation
+    let limits = Storage::get_limits(env);
+    let issuer_count = Storage::get_issuer_attestations(env, &bridge).len();
+    if issuer_count >= limits.max_attestations_per_issuer {
+        return Err(Error::LimitExceeded);
+    }
+    
+    // Check optional per-subject limit from ContractConfig if configured
+    if let Some(config) = Storage::get_contract_config(env) {
+        if let Some(max_per_subject) = config.max_attestations_per_subject {
+            let subject_count = Storage::get_subject_attestations(env, &subject).len();
+            if subject_count >= max_per_subject as usize {
+                return Err(Error::LimitExceeded);
+            }
+        }
+    } else {
+        // Fallback to StorageLimits for backward compatibility if no config is set
+        let subject_count = Storage::get_subject_attestations(env, &subject).len();
+        if subject_count >= limits.max_attestations_per_subject as usize {
+            return Err(Error::LimitExceeded);
+        }
+    }
 
     let timestamp = env.ledger().timestamp();
     let attestation_id = Attestation::generate_bridge_id(

@@ -62,3 +62,17 @@ export {
 } from "./types.js";
 export { CircuitBreaker, withRetry } from "./resilience.js";
 export type { RetryOptions, CircuitBreakerOptions, ResilienceConfig } from "./resilience.js";
+export {
+  toVerifiableCredential,
+  unixSecondsToIso,
+  VC_CONTEXT_V1,
+  TRUSTLINK_VC_CONTEXT,
+  TRUSTLINK_REVOCATION_STATUS_TYPE,
+} from "./verifiableCredential.js";
+export type {
+  VerifiableCredential,
+  TrustLinkCredentialSubject,
+  TrustLinkCredentialStatus,
+  TrustLinkVcExtension,
+  ToVerifiableCredentialOptions,
+} from "./verifiableCredential.js";
