@@ -71,12 +71,25 @@ export class TrustLinkClient {
   constructor(options: TrustLinkClientOptions) {
     const { contractId, network, rpcUrl } = options;
 
-    this.rpcUrl =
-      rpcUrl ??
-      (RPC_URLS[network as string] ?? (network as string));
+    // Validate network is a known network name
+    if (!RPC_URLS[network]) {
+      throw new Error(
+        `Invalid network: "${network}". Valid networks are: ${Object.keys(RPC_URLS).join(", ")}. ` +
+        `For custom RPC URLs, use the 'rpcUrl' option instead.`
+      );
+    }
 
-    this.networkPassphrase =
-      NETWORK_PASSPHRASES[network as string] ?? Networks.TESTNET;
+    // Validate rpcUrl if provided
+    if (rpcUrl) {
+      try {
+        new URL(rpcUrl);
+      } catch {
+        throw new Error(`Invalid rpcUrl: "${rpcUrl}" is not a valid URL.`);
+      }
+    }
+
+    this.rpcUrl = rpcUrl ?? RPC_URLS[network];
+    this.networkPassphrase = NETWORK_PASSPHRASES[network];
 
     this.server = new SorobanRpc.Server(this.rpcUrl, { allowHttp: true });
     this.contract = new Contract(contractId);

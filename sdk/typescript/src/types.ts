@@ -362,7 +362,7 @@ export type Network = "testnet" | "mainnet" | "local";
 
 export interface TrustLinkClientOptions {
   contractId: string;
-  network: Network | string;
+  network: Network;
   rpcUrl?: string;
   retry?: import("./resilience").RetryOptions;
   circuitBreaker?: import("./resilience").CircuitBreakerOptions;
