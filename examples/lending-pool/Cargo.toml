@@ -1,0 +1,17 @@
+[package]
+name = "lending-pool-example"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+soroban-sdk = "21.0.0"
+
+[dev-dependencies]
+soroban-sdk = { version = "21.0.0", features = ["testutils"] }
+# Force 2.x so soroban-env-host 21.2.1 does not resolve ed25519-dalek 3.x
+# (3.x breaks CryptoRng with ChaCha20Rng used by testutils).
+ed25519-dalek = "=2.2.0"
