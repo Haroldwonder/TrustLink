@@ -40,12 +40,13 @@ dev = [
     "httpx>=0.27.0",
     "build>=1.0",
     "twine>=5.0",
+    "pdoc>=14.0",
 ]
 
 [project.urls]
 Homepage = "https://github.com/Haroldwonder/TrustLink"
 Repository = "https://github.com/Haroldwonder/TrustLink"
-Documentation = "https://github.com/Haroldwonder/TrustLink/tree/main/bindings/python"
+Documentation = "https://haroldwonder.github.io/TrustLink/python/"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -53,3 +54,7 @@ include = ["trustlink*"]
 
 [tool.setuptools.package-data]
 trustlink = ["py.typed"]
+
+[tool.pdoc]
+output-directory = "docs/api"
+docformat = "google"

@@ -4,7 +4,8 @@ use crate::constants::SECS_PER_DAY;
 use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::{
-    Attestation, AttestationOrigin, AuditAction, AuditEntry, Endorsement, Error, FeeConfig,
+    Attestation, AttestationOrigin, AttestationVersionSnapshot, AuditAction, AuditEntry,
+    Endorsement, Error, FeeConfig,
 };
 use crate::validation::Validation;
 
@@ -143,11 +144,12 @@ pub fn validate_jurisdiction(env: &Env, jurisdiction: &Option<String>) -> Result
 }
 
 pub fn check_rate_limit(env: &Env, issuer: &Address, claim_type: &String) -> Result<(), Error> {
-    // Check per-claim-type rate limit first (if set), otherwise fall back to global
-    let interval = if let Some(claim_limit) = Storage::get_claim_type_rate_limit(env, claim_type) {
-        claim_limit
+    // When a per-claim-type limit is configured, track issuance time separately
+    // for each claim type so limits for different types remain independent.
+    let (interval, per_claim_type) = if let Some(claim_limit) = Storage::get_claim_type_rate_limit(env, claim_type) {
+        (claim_limit, true)
     } else if let Some(config) = Storage::get_rate_limit_config(env) {
-        config.min_issuance_interval
+        (config.min_issuance_interval, false)
     } else {
         return Ok(());
     };
@@ -157,7 +159,12 @@ pub fn check_rate_limit(env: &Env, issuer: &Address, claim_type: &String) -> Res
     }
 
     let current_time = env.ledger().timestamp();
-    if let Some(last) = Storage::get_last_issuance_time(env, issuer) {
+    let last = if per_claim_type {
+        Storage::get_last_issuance_time_by_claim_type(env, issuer, claim_type)
+    } else {
+        Storage::get_last_issuance_time(env, issuer)
+    };
+    if let Some(last) = last {
         if current_time.saturating_sub(last) < interval {
             return Err(Error::RateLimited);
         }
@@ -235,6 +242,8 @@ pub fn create_attestation_internal(
     Validation::validate_claim_type(&claim_type)?;
     Validation::require_registered_claim_type(env, &claim_type)?;
     Validation::validate_metadata(env, &metadata)?;
+    Validation::validate_claim_constraints(env, &claim_type, &metadata)?;
+    Validation::validate_metadata_hash_only(env, &metadata)?;
     validate_jurisdiction(env, &jurisdiction)?;
     validate_tags(&tags)?;
     validate_native_expiration(env, expiration)?;
@@ -298,6 +307,9 @@ pub fn create_attestation_internal(
         },
     );
     Storage::set_last_issuance_time(env, &issuer, timestamp);
+    if Storage::get_claim_type_rate_limit(env, &attestation.claim_type).is_some() {
+        Storage::set_last_issuance_time_by_claim_type(env, &issuer, &attestation.claim_type, timestamp);
+    }
 
     charge_attestation_fee(env, &issuer)?;
 
@@ -459,6 +471,7 @@ pub fn create_attestations_batch(
     Validation::require_issuer(env, &issuer)?;
     Validation::require_not_paused(env)?;
     Validation::validate_claim_type(&claim_type)?;
+    Validation::require_registered_claim_type(env, &claim_type)?;
     validate_native_expiration(env, expiration)?;
     check_rate_limit(env, &issuer, &claim_type)?;
 
@@ -537,6 +550,9 @@ pub fn create_attestations_batch(
     Storage::increment_total_attestations(env, batch_len);
 
     Storage::set_last_issuance_time(env, &issuer, timestamp);
+    if Storage::get_claim_type_rate_limit(env, &claim_type).is_some() {
+        Storage::set_last_issuance_time_by_claim_type(env, &issuer, &claim_type, timestamp);
+    }
     Ok(ids)
 }
 
@@ -576,6 +592,7 @@ pub fn revoke_attestation(
         details: reason.clone(),
     });
     Storage::increment_total_revocations(env, 1);
+    Storage::increment_issuer_revocations(env, &issuer, 1);
     Ok(())
 }
 
@@ -656,7 +673,10 @@ pub fn revoke_attestations_batch(
         attestation.revocation_reason = reason.clone();
         Storage::set_attestation(env, &attestation);
         Storage::remove_subject_attestation(env, &attestation.subject, &attestation.id);
+        Storage::remove_valid_attestation(env, &attestation.subject, &attestation.id);
         Storage::remove_issuer_attestation(env, &issuer, &attestation.id);
+        crate::storage::ChunkedIndex::remove_subject(env, &attestation.subject, &attestation.id);
+        crate::storage::ChunkedIndex::remove_issuer(env, &issuer, &attestation.id);
         Events::attestation_revoked_with_reason(env, &attestation.id, &issuer, &reason);
         Storage::append_audit_entry(
             env,
@@ -673,6 +693,7 @@ pub fn revoke_attestations_batch(
 
     if count > 0 {
         Storage::increment_total_revocations(env, count as u64);
+        Storage::increment_issuer_revocations(env, &issuer, count as u64);
     }
     Ok(count)
 }
@@ -698,6 +719,7 @@ pub fn update_expiration(
 
     attestation.expiration = new_expiration;
     Storage::set_attestation(env, &attestation);
+    Storage::extend_attestation_ttl_for_expiry(env, &attestation_id, new_expiration);
     Events::attestation_renewed(env, &attestation_id, &issuer, new_expiration);
     Storage::append_audit_entry(env, &attestation_id, &AuditEntry {
         action: AuditAction::Updated,
@@ -727,6 +749,8 @@ pub fn transfer_attestation(
 
     Storage::remove_issuer_attestation(env, &old_issuer, &attestation_id);
     Storage::add_issuer_attestation(env, &new_issuer, &attestation_id);
+    crate::storage::ChunkedIndex::remove_issuer(env, &old_issuer, &attestation_id);
+    crate::storage::ChunkedIndex::add_issuer(env, &new_issuer, &attestation_id);
 
     let mut old_stats = Storage::get_issuer_stats(env, &old_issuer);
     old_stats.total_issued = old_stats.total_issued.saturating_sub(1);
@@ -772,6 +796,57 @@ pub fn request_deletion(env: &Env, subject: Address, attestation_id: String) -> 
         timestamp,
         details: None,
     });
+    Ok(())
+}
+
+// -----------------------------------------------------------------------
+// Amendment
+// -----------------------------------------------------------------------
+
+pub fn amend_attestation(
+    env: &Env,
+    issuer: Address,
+    attestation_id: String,
+    new_metadata: Option<String>,
+) -> Result<(), Error> {
+    issuer.require_auth();
+    Validation::require_not_paused(env)?;
+    Validation::require_issuer(env, &issuer)?;
+    Validation::validate_metadata(env, &new_metadata)?;
+
+    let mut attestation = Storage::get_attestation(env, &attestation_id)?;
+    if attestation.issuer != issuer {
+        return Err(Error::Unauthorized);
+    }
+    if attestation.revoked {
+        return Err(Error::AlreadyRevoked);
+    }
+    if attestation.deleted {
+        return Err(Error::NotFound);
+    }
+
+    let timestamp = env.ledger().timestamp();
+
+    // Snapshot the current state before applying the amendment.
+    let version = Storage::get_attestation_version_count(env, &attestation_id);
+    let snapshot = AttestationVersionSnapshot {
+        version,
+        metadata: attestation.metadata.clone(),
+        amended_at: timestamp,
+        amended_by: issuer.clone(),
+    };
+    Storage::push_attestation_version(env, &attestation_id, &snapshot);
+
+    attestation.metadata = new_metadata.clone();
+    Storage::set_attestation(env, &attestation);
+
+    Storage::append_audit_entry(env, &attestation_id, &AuditEntry {
+        action: AuditAction::Amended,
+        actor: issuer.clone(),
+        timestamp,
+        details: new_metadata,
+    });
+    Events::attestation_amended(env, &attestation_id, &issuer, timestamp);
     Ok(())
 }
 
@@ -842,6 +917,7 @@ pub fn create_attestation_as_delegate(
     Validation::require_issuer(env, &delegator)?;
     Validation::validate_claim_type(&claim_type)?;
     Validation::validate_metadata(env, &metadata)?;
+    Validation::validate_metadata_hash_only(env, &metadata)?;
     validate_native_expiration(env, expiration)?;
 
     // Verify delegation exists and is not expired.
@@ -903,4 +979,95 @@ pub fn create_attestation_as_delegate(
     );
     Events::attestation_created(env, &attestation);
     Ok(attestation_id)
+}
+/// Simulates creating an attestation without committing any state.
+///
+/// Returns the would-be attestation ID and fee amount that would result from
+/// calling `create_attestation` with the same arguments.
+///
+/// This is a read-only query that can be used by UIs to show users the ID
+/// and fee before they confirm the transaction, eliminating the need to
+/// replicate ID-derivation and fee-calculation logic client-side.
+///
+/// # Parameters
+/// - `issuer` — the issuer address (must authenticate via `require_auth()`)
+/// - `subject` — the subject address
+/// - `claim_type` — the claim type string
+/// - `expiration` — optional expiration timestamp
+/// - `metadata` — optional metadata string
+/// - `tags` — optional tags vector
+///
+/// # Returns
+/// A tuple of `(attestation_id, fee_amount)` where:
+/// - `attestation_id` — the 64-character hex string that would be generated
+/// - `fee_amount` — the fee that would be charged (0 if no fee is configured)
+///
+/// # Errors
+/// Returns the same errors as `create_attestation`:
+/// - `Error::NotInitialized` — contract not initialized
+/// - `Error::Unauthorized` — issuer is not registered or issuer == subject
+/// - `Error::InvalidClaimType` — claim type validation failed
+/// - `Error::NotRegisteredClaimType` — claim type not registered when required
+/// - `Error::InvalidMetadata` — metadata validation failed
+/// - `Error::LimitExceeded` — attestation limits reached
+/// - `Error::SubjectNotWhitelisted` — whitelist mode active and subject not whitelisted
+/// - `Error::RateLimited` — rate limit exceeded
+/// - `Error::FeeTokenRequired` — fee configured but no token address
+pub fn simulate_create_attestation(
+    env: &Env,
+    issuer: Address,
+    subject: Address,
+    claim_type: String,
+    expiration: Option<u64>,
+    metadata: Option<String>,
+    tags: Option<Vec<String>>,
+) -> Result<(String, i128), Error> {
+    Validation::require_not_paused(env)?;
+    Validation::require_issuer(env, &issuer)?;
+    Validation::validate_claim_type(&claim_type)?;
+    Validation::require_registered_claim_type(env, &claim_type)?;
+    Validation::validate_metadata(env, &metadata)?;
+    Validation::validate_claim_constraints(env, &claim_type, &metadata)?;
+    Validation::validate_metadata_hash_only(env, &metadata)?;
+    validate_jurisdiction(env, &None)?;
+    validate_tags(&tags)?;
+    validate_native_expiration(env, expiration)?;
+    validate_valid_from(env, &None)?;
+
+    if issuer == subject {
+        return Err(Error::Unauthorized);
+    }
+
+    if Storage::is_whitelist_mode(env, &issuer) && !Storage::is_whitelisted(env, &issuer, &subject) {
+        return Err(Error::SubjectNotWhitelisted);
+    }
+
+    check_rate_limit(env, &issuer, &claim_type)?;
+
+    let limits = Storage::get_limits(env);
+    let issuer_count = Storage::get_issuer_attestations(env, &issuer).len();
+    if issuer_count >= limits.max_attestations_per_issuer {
+        return Err(Error::LimitExceeded);
+    }
+    let subject_count = Storage::get_subject_attestations(env, &subject).len();
+    if subject_count >= limits.max_attestations_per_subject {
+        return Err(Error::LimitExceeded);
+    }
+
+    let timestamp = env.ledger().timestamp();
+    let attestation_id = Attestation::generate_id(env, &issuer, &subject, &claim_type, timestamp);
+
+    if Storage::has_attestation(env, &attestation_id) {
+        return Err(Error::DuplicateAttestation);
+    }
+
+    // Calculate the fee without charging it
+    let fee_config = load_fee_config(env)?;
+    let fee_amount = if fee_config.attestation_fee == 0 {
+        0
+    } else {
+        fee_config.attestation_fee
+    };
+
+    Ok((attestation_id, fee_amount))
 }

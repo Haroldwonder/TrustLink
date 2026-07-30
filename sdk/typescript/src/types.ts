@@ -21,17 +21,17 @@ export interface Attestation {
   deleted: boolean;
 }
 
-export type AttestationOrigin = "Native" | "Imported" | "Bridged";
-
 export type AttestationStatus = "Valid" | "Expired" | "Revoked" | "Pending";
+
+export type AttestationOrigin = "Native" | "Imported" | "Bridged";
 
 export type IssuerTier = "Basic" | "Verified" | "Premium";
 
 export interface Delegation {
   delegator: string;
   delegate: string;
-  claim_type: string;
-  expiration: bigint | null;
+  claim_types: string[] | null;
+  expires_at: bigint | null;
 }
 
 export interface IssuerStats {
@@ -55,14 +55,21 @@ export interface TtlConfig {
 }
 
 export interface StorageLimits {
-  max_attestations_per_issuer: number;
   max_attestations_per_subject: number;
+  max_attestations_per_issuer: number;
+  max_tags_per_attestation: number;
+  max_tag_length: number;
+  max_metadata_length: number;
 }
 
 export interface ContractConfig {
   ttl_config: TtlConfig;
   limits: StorageLimits;
   fee_config: FeeConfig;
+  contract_name: string;
+  contract_version: string;
+  contract_description: string;
+  multisig_ttl_days: number;
 }
 
 export interface ContractMetadata {
@@ -100,12 +107,39 @@ export interface MultiSigProposal {
   created_at: bigint;
   expires_at: bigint;
   finalized: boolean;
+  cancelled: boolean;
+}
+
+export interface Council {
+  members: string[];
+  threshold: number;
+  created_at: number;
+}
+
+export interface CouncilProposal {
+  id: string;
+  proposer: string;
+  action: string;
+  payload: string;
+  approvals: string[];
+  threshold: number;
+  created_at: number;
+  expires_at: number;
+  executed: boolean;
 }
 
 export interface Endorsement {
   attestation_id: string;
   endorser: string;
   timestamp: bigint;
+}
+
+export interface Template {
+  id: string;
+  issuer: string;
+  name: string;
+  claim_type: string;
+  description: string | null;
 }
 
 export type AuditAction = "Created" | "Revoked" | "Renewed" | "Updated" | "Transferred";
@@ -135,7 +169,6 @@ export interface AttestationRequest {
   rejection_reason: string | null;
 }
 
-/** Base class for all TrustLink contract errors. */
 export class TrustLinkError extends Error {
   constructor(public readonly code: number, name: string, message?: string) {
     super(message ?? name);
@@ -216,20 +249,26 @@ export class AlreadyEndorsedError extends TrustLinkError {
 export class ContractPausedError extends TrustLinkError {
   constructor() { super(24, "ContractPaused"); }
 }
-export class LimitExceededError extends TrustLinkError {
-  constructor() { super(25, "LimitExceeded"); }
-}
-export class SelfAttestationError extends TrustLinkError {
-  constructor() { super(26, "SelfAttestation"); }
+export class SubjectNotWhitelistedError extends TrustLinkError {
+  constructor() { super(25, "SubjectNotWhitelisted"); }
 }
 export class InvalidClaimTypeError extends TrustLinkError {
-  constructor() { super(27, "InvalidClaimType"); }
+  constructor() { super(26, "InvalidClaimType"); }
 }
-export class RequestNotFoundError extends TrustLinkError {
-  constructor() { super(28, "RequestNotFound"); }
+export class InvalidJurisdictionError extends TrustLinkError {
+  constructor() { super(27, "InvalidJurisdiction"); }
 }
-export class RequestAlreadyFulfilledError extends TrustLinkError {
-  constructor() { super(29, "RequestAlreadyFulfilled"); }
+export class RateLimitedError extends TrustLinkError {
+  constructor() { super(28, "RateLimited"); }
+}
+export class LimitExceededError extends TrustLinkError {
+  constructor() { super(29, "LimitExceeded"); }
+}
+export class ProposalCancelledError extends TrustLinkError {
+  constructor() { super(30, "ProposalCancelled"); }
+}
+export class InvalidSourceReferenceError extends TrustLinkError {
+  constructor() { super(44, "InvalidSourceReference"); }
 }
 
 const ERROR_BY_CODE: Record<number, new () => TrustLinkError> = {
@@ -257,11 +296,13 @@ const ERROR_BY_CODE: Record<number, new () => TrustLinkError> = {
   22: CannotEndorseOwnError,
   23: AlreadyEndorsedError,
   24: ContractPausedError,
-  25: LimitExceededError,
-  26: SelfAttestationError,
-  27: InvalidClaimTypeError,
-  28: RequestNotFoundError,
-  29: RequestAlreadyFulfilledError,
+  25: SubjectNotWhitelistedError,
+  26: InvalidClaimTypeError,
+  27: InvalidJurisdictionError,
+  28: RateLimitedError,
+  29: LimitExceededError,
+  30: ProposalCancelledError,
+  44: InvalidSourceReferenceError,
 };
 
 const ERROR_BY_NAME: Record<string, new () => TrustLinkError> = Object.fromEntries(
@@ -276,7 +317,6 @@ const ERROR_BY_NAME: Record<string, new () => TrustLinkError> = Object.fromEntri
  * Returns null if the error string does not match a known contract error.
  */
 export function parseTrustLinkError(errorMessage: string): TrustLinkError | null {
-  // Soroban encodes contract errors as "Error(Contract, #N)" or includes the name
   const codeMatch = errorMessage.match(/Error\(Contract,\s*#(\d+)\)/);
   if (codeMatch) {
     const Cls = ERROR_BY_CODE[parseInt(codeMatch[1], 10)];
@@ -288,7 +328,29 @@ export function parseTrustLinkError(errorMessage: string): TrustLinkError | null
   return null;
 }
 
-/** Attestation template created by an issuer. */
+/**
+ * Structured export of all data held about a subject, suitable for a
+ * GDPR/CCPA data-portability response.
+ */
+export interface SubjectDataExport {
+  subject: string;
+  exportedAt: string;
+  attestations: Array<{
+    attestation: Attestation;
+    auditLog: AuditEntry[];
+    endorsements: Endorsement[];
+  }>;
+  requestHistory: AttestationRequest[];
+  summary: {
+    totalAttestations: number;
+    activeAttestations: number;
+    revokedAttestations: number;
+    deletedAttestations: number;
+    totalEndorsements: number;
+    totalAuditEntries: number;
+  };
+}
+
 export interface AttestationTemplate {
   issuer: string;
   template_id: string;
@@ -296,20 +358,13 @@ export interface AttestationTemplate {
   metadata: string | null;
 }
 
-/** Network presets supported by TrustLinkClient. */
 export type Network = "testnet" | "mainnet" | "local";
 
 export interface TrustLinkClientOptions {
-  /** Deployed TrustLink contract address (C...). */
   contractId: string;
-  /** Network to connect to, or a custom RPC URL string. */
   network: Network | string;
-  /** Optional: override the default RPC URL for the chosen network. */
   rpcUrl?: string;
-  /** Optional: retry configuration for RPC calls. */
   retry?: import("./resilience").RetryOptions;
-  /** Optional: circuit breaker configuration. */
   circuitBreaker?: import("./resilience").CircuitBreakerOptions;
-  /** Optional: simplified resilience config (maxRetries, backoffMs, circuitBreakerThreshold). */
   resilience?: import("./resilience").ResilienceConfig;
 }

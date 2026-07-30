@@ -266,6 +266,49 @@
             "key": {
               "vec": [
                 {
+                  "symbol": "IssuerList"
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "IssuerList"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "vec": [
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                    }
+                  ]
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          518400
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+            "key": {
+              "vec": [
+                {
                   "symbol": "IssuerPendingRequests"
                 },
                 {
@@ -1009,7 +1052,7 @@
             ],
             "data": {
               "error": {
-                "contract": 37
+                "contract": 38
               }
             }
           }
@@ -1030,7 +1073,7 @@
               },
               {
                 "error": {
-                  "contract": 37
+                  "contract": 38
                 }
               }
             ],
@@ -1055,7 +1098,7 @@
               },
               {
                 "error": {
-                  "contract": 37
+                  "contract": 38
                 }
               }
             ],

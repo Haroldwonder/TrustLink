@@ -1,0 +1,13 @@
+{
+  "name": "trustlink-freelance-reputation-example",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Freelance marketplace reputation example combining TrustLink endorsements and IssuerTier",
+  "type": "module",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^13.3.0"
+  }
+}

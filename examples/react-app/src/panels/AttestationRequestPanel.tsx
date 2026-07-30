@@ -133,36 +133,39 @@ export default function AttestationRequestPanel({ address }: Props) {
     return <span className="badge">Pending</span>;
   }
 
+  const visibleTabs: Array<{ id: "submit" | "pending" | "manage"; label: string }> = [
+    { id: "submit", label: "Submit Request" },
+    { id: "pending", label: "My Requests" },
+    ...(isUserIssuer ? [{ id: "manage" as const, label: "Manage Requests" }] : []),
+  ];
+
   return (
     <div className="panel">
       <h2>Attestation Requests</h2>
-      {status && <div className={`alert alert-${status.type}`}>{status.msg}</div>}
+      {status && (
+        <div role="alert" className={`alert alert-${status.type}`}>
+          {status.msg}
+        </div>
+      )}
 
-      <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem", borderBottom: "1px solid #2d3148", paddingBottom: "0.5rem" }}>
-        <button
-          className={`tab ${tab === "submit" ? "active" : ""}`}
-          onClick={() => setTab("submit")}
-          style={{ flex: 1, textAlign: "center", padding: "0.5rem" }}
-        >
-          Submit Request
-        </button>
-        <button
-          className={`tab ${tab === "pending" ? "active" : ""}`}
-          onClick={() => setTab("pending")}
-          style={{ flex: 1, textAlign: "center", padding: "0.5rem" }}
-        >
-          My Requests
-        </button>
-        {isUserIssuer && (
+      <nav
+        role="tablist"
+        aria-label="Attestation request tabs"
+        style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem", borderBottom: "1px solid #2d3148", paddingBottom: "0.5rem" }}
+      >
+        {visibleTabs.map((t) => (
           <button
-            className={`tab ${tab === "manage" ? "active" : ""}`}
-            onClick={() => setTab("manage")}
+            key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
+            className={`tab ${tab === t.id ? "active" : ""}`}
+            onClick={() => setTab(t.id)}
             style={{ flex: 1, textAlign: "center", padding: "0.5rem" }}
           >
-            Manage Requests
+            {t.label}
           </button>
-        )}
-      </div>
+        ))}
+      </nav>
 
       {tab === "submit" && (
         <div className="card">
@@ -171,16 +174,18 @@ export default function AttestationRequestPanel({ address }: Props) {
             Request an attestation from an issuer. They will review and fulfill or reject your request.
           </p>
           <div className="field">
-            <label>Issuer Address</label>
+            <label htmlFor="req-issuer-addr">Issuer Address</label>
             <input
+              id="req-issuer-addr"
               value={issuerAddr}
               onChange={(e) => setIssuerAddr(e.target.value)}
               placeholder="G..."
             />
           </div>
           <div className="field">
-            <label>Claim Type</label>
+            <label htmlFor="req-claim-type">Claim Type</label>
             <input
+              id="req-claim-type"
               value={claimType}
               onChange={(e) => setClaimType(e.target.value)}
               placeholder="KYC_PASSED, ACCREDITED_INVESTOR, etc."
@@ -190,6 +195,7 @@ export default function AttestationRequestPanel({ address }: Props) {
             className="btn btn-primary"
             disabled={loading || !issuerAddr || !claimType}
             onClick={handleSubmit}
+            aria-disabled={loading || !issuerAddr || !claimType}
           >
             Submit Request
           </button>
@@ -203,9 +209,9 @@ export default function AttestationRequestPanel({ address }: Props) {
           {!loading && subjectRequests.length === 0 && (
             <p className="empty">No requests found.</p>
           )}
-          <div className="att-list">
+          <ul className="att-list" aria-label="My attestation requests">
             {subjectRequests.map((r) => (
-              <div key={r.id} className="att-item">
+              <li key={r.id} className="att-item">
                 <div className="row">
                   <span className="claim">{r.claim_type}</span>
                   {statusBadge(r.status)}
@@ -226,13 +232,15 @@ export default function AttestationRequestPanel({ address }: Props) {
                     style={{ marginTop: "0.5rem", width: "100%" }}
                     disabled={cancellingId === r.id}
                     onClick={() => handleCancel(r.id)}
+                    aria-label={`Cancel request ${r.id}`}
+                    aria-disabled={cancellingId === r.id}
                   >
                     {cancellingId === r.id ? "Cancelling..." : "Cancel Request"}
                   </button>
                 )}
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
       )}
 
@@ -244,11 +252,11 @@ export default function AttestationRequestPanel({ address }: Props) {
             {!loading && issuerRequests.filter((r) => r.status === "pending").length === 0 && (
               <p className="empty">No pending requests.</p>
             )}
-            <div className="att-list">
+            <ul className="att-list" aria-label="Pending requests to manage">
               {issuerRequests
                 .filter((r) => r.status === "pending")
                 .map((r) => (
-                  <div key={r.id} className="att-item">
+                  <li key={r.id} className="att-item">
                     <div className="row">
                       <span className="claim">{r.claim_type}</span>
                       <span className="badge">Pending</span>
@@ -258,24 +266,26 @@ export default function AttestationRequestPanel({ address }: Props) {
                       Submitted: {new Date(Number(r.created_at) * 1000).toLocaleDateString()}
                     </span>
                     <span className="meta">ID: {r.id}</span>
-                  </div>
+                  </li>
                 ))}
-            </div>
+            </ul>
           </div>
 
           <div className="card">
             <h3>Fulfill Request</h3>
             <div className="field">
-              <label>Request ID</label>
+              <label htmlFor="fulfill-id">Request ID</label>
               <input
+                id="fulfill-id"
                 value={fulfillId}
                 onChange={(e) => setFulfillId(e.target.value)}
                 placeholder="request ID"
               />
             </div>
             <div className="field">
-              <label>Expiration (optional)</label>
+              <label htmlFor="fulfill-expiration">Expiration (optional)</label>
               <input
+                id="fulfill-expiration"
                 type="date"
                 value={fulfillExpiration}
                 onChange={(e) => setFulfillExpiration(e.target.value)}
@@ -285,6 +295,7 @@ export default function AttestationRequestPanel({ address }: Props) {
               className="btn btn-primary"
               disabled={loading || !fulfillId}
               onClick={handleFulfill}
+              aria-disabled={loading || !fulfillId}
             >
               Fulfill
             </button>
@@ -293,16 +304,18 @@ export default function AttestationRequestPanel({ address }: Props) {
           <div className="card">
             <h3>Reject Request</h3>
             <div className="field">
-              <label>Request ID</label>
+              <label htmlFor="reject-id">Request ID</label>
               <input
+                id="reject-id"
                 value={rejectId}
                 onChange={(e) => setRejectId(e.target.value)}
                 placeholder="request ID"
               />
             </div>
             <div className="field">
-              <label>Reason (optional)</label>
+              <label htmlFor="reject-reason">Reason (optional)</label>
               <input
+                id="reject-reason"
                 value={rejectReason}
                 onChange={(e) => setRejectReason(e.target.value)}
                 placeholder="reason for rejection"
@@ -312,6 +325,7 @@ export default function AttestationRequestPanel({ address }: Props) {
               className="btn btn-danger"
               disabled={loading || !rejectId}
               onClick={handleReject}
+              aria-disabled={loading || !rejectId}
             >
               Reject
             </button>
@@ -319,9 +333,9 @@ export default function AttestationRequestPanel({ address }: Props) {
 
           <div className="card">
             <h3>All Requests</h3>
-            <div className="att-list">
+            <ul className="att-list" aria-label="All requests">
               {issuerRequests.map((r) => (
-                <div key={r.id} className="att-item">
+                <li key={r.id} className="att-item">
                   <div className="row">
                     <span className="claim">{r.claim_type}</span>
                     {statusBadge(r.status)}
@@ -331,9 +345,9 @@ export default function AttestationRequestPanel({ address }: Props) {
                     Submitted: {new Date(Number(r.created_at) * 1000).toLocaleDateString()}
                   </span>
                   <span className="meta">ID: {r.id}</span>
-                </div>
+                </li>
               ))}
-            </div>
+            </ul>
           </div>
         </div>
       )}

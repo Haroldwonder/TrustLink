@@ -61,6 +61,52 @@ impl IssuerTier {
     }
 }
 
+/// Per-issuer statistics.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IssuerStats {
+    pub total_issued: u64,
+}
+
+/// A registered expiration notification hook for a subject.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExpirationHook {
+    pub callback_contract: Address,
+    pub notify_days_before: u32,
+}
+
+/// A multi-signature attestation proposal.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MultiSigProposal {
+    pub id: String,
+    pub proposer: Address,
+    pub subject: Address,
+    pub claim_type: String,
+    pub required_signers: Vec<Address>,
+    pub threshold: u32,
+    pub signers: Vec<Address>,
+    pub created_at: u64,
+    pub expires_at: u64,
+    pub finalized: bool,
+    /// Set to true when the proposer cancels the proposal before finalization.
+    pub cancelled: bool,
+}
+
+/// Full contract configuration snapshot returned by `get_config`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractConfig {
+    pub ttl_config: TtlConfig,
+    pub fee_config: FeeConfig,
+    pub contract_name: String,
+    pub contract_version: String,
+    pub contract_description: String,
+    /// Configurable TTL for multisig proposals in days (default: 7).
+    pub multisig_ttl_days: u32,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractMetadata {
@@ -137,6 +183,10 @@ pub struct ContractConfig {
     pub fee_config: FeeConfig,
     pub ttl_config: TtlConfig,
     pub require_registered_claim_type: bool,
+    /// When `true`, the `metadata` field on new attestations must be either
+    /// `None` or a 64-character lowercase hexadecimal string (SHA-256 hash).
+    /// Enables enforcement of GDPR data-minimisation at the contract level.
+    pub metadata_hash_only: bool,
 }
 
 #[contracttype]
@@ -144,6 +194,15 @@ pub struct ContractConfig {
 pub struct ClaimTypeInfo {
     pub claim_type: String,
     pub description: String,
+}
+
+/// Constraints for a specific claim type enforced during attestation creation.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClaimTypeConstraints {
+    pub min_metadata_len: Option<u32>,
+    pub max_metadata_len: Option<u32>,
+    pub require_metadata: bool,
 }
 
 /// Operations that require council quorum approval.
@@ -162,6 +221,10 @@ pub struct CouncilProposal {
     pub proposer: Address,
     pub approvals: Vec<Address>,
     pub executed: bool,
+    /// Ledger timestamp at which the proposal reached quorum.
+    /// `None` means quorum has not been reached yet. Used by the timelock
+    /// guard in `execute_council_action`.
+    pub quorum_reached_at: Option<u64>,
 }
 
 /// Describes how an attestation entered the system.
@@ -214,6 +277,7 @@ pub enum AuditAction {
     Updated,
     Transferred,
     Deleted,
+    Amended,
 }
 
 /// A single immutable entry in an attestation's audit log.
@@ -297,16 +361,92 @@ pub struct PendingAdminTransfer {
 /// Admin council: ordered list of admin addresses.
 pub type AdminCouncil = Vec<Address>;
 
+/// A point-in-time snapshot of an attestation's mutable fields, saved before
+/// each amendment so callers can reconstruct the full version history.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AttestationVersionSnapshot {
+    pub version: u32,
+    pub metadata: Option<String>,
+    pub amended_at: u64,
+    pub amended_by: Address,
+}
+
+/// Configurable parameters for issuer reputation decay, applied at read time
+/// inside `get_confidence_score`. Stored on-chain so they are adjustable
+/// without a contract upgrade.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DecayConfig {
+    /// Number of days of inactivity after which the score is halved.
+    /// Set to 0 to disable inactivity decay entirely.
+    pub half_life_days: u32,
+    /// Scaling factor (0–100) applied to the revocation ratio before
+    /// subtracting from the score. 100 means a 100 % revocation rate
+    /// would zero out the score entirely.
+    pub revocation_weight: u32,
+}
+
+impl Default for DecayConfig {
+    fn default() -> Self {
+        Self {
+            half_life_days: 90,
+            revocation_weight: 50,
+        }
+    }
+}
+
+/// An active dispute raised by a subject against one of their attestations.
+/// The record is removed when the dispute is resolved.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DisputeRecord {
+    pub attestation_id: String,
+    pub subject: Address,
+    pub reason: String,
+    pub disputed_at: u64,
+}
+
 /// A named attestation template owned by an issuer.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AttestationTemplate {
-    pub issuer: Address,
-    pub template_id: String,
     pub claim_type: String,
-    pub metadata: Option<String>,
     pub metadata_template: Option<String>,
     pub default_expiration_days: Option<u32>,
+}
+
+/// Revocation list export format following the Status List 2021 standard pattern.
+/// Returns a compact bitstring representation of revoked attestations.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RevocationList {
+    /// The issuer that created this revocation list
+    pub issuer: Address,
+    /// The claim type these revocations apply to (None = all claim types)
+    pub claim_type: Option<String>,
+    /// Unix timestamp when this list was generated
+    pub generated_at: u64,
+    /// List of revoked attestation IDs
+    pub revoked_attestation_ids: Vec<String>,
+    /// Optional: bitstring encoding for compact representation
+    /// When provided, each bit represents whether the attestation at that
+    /// position in the sorted list is revoked (1) or not (0)
+    pub bitstring: Option<Vec<u8>>,
+    /// Total count of attestations (valid + revoked) at the time of export
+    pub total_attestation_count: u64,
+    /// Count of revoked attestations in this list
+    pub revoked_count: u64,
+}
+
+/// Export format selector for revocation lists
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum RevocationListFormat {
+    /// Simple list of revoked attestation IDs
+    SimpleList = 0,
+    /// Compact bitstring encoding (Status List 2021 compatible)
+    Bitstring = 1,
 }
 
 impl Attestation {

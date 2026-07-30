@@ -6,7 +6,8 @@ on:
 
 permissions:
   contents: write
-  id-token: write # Required for npm provenance
+  id-token: write    # Required for OIDC-based npm provenance and SLSA attestations
+  attestations: write # Required for actions/attest-build-provenance
 
 jobs:
   build-and-publish:
@@ -62,12 +63,30 @@ jobs:
           file target/wasm32-unknown-unknown/release/trustlink.wasm
           file target/wasm32-unknown-unknown/release/trustlink.optimized.wasm
 
+      - name: Generate Rust SBOM (CycloneDX)
+        run: |
+          cargo install --locked cargo-cyclonedx
+          cargo cyclonedx --format json --all
+          # cargo-cyclonedx outputs <crate>.cdx.json; rename for clarity
+          mv trustlink.cdx.json trustlink-sbom.cdx.json || \
+            find . -maxdepth 2 -name "*.cdx.json" -exec mv {} trustlink-sbom.cdx.json \;
+          echo "Rust SBOM generated:"
+          ls -lh trustlink-sbom.cdx.json
+
+      - name: Attest WASM build provenance (SLSA)
+        uses: actions/attest-build-provenance@1c608b9e2f18e8526c3a22e876069cd30da2b2ac # v1.4.4
+        with:
+          subject-path: |
+            target/wasm32-unknown-unknown/release/trustlink.wasm
+            target/wasm32-unknown-unknown/release/trustlink.optimized.wasm
+
       - name: Upload WASM artifact to release
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
         with:
           files: |
             target/wasm32-unknown-unknown/release/trustlink.wasm
             target/wasm32-unknown-unknown/release/trustlink.optimized.wasm
+            trustlink-sbom.cdx.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -82,6 +101,17 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **trustlink.optimized.wasm** (optimized)" >> $GITHUB_STEP_SUMMARY
           echo "  - Size: $(du -h target/wasm32-unknown-unknown/release/trustlink.optimized.wasm | cut -f1)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### SBOM" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **trustlink-sbom.cdx.json** — CycloneDX SBOM for the Rust contract" >> $GITHUB_STEP_SUMMARY
+          echo "- **trustlink-sdk-sbom.cdx.json** — CycloneDX SBOM for the TypeScript SDK" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Supply Chain Security" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "SLSA provenance attestations are recorded in the repository's attestations." >> $GITHUB_STEP_SUMMARY
+          echo "Verify with: \`gh attestation verify <artifact> --repo ${{ github.repository }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "See [docs/slsa-provenance.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/slsa-provenance.md) for details." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Deployment" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -136,11 +166,33 @@ jobs:
           echo "Package contents:"
           npm pack --dry-run
 
+      - name: Generate TypeScript SDK SBOM (CycloneDX)
+        working-directory: sdk/typescript
+        run: |
+          npx --yes @cyclonedx/cyclonedx-npm \
+            --output-format JSON \
+            --output-file ../../trustlink-sdk-sbom.cdx.json \
+            --package-lock-only
+          echo "TypeScript SDK SBOM generated:"
+          ls -lh ../../trustlink-sdk-sbom.cdx.json
+
       - name: Publish to npm
         working-directory: sdk/typescript
         run: npm publish --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Attest TypeScript SDK build provenance (SLSA)
+        uses: actions/attest-build-provenance@1c608b9e2f18e8526c3a22e876069cd30da2b2ac # v1.4.4
+        with:
+          subject-path: trustlink-sdk-sbom.cdx.json
+
+      - name: Upload TypeScript SDK SBOM to release
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
+        with:
+          files: trustlink-sdk-sbom.cdx.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update release summary
         run: |

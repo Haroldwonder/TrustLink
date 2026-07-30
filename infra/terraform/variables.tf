@@ -88,3 +88,16 @@ variable "contract_id" {
   description = "Deployed TrustLink contract ID"
   type        = string
 }
+
+# ── Cost Monitoring ───────────────────────────────────────────────────────────
+
+variable "budget_threshold" {
+  description = "Monthly budget threshold in USD for cost alerts"
+  type        = number
+  default     = 100
+}
+
+variable "alert_email" {
+  description = "Email address to send budget alerts to"
+  type        = string
+}

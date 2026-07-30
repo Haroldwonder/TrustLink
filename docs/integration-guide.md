@@ -2,6 +2,8 @@
 
 This guide walks through integrating TrustLink into your dApp — whether you're building a Rust smart contract that needs on-chain claim verification, or a JavaScript/TypeScript frontend that interacts with the contract directly.
 
+For definitions of terms used throughout this guide (attestation, issuer, subject, bridge, claim type, etc.), see the [Glossary](./glossary.md).
+
 ## Testnet Contract
 
 A deployed TrustLink instance is available on Stellar Testnet for immediate testing:
@@ -824,3 +826,5 @@ async function estimateCreateAttestationCost(
 ---
 
 For the full API reference, see the [README](../README.md). For error definitions and type details, see [`src/types.rs`](../src/types.rs).
+
+If something is not working as expected, see the [Troubleshooting & FAQ](./troubleshooting.md) guide for common integration errors, their causes, and fixes.

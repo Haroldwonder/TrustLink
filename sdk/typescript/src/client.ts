@@ -29,6 +29,8 @@ import type {
   IssuerTier,
   MultiSigProposal,
   Network,
+  SubjectDataExport,
+  Template,
   TrustLinkClientOptions,
 } from "./types";
 import { parseTrustLinkError } from "./types";
@@ -37,7 +39,6 @@ import {
   CircuitBreaker,
   withRetry,
   type RetryOptions,
-  type CircuitBreakerOptions,
 } from "./resilience";
 
 const RPC_URLS: Record<string, string> = {
@@ -93,7 +94,7 @@ export class TrustLinkClient {
 
   /**
    * Simulate a read-only contract call and return the decoded result.
-   * Uses a throwaway source account (the zero address) since no auth is needed.
+   * Uses a throwaway source account since no auth is needed.
    * Retries with exponential backoff and respects the circuit breaker.
    */
   private async simulate<T>(method: string, ...args: xdr.ScVal[]): Promise<T> {
@@ -240,7 +241,30 @@ export class TrustLinkClient {
     return this.simulate("list_claim_types", this.u32(start), this.u32(limit));
   }
 
-  // ── Delegation Queries ────────────────────────────────────────────────────
+  /** Returns whether the given claim type is registered in the contract registry. */
+  async getRegisteredClaimType(claimType: string): Promise<boolean> {
+    return this.simulate("get_registered_claim_type", this.str(claimType));
+  }
+
+  /**
+   * Returns whether the contract requires claim types to be pre-registered.
+   * When true, free-text claim types are rejected on attestation creation.
+   */
+  async getRequireRegisteredClaimType(): Promise<boolean> {
+    return this.simulate("get_require_registered_claim_type");
+  }
+
+  // ── Rate Limiting ──────────────────────────────────────────────────────────
+
+  /**
+   * Returns the per-claim-type rate limit configuration.
+   * Distinct from getRateLimit(), which operates at the per-issuer level.
+   */
+  async getRateLimitForClaimType(claimType: string): Promise<bigint> {
+    return this.simulate("get_rate_limit_for_claim_type", this.str(claimType));
+  }
+
+  // ── Delegation Queries ─────────────────────────────────────────────────────
 
   async getDelegation(
     delegator: string,
@@ -253,6 +277,10 @@ export class TrustLinkClient {
       this.addr(delegate),
       this.str(claimType)
     );
+  }
+
+  async listDelegationsByDelegator(delegator: string, start: number, limit: number): Promise<Delegation[]> {
+    return this.simulate("list_delegations_by_delegator", this.addr(delegator), this.u32(start), this.u32(limit));
   }
 
   // ── Attestation Queries ────────────────────────────────────────────────────
@@ -314,10 +342,10 @@ export class TrustLinkClient {
   /**
    * Returns a paginated list of attestation IDs for a subject filtered by jurisdiction.
    *
-   * @param subject     - Stellar address of the subject.
+   * @param subject      - Stellar address of the subject.
    * @param jurisdiction - Jurisdiction code to filter by (e.g. "US", "EU").
-   * @param start       - Zero-based page offset.
-   * @param limit       - Maximum number of IDs to return.
+   * @param start        - Zero-based page offset.
+   * @param limit        - Maximum number of IDs to return.
    */
   async getAttestationsByJurisdiction(
     subject: string,
@@ -413,74 +441,92 @@ export class TrustLinkClient {
     return this.simulate("get_valid_claim_count", this.addr(subject));
   }
 
+  // ── Expiring Attestations (Issue #604) ───────────────────────────────────────
+
+  /**
+   * Returns attestations expiring within `withinDays` days, sorted by expiration ascending.
+   *
+   * @param subject    - Stellar address of the subject.
+   * @param withinDays - Number of days to look ahead for expiring attestations.
+   * @param start      - Zero-based page offset.
+   * @param limit      - Maximum number of results to return.
+   */
+  async getExpiringAttestations(
+    subject: string,
+    withinDays: number,
+    start: number,
+    limit: number
+  ): Promise<Attestation[]> {
+    return this.simulate(
+      "get_expiring_attestations",
+      this.addr(subject),
+      this.u32(withinDays),
+      this.u32(start),
+      this.u32(limit)
+    );
+  }
+
+  /**
+   * Returns issuer's attestations expiring within `daysWindow` days, sorted by expiration ascending.
+   *
+   * @param issuer     - Stellar address of the issuer.
+   * @param daysWindow - Number of days to look ahead for expiring attestations.
+   * @param start      - Zero-based page offset.
+   * @param limit      - Maximum number of results to return.
+   */
+  async getIssuerExpiringAttestations(
+    issuer: string,
+    daysWindow: number,
+    start: number,
+    limit: number
+  ): Promise<Attestation[]> {
+    return this.simulate(
+      "get_issuer_expiring_attestations",
+      this.addr(issuer),
+      this.u32(daysWindow),
+      this.u32(start),
+      this.u32(limit)
+    );
+  }
+
   // ── Multi-Sig Proposals ────────────────────────────────────────────────────
 
   async getMultisigProposal(proposalId: string): Promise<MultiSigProposal> {
     return this.simulate("get_multisig_proposal", this.str(proposalId));
   }
 
-  async proposeAttestation(
-    proposer: string,
-    subject: string,
-    claimType: string,
-    requiredSigners: string[],
-    threshold: number
-  ): Promise<SorobanRpc.Api.SimulateTransactionResponse> {
-    const account = new Account(proposer, "0");
-    const tx = new TransactionBuilder(account, {
-      fee: BASE_FEE,
-      networkPassphrase: this.networkPassphrase,
-    })
-      .addOperation(
-        this.contract.call(
-          "propose_attestation",
-          this.addr(proposer),
-          this.addr(subject),
-          this.str(claimType),
-          nativeToScVal(requiredSigners.map((s) => Address.fromString(s).toScVal()), { type: "array" }),
-          this.u32(threshold)
-        )
-      )
-      .setTimeout(30)
-      .build();
-    return this.server.simulateTransaction(tx);
+  async getMultisigTtl(): Promise<number> {
+    return this.simulate("get_multisig_ttl");
   }
 
-  async cosignAttestation(
-    issuer: string,
+  async listOpenProposals(
+    subject: string,
+    start: number,
+    limit: number
+  ): Promise<MultiSigProposal[]> {
+    return this.simulate(
+      "list_open_proposals",
+      this.addr(subject),
+      this.u32(start),
+      this.u32(limit)
+    );
+  }
+
+  async cancelMultisigProposal(
+    proposer: string,
     proposalId: string
   ): Promise<SorobanRpc.Api.SimulateTransactionResponse> {
-    const account = new Account(issuer, "0");
-    const tx = new TransactionBuilder(account, {
-      fee: BASE_FEE,
-      networkPassphrase: this.networkPassphrase,
-    })
-      .addOperation(
-        this.contract.call("cosign_attestation", this.addr(issuer), this.str(proposalId))
-      )
-      .setTimeout(30)
-      .build();
-    return this.server.simulateTransaction(tx);
-  }
-
-  // ── Attestation Requests ───────────────────────────────────────────────────
-
-  async requestAttestation(
-    subject: string,
-    issuer: string,
-    claimType: string
-  ): Promise<SorobanRpc.Api.SimulateTransactionResponse> {
-    const account = new Account(subject, "0");
+    const dummySource = proposer;
+    const account = new Account(dummySource, "0");
     const tx = new TransactionBuilder(account, {
       fee: BASE_FEE,
       networkPassphrase: this.networkPassphrase,
     })
       .addOperation(
         this.contract.call(
-          "request_attestation",
-          this.addr(subject),
-          this.addr(issuer),
-          this.str(claimType)
+          "cancel_multisig_proposal",
+          this.addr(proposer),
+          this.str(proposalId)
         )
       )
       .setTimeout(30)
@@ -538,6 +584,14 @@ export class TrustLinkClient {
     return this.simulate("get_attestation_request", this.str(requestId));
   }
 
+  /**
+   * Returns the raw low-level request state for a given request ID.
+   * Distinct from getAttestationRequest(), which returns the high-level processed object.
+   */
+  async getRequest(requestId: string): Promise<AttestationRequest> {
+    return this.simulate("get_request", this.str(requestId));
+  }
+
   // ── Endorsements ──────────────────────────────────────────────────────────
 
   async getEndorsements(attestationId: string): Promise<Endorsement[]> {
@@ -548,19 +602,33 @@ export class TrustLinkClient {
     return this.simulate("get_endorsement_count", this.str(attestationId));
   }
 
-  // ── Issue #530: Template management ───────────────────────────────────────
+  async listEndorsementsByEndorser(endorser: string, start: number, limit: number): Promise<Endorsement[]> {
+    return this.simulate("list_endorsements_by_endorser", this.addr(endorser), this.u32(start), this.u32(limit));
+  }
+
+  // ── Templates ─────────────────────────────────────────────────────────────
 
   async getTemplate(issuer: string, templateId: string): Promise<import("./types").AttestationTemplate> {
     return this.simulate("get_template", this.addr(issuer), this.str(templateId));
   }
 
-  async listEndorsementsByEndorser(endorser: string, start: number, limit: number): Promise<Endorsement[]> {
-    return this.simulate("list_endorsements_by_endorser", this.addr(endorser), this.u32(start), this.u32(limit));
+  async listTemplates(issuer: string, start: number, limit: number): Promise<Template[]> {
+    return this.simulate("list_templates", this.addr(issuer), this.u32(start), this.u32(limit));
   }
+
+  // ── Whitelist ──────────────────────────────────────────────────────────────
 
   async bulkAddToWhitelist(issuer: string, subjects: string[]): Promise<void> {
     const subjectsVal = xdr.ScVal.scvVec(subjects.map(s => this.addr(s)));
     return this.simulate("bulk_add_to_whitelist", this.addr(issuer), subjectsVal);
+  }
+
+  async isWhitelisted(issuer: string, subject: string): Promise<boolean> {
+    return this.simulate("is_whitelisted", this.addr(issuer), this.addr(subject));
+  }
+
+  async isWhitelistEnabled(issuer: string): Promise<boolean> {
+    return this.simulate("is_whitelist_enabled", this.addr(issuer));
   }
 
   // ── Pagination Helpers ─────────────────────────────────────────────────────
@@ -589,5 +657,61 @@ export class TrustLinkClient {
       if (page.length < pageSize) break;
       start += page.length;
     }
+  }
+
+  // ── Data Portability ───────────────────────────────────────────────────────
+
+  /**
+   * Export all data held about a subject in a single structured JSON object,
+   * suitable for a GDPR Article 20 / CCPA data-portability response.
+   *
+   * Aggregates attestations, audit logs, endorsements, and optional request
+   * history (pass known request IDs in options.requestIds — the contract does
+   * not expose a per-subject request index).
+   */
+  async exportSubjectData(
+    subject: string,
+    options?: { requestIds?: string[] }
+  ): Promise<SubjectDataExport> {
+    const attestations: Attestation[] = [];
+    for await (const att of this.iterateSubjectAttestations(subject)) {
+      attestations.push(att);
+    }
+
+    const attestationData = await Promise.all(
+      attestations.map(async (att) => {
+        const [auditLog, endorsements] = await Promise.all([
+          this.getAuditLog(att.id),
+          this.getEndorsements(att.id),
+        ]);
+        return { attestation: att, auditLog, endorsements };
+      })
+    );
+
+    const requestHistory: AttestationRequest[] = [];
+    if (options?.requestIds?.length) {
+      const requests = await Promise.all(
+        options.requestIds.map((id) => this.getAttestationRequest(id))
+      );
+      requestHistory.push(...requests);
+    }
+
+    const allEndorsements = attestationData.flatMap((d) => d.endorsements);
+    const allAuditEntries = attestationData.flatMap((d) => d.auditLog);
+
+    return {
+      subject,
+      exportedAt: new Date().toISOString(),
+      attestations: attestationData,
+      requestHistory,
+      summary: {
+        totalAttestations: attestations.length,
+        activeAttestations: attestations.filter((a) => !a.revoked && !a.deleted).length,
+        revokedAttestations: attestations.filter((a) => a.revoked).length,
+        deletedAttestations: attestations.filter((a) => a.deleted).length,
+        totalEndorsements: allEndorsements.length,
+        totalAuditEntries: allAuditEntries.length,
+      },
+    };
   }
 }

@@ -1,0 +1,121 @@
+name: Synthetic Uptime Checks
+
+on:
+  schedule:
+    # Run every 5 minutes
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+env:
+  LATENCY_THRESHOLD_MS: "10000"
+
+jobs:
+  check-graphql:
+    name: GraphQL healthCheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query GraphQL healthCheck
+        env:
+          GQL_URL: ${{ secrets.GQL_URL }}
+        run: |
+          if [ -z "$GQL_URL" ]; then
+            echo "GQL_URL secret is not set — skipping"
+            exit 0
+          fi
+
+          START=$(date +%s%3N)
+
+          RESPONSE=$(curl -sf --max-time 10 \
+            -H "Content-Type: application/json" \
+            -d '{"query":"{ healthCheck { status lastLedger timestamp } }"}' \
+            "$GQL_URL/graphql")
+
+          END=$(date +%s%3N)
+          ELAPSED=$((END - START))
+
+          echo "Response: $RESPONSE"
+          echo "Latency: ${ELAPSED}ms"
+
+          STATUS=$(echo "$RESPONSE" | jq -r '.data.healthCheck.status // empty')
+
+          if [ "$STATUS" != "ok" ]; then
+            echo "::error::GraphQL healthCheck returned status '$STATUS' (expected 'ok')"
+            exit 1
+          fi
+
+          if [ "$ELAPSED" -gt "$LATENCY_THRESHOLD_MS" ]; then
+            echo "::warning::GraphQL healthCheck latency ${ELAPSED}ms exceeds threshold ${LATENCY_THRESHOLD_MS}ms"
+          fi
+
+          echo "GraphQL healthCheck passed (status=ok, latency=${ELAPSED}ms)"
+
+  check-rest-health:
+    name: REST /health endpoint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query REST /health
+        env:
+          INDEXER_URL: ${{ secrets.INDEXER_URL }}
+        run: |
+          if [ -z "$INDEXER_URL" ]; then
+            echo "INDEXER_URL secret is not set — skipping"
+            exit 0
+          fi
+
+          START=$(date +%s%3N)
+
+          HTTP_CODE=$(curl -so /dev/null -w "%{http_code}" --max-time 10 \
+            "$INDEXER_URL/health")
+
+          END=$(date +%s%3N)
+          ELAPSED=$((END - START))
+
+          echo "HTTP status: $HTTP_CODE"
+          echo "Latency: ${ELAPSED}ms"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::REST /health returned HTTP $HTTP_CODE (expected 200)"
+            exit 1
+          fi
+
+          if [ "$ELAPSED" -gt "$LATENCY_THRESHOLD_MS" ]; then
+            echo "::warning::REST /health latency ${ELAPSED}ms exceeds threshold ${LATENCY_THRESHOLD_MS}ms"
+          fi
+
+          echo "REST /health passed (HTTP 200, latency=${ELAPSED}ms)"
+
+  check-rpc:
+    name: Stellar Soroban RPC reachability
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query Stellar Soroban RPC getLatestLedger
+        env:
+          RPC_URL: ${{ secrets.RPC_URL || 'https://soroban-testnet.stellar.org' }}
+        run: |
+          RPC_ENDPOINT="${RPC_URL:-https://soroban-testnet.stellar.org}"
+
+          START=$(date +%s%3N)
+
+          RESPONSE=$(curl -sf --max-time 10 \
+            -H "Content-Type: application/json" \
+            -d '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger"}' \
+            "$RPC_ENDPOINT")
+
+          END=$(date +%s%3N)
+          ELAPSED=$((END - START))
+
+          echo "Response: $RESPONSE"
+          echo "Latency: ${ELAPSED}ms"
+
+          SEQUENCE=$(echo "$RESPONSE" | jq -r '.result.sequence // empty')
+
+          if [ -z "$SEQUENCE" ]; then
+            echo "::error::Stellar RPC did not return a valid ledger sequence"
+            exit 1
+          fi
+
+          if [ "$ELAPSED" -gt "$LATENCY_THRESHOLD_MS" ]; then
+            echo "::warning::Stellar RPC latency ${ELAPSED}ms exceeds threshold ${LATENCY_THRESHOLD_MS}ms"
+          fi
+
+          echo "Stellar RPC reachable (sequence=$SEQUENCE, latency=${ELAPSED}ms)"
