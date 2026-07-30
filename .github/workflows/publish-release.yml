@@ -63,6 +63,71 @@ jobs:
           file target/wasm32-unknown-unknown/release/trustlink.wasm
           file target/wasm32-unknown-unknown/release/trustlink.optimized.wasm
 
+      - name: Compute WASM binary hashes
+        id: wasm_hashes
+        run: |
+          # Compute SHA256 hashes for both WASM binaries
+          UNOPT_HASH=$(sha256sum target/wasm32-unknown-unknown/release/trustlink.wasm | awk '{print $1}')
+          OPT_HASH=$(sha256sum target/wasm32-unknown-unknown/release/trustlink.optimized.wasm | awk '{print $1}')
+          
+          # Store hashes for use in later steps
+          echo "unoptimized=$UNOPT_HASH" >> $GITHUB_OUTPUT
+          echo "optimized=$OPT_HASH" >> $GITHUB_OUTPUT
+          
+          # Create hash file for release artifact
+          cat > wasm-hashes.txt <<EOF
+          # TrustLink WASM Binary Hashes (SHA-256)
+          
+          ## Build Information
+          - Release Tag: ${{ github.ref_name }}
+          - Build Date: $(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          - Repository: ${{ github.repository }}
+          - Commit: ${{ github.sha }}
+          
+          ## WASM Binary Hashes
+          
+          ### Unoptimized WASM
+          - File: trustlink.wasm
+          - SHA256: $UNOPT_HASH
+          - Size: $(du -b target/wasm32-unknown-unknown/release/trustlink.wasm | awk '{print $1}') bytes
+          
+          ### Optimized WASM (Production)
+          - File: trustlink.optimized.wasm
+          - SHA256: $OPT_HASH
+          - Size: $(du -b target/wasm32-unknown-unknown/release/trustlink.optimized.wasm | awk '{print $1}') bytes
+          
+          ## Verification
+          
+          To verify these hashes on your machine, clone the repository and run:
+          
+          \`\`\`bash
+          # Build reproducibly and verify against the unoptimized hash
+          ./scripts/verify_wasm_hash.sh $UNOPT_HASH
+          
+          # Or for the optimized version, build and optimize manually:
+          cargo build --target wasm32-unknown-unknown --release
+          soroban contract optimize \
+            --wasm target/wasm32-unknown-unknown/release/trustlink.wasm \
+            --wasm-out target/wasm32-unknown-unknown/release/trustlink.optimized.wasm
+          sha256sum target/wasm32-unknown-unknown/release/trustlink.optimized.wasm
+          \`\`\`
+          
+          For full reproducible build instructions, see [docs/mainnet-checklist.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/mainnet-checklist.md#reproducible-build-environment).
+          
+          ## SLSA Provenance & Supply Chain Security
+          
+          WASM binaries are signed with SLSA provenance attestations. Verify with:
+          
+          \`\`\`bash
+          gh attestation verify trustlink.optimized.wasm --repo ${{ github.repository }}
+          \`\`\`
+          
+          See [docs/slsa-provenance.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/slsa-provenance.md) for full verification details.
+          EOF
+          
+          echo "Hash file created:"
+          cat wasm-hashes.txt
+
       - name: Generate Rust SBOM (CycloneDX)
         run: |
           cargo install --locked cargo-cyclonedx
@@ -87,12 +152,29 @@ jobs:
             target/wasm32-unknown-unknown/release/trustlink.wasm
             target/wasm32-unknown-unknown/release/trustlink.optimized.wasm
             trustlink-sbom.cdx.json
+            wasm-hashes.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create release summary
         run: |
           echo "## Release Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔐 WASM Binary Verification" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**SHA-256 Hashes (for reproducible build verification):**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Unoptimized WASM:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.wasm_hashes.outputs.unoptimized }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Optimized WASM (Production):**" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.wasm_hashes.outputs.optimized }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Verify reproducibility:** Download the release and run \`./scripts/verify_wasm_hash.sh <HASH>\` (see [wasm-hashes.txt](wasm-hashes.txt) in release assets for full details)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### WASM Binaries" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -106,6 +188,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **trustlink-sbom.cdx.json** — CycloneDX SBOM for the Rust contract" >> $GITHUB_STEP_SUMMARY
           echo "- **trustlink-sdk-sbom.cdx.json** — CycloneDX SBOM for the TypeScript SDK" >> $GITHUB_STEP_SUMMARY
+          echo "- **wasm-hashes.txt** — SHA-256 hashes and verification instructions" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Supply Chain Security" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
