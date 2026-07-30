@@ -20,6 +20,18 @@ name = "performance"
 path = "benches/performance.rs"
 harness = true
 
+# Verifier-of-verifiers carbon-credit example (see examples/carbon-credit-verification).
+# Run with: cargo run --example carbon-credit-verification
+[[example]]
+name = "carbon-credit-verification"
+path = "examples/carbon-credit-verification/main.rs"
+
+# DID-style guardian social-recovery example (see examples/guardian-recovery).
+# Run with: cargo run --example guardian-recovery
+[[example]]
+name = "guardian-recovery"
+path = "examples/guardian-recovery/main.rs"
+
 [profile.release]
 opt-level = "z"
 overflow-checks = true
