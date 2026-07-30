@@ -123,7 +123,7 @@
                   "symbol": "Attestation"
                 },
                 {
-                  "string": "d1c3cbc99ed7def03f38b94bb23abff8d9632d35e8c59468760e90e79699f5c3"
+                  "string": "7dd021c959483175988b5e36c16be777"
                 }
               ]
             },
@@ -143,13 +143,19 @@
                       "symbol": "Attestation"
                     },
                     {
-                      "string": "d1c3cbc99ed7def03f38b94bb23abff8d9632d35e8c59468760e90e79699f5c3"
+                      "string": "7dd021c959483175988b5e36c16be777"
                     }
                   ]
                 },
                 "durability": "persistent",
                 "val": {
                   "map": [
+                    {
+                      "key": {
+                        "symbol": "bundle_id"
+                      },
+                      "val": "void"
+                    },
                     {
                       "key": {
                         "symbol": "claim_type"
@@ -179,7 +185,7 @@
                         "symbol": "id"
                       },
                       "val": {
-                        "string": "d1c3cbc99ed7def03f38b94bb23abff8d9632d35e8c59468760e90e79699f5c3"
+                        "string": "7dd021c959483175988b5e36c16be777"
                       }
                     },
                     {
@@ -287,7 +293,7 @@
                   "symbol": "AuditLog"
                 },
                 {
-                  "string": "d1c3cbc99ed7def03f38b94bb23abff8d9632d35e8c59468760e90e79699f5c3"
+                  "string": "7dd021c959483175988b5e36c16be777"
                 }
               ]
             },
@@ -307,7 +313,7 @@
                       "symbol": "AuditLog"
                     },
                     {
-                      "string": "d1c3cbc99ed7def03f38b94bb23abff8d9632d35e8c59468760e90e79699f5c3"
+                      "string": "7dd021c959483175988b5e36c16be777"
                     }
                   ]
                 },
@@ -512,7 +518,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "d1c3cbc99ed7def03f38b94bb23abff8d9632d35e8c59468760e90e79699f5c3"
+                      "string": "7dd021c959483175988b5e36c16be777"
                     }
                   ]
                 }
@@ -561,7 +567,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "d1c3cbc99ed7def03f38b94bb23abff8d9632d35e8c59468760e90e79699f5c3"
+                      "string": "7dd021c959483175988b5e36c16be777"
                     }
                   ]
                 }
@@ -758,7 +764,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "d1c3cbc99ed7def03f38b94bb23abff8d9632d35e8c59468760e90e79699f5c3"
+                      "string": "7dd021c959483175988b5e36c16be777"
                     }
                   ]
                 }
@@ -807,7 +813,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "d1c3cbc99ed7def03f38b94bb23abff8d9632d35e8c59468760e90e79699f5c3"
+                      "string": "7dd021c959483175988b5e36c16be777"
                     }
                   ]
                 }
@@ -856,7 +862,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "d1c3cbc99ed7def03f38b94bb23abff8d9632d35e8c59468760e90e79699f5c3"
+                      "string": "7dd021c959483175988b5e36c16be777"
                     }
                   ]
                 }
@@ -1434,7 +1440,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "d1c3cbc99ed7def03f38b94bb23abff8d9632d35e8c59468760e90e79699f5c3"
+                  "string": "7dd021c959483175988b5e36c16be777"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -1469,7 +1475,7 @@
               }
             ],
             "data": {
-              "string": "d1c3cbc99ed7def03f38b94bb23abff8d9632d35e8c59468760e90e79699f5c3"
+              "string": "7dd021c959483175988b5e36c16be777"
             }
           }
         }
@@ -1584,7 +1590,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "d1c3cbc99ed7def03f38b94bb23abff8d9632d35e8c59468760e90e79699f5c3"
+                  "string": "7dd021c959483175988b5e36c16be777"
                 },
                 {
                   "u64": 1259200
@@ -1620,7 +1626,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "string": "d1c3cbc99ed7def03f38b94bb23abff8d9632d35e8c59468760e90e79699f5c3"
+                  "string": "7dd021c959483175988b5e36c16be777"
                 },
                 {
                   "u64": 1259200
@@ -1647,13 +1653,13 @@
             "data": {
               "vec": [
                 {
-                  "string": "caught panic 'callback panic' from contract function 'Symbol(obj#595)'"
+                  "string": "caught panic 'callback panic' from contract function 'Symbol(obj#611)'"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "string": "d1c3cbc99ed7def03f38b94bb23abff8d9632d35e8c59468760e90e79699f5c3"
+                  "string": "7dd021c959483175988b5e36c16be777"
                 },
                 {
                   "u64": 1259200
@@ -1721,7 +1727,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                     },
                     {
-                      "string": "d1c3cbc99ed7def03f38b94bb23abff8d9632d35e8c59468760e90e79699f5c3"
+                      "string": "7dd021c959483175988b5e36c16be777"
                     },
                     {
                       "u64": 1259200

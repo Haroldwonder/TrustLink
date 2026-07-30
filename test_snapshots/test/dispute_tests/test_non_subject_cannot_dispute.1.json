@@ -96,7 +96,7 @@
                   "symbol": "Attestation"
                 },
                 {
-                  "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                  "string": "6495b6242dafd7a7256bfb109136722c"
                 }
               ]
             },
@@ -116,13 +116,19 @@
                       "symbol": "Attestation"
                     },
                     {
-                      "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                      "string": "6495b6242dafd7a7256bfb109136722c"
                     }
                   ]
                 },
                 "durability": "persistent",
                 "val": {
                   "map": [
+                    {
+                      "key": {
+                        "symbol": "bundle_id"
+                      },
+                      "val": "void"
+                    },
                     {
                       "key": {
                         "symbol": "claim_type"
@@ -150,7 +156,7 @@
                         "symbol": "id"
                       },
                       "val": {
-                        "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                        "string": "6495b6242dafd7a7256bfb109136722c"
                       }
                     },
                     {
@@ -258,7 +264,7 @@
                   "symbol": "AuditLog"
                 },
                 {
-                  "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                  "string": "6495b6242dafd7a7256bfb109136722c"
                 }
               ]
             },
@@ -278,7 +284,7 @@
                       "symbol": "AuditLog"
                     },
                     {
-                      "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                      "string": "6495b6242dafd7a7256bfb109136722c"
                     }
                   ]
                 },
@@ -421,7 +427,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                      "string": "6495b6242dafd7a7256bfb109136722c"
                     }
                   ]
                 }
@@ -470,7 +476,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                      "string": "6495b6242dafd7a7256bfb109136722c"
                     }
                   ]
                 }
@@ -667,7 +673,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                      "string": "6495b6242dafd7a7256bfb109136722c"
                     }
                   ]
                 }
@@ -716,7 +722,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                      "string": "6495b6242dafd7a7256bfb109136722c"
                     }
                   ]
                 }
@@ -765,7 +771,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                      "string": "6495b6242dafd7a7256bfb109136722c"
                     }
                   ]
                 }
@@ -1276,7 +1282,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                  "string": "6495b6242dafd7a7256bfb109136722c"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -1311,7 +1317,7 @@
               }
             ],
             "data": {
-              "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+              "string": "6495b6242dafd7a7256bfb109136722c"
             }
           }
         }
@@ -1342,7 +1348,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
                 },
                 {
-                  "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                  "string": "6495b6242dafd7a7256bfb109136722c"
                 },
                 {
                   "string": "not mine"
@@ -1435,7 +1441,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
                     },
                     {
-                      "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                      "string": "6495b6242dafd7a7256bfb109136722c"
                     },
                     {
                       "string": "not mine"

@@ -3,14 +3,17 @@
 //! Bundles allow issuing multiple related attestations atomically with a shared bundle ID,
 //! enabling verifiers to confirm a set of claims were issued as one coherent unit.
 
-use soroban_sdk::{Env, Address, String, Vec, Bytes};
+use soroban_sdk::{xdr::ToXdr, Env, Address, String, Vec, Bytes};
 
-use crate::attestation::{store_attestation, charge_attestation_fee, check_rate_limit};
+use crate::attestation::{
+    store_attestation, charge_attestation_fee, check_rate_limit,
+    validate_native_expiration, validate_tags, validate_jurisdiction,
+};
 use crate::storage::Storage;
 use crate::types::{
-    Attestation, AttestationBundle, AttestationOrigin, AuditAction, AuditEntry, Error, Validation,
+    Attestation, AttestationBundle, AttestationOrigin, AuditAction, AuditEntry, Error,
 };
-use crate::validation::{validate_native_expiration, validate_tags, validate_jurisdiction};
+use crate::Validation;
 
 /// Maximum number of attestations allowed in a single bundle.
 const MAX_BUNDLE_SIZE: u32 = 50;
@@ -69,14 +72,14 @@ pub fn create_attestation_bundle(
     Validation::require_not_paused(env)?;
     
     // Validate bundle size
-    if claim_types.is_empty() || claim_types.len() > MAX_BUNDLE_SIZE as usize {
+    if claim_types.is_empty() || claim_types.len() > MAX_BUNDLE_SIZE {
         return Err(Error::LimitExceeded);
     }
 
     // Validate all claim types are registered before starting
     for claim_type in claim_types.iter() {
-        Validation::validate_claim_type(claim_type)?;
-        Validation::require_registered_claim_type(env, claim_type)?;
+        Validation::validate_claim_type(&claim_type)?;
+        Validation::require_registered_claim_type(env, &claim_type)?;
     }
 
     // Validate metadata and tags (once, shared for all in bundle)
@@ -114,22 +117,18 @@ pub fn create_attestation_bundle(
     
     // Check optional per-subject limit from ContractConfig if configured
     let max_subject_limit = if let Some(config) = Storage::get_contract_config(env) {
-        if let Some(max_per_subject) = config.max_attestations_per_subject {
-            max_per_subject as usize
-        } else {
-            limits.max_attestations_per_subject as usize
-        }
+        config.max_attestations_per_subject.unwrap_or(limits.max_attestations_per_subject)
     } else {
-        limits.max_attestations_per_subject as usize
+        limits.max_attestations_per_subject
     };
-    
+
     if subject_count.saturating_add(claim_types.len()) > max_subject_limit {
         return Err(Error::LimitExceeded);
     }
 
     // Check rate limits for each claim type before creating any attestations
     for claim_type in claim_types.iter() {
-        check_rate_limit(env, &issuer, claim_type)?;
+        check_rate_limit(env, &issuer, &claim_type)?;
     }
 
     // Build attestation list for the bundle
@@ -138,7 +137,7 @@ pub fn create_attestation_bundle(
 
     // Create attestation record for each claim type
     for claim_type in claim_types.iter() {
-        let attestation_id = Attestation::generate_id(env, &issuer, &subject, claim_type, timestamp);
+        let attestation_id = Attestation::generate_id(env, &issuer, &subject, &claim_type, timestamp);
 
         // Check for duplicate attestations
         if Storage::has_attestation(env, &attestation_id) {
@@ -205,15 +204,15 @@ pub fn create_attestation_bundle(
     crate::storage::ChunkedIndex::add_issuer_bulk(env, &issuer, &new_issuer_ids);
 
     // Update stats
-    let bundle_size = attestation_ids.len() as u64;
+    let bundle_size = attestation_ids.len();
     Storage::increment_issuer_stats(env, &issuer, bundle_size);
-    Storage::increment_total_attestations(env, bundle_size);
+    Storage::increment_total_attestations(env, bundle_size as u64);
 
     // Set issuance timestamps
     Storage::set_last_issuance_time(env, &issuer, timestamp);
     for claim_type in claim_types.iter() {
-        if Storage::get_claim_type_rate_limit(env, claim_type).is_some() {
-            Storage::set_last_issuance_time_by_claim_type(env, &issuer, claim_type, timestamp);
+        if Storage::get_claim_type_rate_limit(env, &claim_type).is_some() {
+            Storage::set_last_issuance_time_by_claim_type(env, &issuer, &claim_type, timestamp);
         }
     }
 
@@ -248,7 +247,7 @@ pub fn get_bundle_attestations(
     env: &Env,
     bundle_id: &String,
 ) -> Result<Vec<Attestation>, Error> {
-    let bundle = Storage::get_bundle(env, bundle_id)?;
+    let bundle = Storage::get_bundle(env, bundle_id).ok_or(Error::NotFound)?;
 
     let mut attestations: Vec<Attestation> = Vec::new(env);
     for attestation_id in bundle.attestation_ids.iter() {
@@ -262,7 +261,7 @@ pub fn get_bundle_attestations(
 
 /// Check if all attestations in a bundle are still valid (not revoked).
 pub fn is_bundle_valid(env: &Env, bundle_id: &String) -> Result<bool, Error> {
-    let mut bundle = Storage::get_bundle(env, bundle_id)?;
+    let mut bundle = Storage::get_bundle(env, bundle_id).ok_or(Error::NotFound)?;
 
     for attestation_id in bundle.attestation_ids.iter() {
         if let Ok(attestation) = Storage::get_attestation(env, &attestation_id) {
@@ -279,7 +278,12 @@ pub fn is_bundle_valid(env: &Env, bundle_id: &String) -> Result<bool, Error> {
 
 /// Format audit entry details to note bundle membership.
 fn format_bundle_audit_detail(env: &Env, bundle_id: &String) -> String {
-    let mut detail = String::from_str(env, "Created as part of bundle: ");
-    detail.append(bundle_id);
-    detail
+    const PREFIX: &[u8] = b"Created as part of bundle: ";
+    let mut id_bytes = [0u8; 32];
+    bundle_id.copy_into_slice(&mut id_bytes);
+
+    let mut detail_bytes = [0u8; PREFIX.len() + 32];
+    detail_bytes[..PREFIX.len()].copy_from_slice(PREFIX);
+    detail_bytes[PREFIX.len()..].copy_from_slice(&id_bytes);
+    String::from_bytes(env, &detail_bytes)
 }

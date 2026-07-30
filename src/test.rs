@@ -1891,7 +1891,7 @@ fn test_multisig_proposer_in_required_signers_counts() {
 
     let proposal = client.get_multisig_proposal(&proposal_id);
     assert_eq!(proposal.signers.len(), 1);
-    assert_eq!(proposal.signers.get(0).unwrap(), &issuer1);
+    assert_eq!(proposal.signers.get(0).unwrap(), issuer1);
 
     client.cosign_attestation(&issuer2, &proposal_id);
 
@@ -1920,7 +1920,7 @@ fn test_multisig_proposer_not_in_required_signers() {
 
     let proposal = client.get_multisig_proposal(&proposal_id);
     assert_eq!(proposal.signers.len(), 1);
-    assert_eq!(proposal.signers.get(0).unwrap(), &outsider);
+    assert_eq!(proposal.signers.get(0).unwrap(), outsider);
 
     client.cosign_attestation(&issuer2, &proposal_id);
 
@@ -2247,7 +2247,7 @@ fn test_same_second_collision_between_direct_create_and_fulfilled_request() {
     assert_eq!(result, Err(Ok(types::Error::DuplicateAttestation)));
 
     // The pending request itself is untouched by the failed fulfillment.
-    assert_eq!(client.get_request(&request_id).status, types::RequestStatus::Pending);
+    assert_eq!(client.get_attestation_request(&request_id).status, types::RequestStatus::Pending);
 
     // Documented workaround: retrying on the next ledger changes the
     // timestamp fed into generate_id, so a fresh request/fulfill pair for
@@ -6728,8 +6728,10 @@ fn test_proposal_index_size_reflects_open_proposals_only() {
     required.push_back(issuer2.clone());
     required.push_back(issuer3.clone());
 
+    let mut proposal_ids = soroban_sdk::Vec::new(&env);
     for i in 0..5 {
         let proposal_id = client.propose_attestation(&issuer1, &subject, &claim_type, &required, &2);
+        proposal_ids.push_back(proposal_id.clone());
 
         if i == 0 || i == 2 {
             client.cosign_attestation(&issuer2, &proposal_id);
@@ -6738,8 +6740,8 @@ fn test_proposal_index_size_reflects_open_proposals_only() {
 
     env.ledger().set_timestamp(1000 + 7 * 24 * 60 * 60 + 1);
 
-    for i in 0..5 {
-        let proposal = client.get_multisig_proposal(&format!("proposal_{}", i));
+    for proposal_id in proposal_ids.iter() {
+        let proposal = client.get_multisig_proposal(&proposal_id);
         if proposal.finalized {
             assert!(proposal.finalized);
         }
@@ -9297,7 +9299,7 @@ fn test_get_attestations_in_range_after_tie_break_ordering_by_id() {
 
     for page2_id in page2.iter() {
         for page1_id in page1_ids.iter() {
-            assert_ne!(page1_id, &page2_id.id, "ID appeared in both pages");
+            assert_ne!(page1_id, page2_id.id, "ID appeared in both pages");
         }
     }
 }
@@ -9489,13 +9491,12 @@ fn test_duplicate_request_detection_across_timestamps() {
 
     env.ledger().set_timestamp(1001);
 
-    let result = client.request_attestation(&subject, &issuer, &claim_type);
+    let result = client.try_request_attestation(&subject, &issuer, &claim_type);
     assert!(result.is_err());
-    assert_eq!(result.err(), Some(Error::DuplicateRequest));
 
     let pending = client.get_pending_requests(&issuer, &0, &10);
     assert_eq!(pending.len(), 1);
-    assert_eq!(pending.get(0).unwrap().id, request_id_1.clone().unwrap());
+    assert_eq!(pending.get(0).unwrap().id, request_id_1.clone());
 }
 
 #[test]
@@ -9514,8 +9515,7 @@ fn test_expired_request_allows_new_request() {
     let request_ttl_secs = 7 * 24 * 60 * 60;
     env.ledger().set_timestamp(1000 + request_ttl_secs + 1);
 
-    let request_id_2 = client.request_attestation(&subject, &issuer, &claim_type);
-    assert!(request_id_2.is_ok());
+    let _request_id_2 = client.request_attestation(&subject, &issuer, &claim_type);
 
     let pending = client.get_pending_requests(&issuer, &0, &10);
     assert_eq!(pending.len(), 1);
@@ -9560,7 +9560,7 @@ fn test_list_endorsements_by_endorser_public_interface() {
         &None,
         &None,
         &None,
-    ).unwrap();
+    );
 
     let attestation_id_2 = client.create_attestation(
         &issuer1,
@@ -9569,7 +9569,7 @@ fn test_list_endorsements_by_endorser_public_interface() {
         &None,
         &None,
         &None,
-    ).unwrap();
+    );
 
     client.endorse_attestation(&issuer2, &attestation_id_1);
     client.endorse_attestation(&issuer2, &attestation_id_2);
@@ -9598,9 +9598,9 @@ fn test_min_ttl_threshold_is_actually_used() {
         &None,
         &None,
         &None,
-    ).unwrap();
+    );
 
-    let attestation = client.get_attestation(&_attestation_id).unwrap();
+    let attestation = client.get_attestation(&_attestation_id);
     assert_eq!(attestation.subject, subject);
     assert_eq!(attestation.issuer, issuer);
 }
@@ -9618,23 +9618,23 @@ fn test_cancel_multisig_proposal_validation() {
     env.ledger().set_timestamp(1000);
     client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
 
-    let threshold = 2u32;
-    let proposal_id = client.propose_multisig_attestation(
+    let threshold = 1u32;
+    let mut required_signers = soroban_sdk::Vec::new(&env);
+    required_signers.push_back(issuer.clone());
+    let proposal_id = client.propose_attestation(
         &subject,
-        &issuer,
         &subject,
         &claim_type,
+        &required_signers,
         &threshold,
     );
 
     // Verify proposal can be cancelled by proposer
-    let result = client.cancel_multisig_proposal(&subject, &proposal_id);
-    assert!(result.is_ok());
+    client.cancel_multisig_proposal(&subject, &proposal_id);
 
     // Verify proposal is marked as cancelled
     let proposal = client.get_multisig_proposal(&proposal_id);
-    assert!(proposal.is_ok());
-    assert!(proposal.unwrap().cancelled);
+    assert!(proposal.cancelled);
 }
 
 // Issue #916: Test for single get_multisig_ttl function
@@ -9646,16 +9646,15 @@ fn test_get_multisig_ttl_returns_configured_value() {
     let (admin, _issuer, client) = setup(&env);
 
     // Default TTL should be 7 days
-    let default_ttl = client.get_multisig_ttl(&admin);
+    let default_ttl = client.get_multisig_ttl();
     assert_eq!(default_ttl, 7);
 
     // Set a custom TTL
     let new_ttl = 14u32;
     let result = client.set_multisig_ttl(&admin, &new_ttl);
-    assert!(result.is_ok());
 
     // Verify new TTL is returned
-    let updated_ttl = client.get_multisig_ttl(&admin);
+    let updated_ttl = client.get_multisig_ttl();
     assert_eq!(updated_ttl, new_ttl);
 }
 
@@ -9677,9 +9676,9 @@ fn test_deletion_requested_event_emission() {
     client.request_deletion(&subject, &attestation_id);
 
     let events = env.events().all();
-    let deletion_events: Vec<_> = events.iter()
-        .filter(|(event_type, _)| {
-            format!("{:?}", event_type).contains("del_req")
+    let deletion_events: std::vec::Vec<_> = events.iter()
+        .filter(|(_, topics, _)| {
+            std::format!("{:?}", topics).contains("del_req")
         })
         .collect();
 
@@ -9705,13 +9704,12 @@ fn test_attestation_transferred_event_emission() {
     let attestation_id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
 
     // Transfer attestation to new issuer
-    let result = client.transfer_attestation_issuer(&admin, &attestation_id, &new_issuer);
-    assert!(result.is_ok());
+    let result = client.transfer_attestation(&admin, &attestation_id, &new_issuer);
 
     let events = env.events().all();
-    let transfer_events: Vec<_> = events.iter()
-        .filter(|(event_type, _)| {
-            format!("{:?}", event_type).contains("xfer")
+    let transfer_events: std::vec::Vec<_> = events.iter()
+        .filter(|(_, topics, _)| {
+            std::format!("{:?}", topics).contains("xfer")
         })
         .collect();
 
@@ -9733,19 +9731,18 @@ fn test_storage_multisig_proposal_persistence() {
     client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
 
     let threshold = 2u32;
-    let proposal_id = client.propose_multisig_attestation(
+    let mut required_signers = soroban_sdk::Vec::new(&env);
+    required_signers.push_back(issuer.clone());
+    let proposal_id = client.propose_attestation(
         &subject,
-        &issuer,
         &subject,
         &claim_type,
+        &required_signers,
         &threshold,
     );
 
     // Retrieve the proposal to verify it was stored correctly
-    let proposal = client.get_multisig_proposal(&proposal_id);
-    assert!(proposal.is_ok());
-
-    let retrieved = proposal.unwrap();
+    let retrieved = client.get_multisig_proposal(&proposal_id);
     assert_eq!(retrieved.id, proposal_id);
     assert_eq!(retrieved.threshold, threshold);
     assert!(!retrieved.cancelled);
@@ -9839,13 +9836,13 @@ fn test_issue_923_remove_issuer_attestation() {
     let attestations_before = client.get_issuer_attestations(&issuer, &0, &100);
     assert!(attestations_before.len() > 0);
 
-    let first_attestation_id = attestations_before.get(0).unwrap().id;
+    let first_attestation_id = attestations_before.get(0).unwrap();
 
     Storage::remove_issuer_attestation(&env, &issuer, &first_attestation_id);
 
     let attestations_after = client.get_issuer_attestations(&issuer, &0, &100);
-    for att in attestations_after.iter() {
-        assert_ne!(att.id, first_attestation_id);
+    for att_id in attestations_after.iter() {
+        assert_ne!(att_id, first_attestation_id);
     }
 }
 

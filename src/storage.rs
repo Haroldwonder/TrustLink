@@ -14,7 +14,6 @@ use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
 #[contracttype]
 pub enum StorageKey {
-    Admin,
     AdminCouncil,
     Version,
     FeeConfig,
@@ -46,7 +45,6 @@ pub enum StorageKey {
     Endorsements(String),
     /// Index of attestation IDs endorsed by a given endorser.
     EndorserIndex(Address),
-    StorageLimits,
     IssuerWhitelistMode(Address),
     /// Version history for an attestation (Vec<AttestationVersionSnapshot>).
     AttestationHistory(String),
@@ -65,14 +63,15 @@ pub enum StorageKey {
     IssuerPendingRequests(Address),
     /// Contract paused flag.
     Paused,
-    /// Whitelist enabled flag per issuer — when true, only whitelisted subjects are accepted.
-    WhitelistEnabled(Address),
-    /// Presence flag for a whitelisted subject under a specific issuer.
-    SubjectWhitelist(Address, Address),
     /// Ordered list of proposal IDs for a subject (for list_open_proposals).
     ProposalIndex(Address),
-    /// Configurable TTL in days for multisig proposals (default: 7).
-    MultisigTtl,
+    /// Last attestation issuance timestamp per issuer (across all claim types).
+    LastIssuanceTime(Address),
+    /// Bundle of infrequently-changed, contract-wide singleton settings
+    /// (multisig TTL, rate limit config, decay config, council timelock delay,
+    /// storage limits). Consolidated into one key to stay within the
+    /// `#[contracttype]` enum's 50-variant limit — see `MiscConfig`.
+    MiscConfig,
     /// Bundle metadata keyed by bundle ID.
     AttestationBundle(String),
     /// List of bundles created by an issuer.
@@ -91,12 +90,8 @@ pub enum StorageKey {
     Delegation(Address, Address, String),
     /// Index of active delegations for a delegator.
     DelegatorIndex(Address),
-    /// Decay configuration for issuer reputation scoring.
-    DecayConfig,
     /// Active dispute record for an attestation.
     Dispute(String),
-    /// Timelock delay in seconds for council action execution.
-    CouncilTimelockDelay,
     /// Cumulative revocation count for an issuer (used in confidence scoring).
     IssuerRevocations(Address),
 }
@@ -129,6 +124,47 @@ pub enum StorageKey {
 pub struct ClaimTypeIssuanceKey {
     pub issuer: Address,
     pub claim_type: String,
+}
+
+/// Bundle of infrequently-changed, contract-wide singleton settings, stored
+/// under a single `StorageKey::MiscConfig` entry to stay within the
+/// `#[contracttype]` enum's 50-variant limit.
+#[contracttype]
+#[derive(Clone)]
+pub struct MiscConfig {
+    pub multisig_ttl_days: u32,
+    /// `#[contracttype]` structs can't derive `Option<CustomStruct>` fields
+    /// directly, so presence is tracked via this flag instead of `Option`.
+    pub rate_limit_config_set: bool,
+    pub rate_limit_config: RateLimitConfig,
+    pub decay_config_set: bool,
+    pub decay_config: DecayConfig,
+    pub council_timelock_delay: u64,
+    pub storage_limits: StorageLimits,
+}
+
+impl Default for MiscConfig {
+    fn default() -> Self {
+        Self {
+            multisig_ttl_days: 7,
+            rate_limit_config_set: false,
+            rate_limit_config: RateLimitConfig { min_issuance_interval: 0 },
+            decay_config_set: false,
+            decay_config: DecayConfig::default(),
+            council_timelock_delay: 0,
+            storage_limits: StorageLimits::default(),
+        }
+    }
+}
+
+fn get_misc_config(env: &Env) -> MiscConfig {
+    env.storage().instance().get(&StorageKey::MiscConfig).unwrap_or_default()
+}
+
+fn set_misc_config(env: &Env, config: &MiscConfig) {
+    let ttl = get_ttl_lifetime(env);
+    env.storage().instance().set(&StorageKey::MiscConfig, config);
+    env.storage().instance().extend_ttl(ttl, ttl);
 }
 
 fn get_ttl_lifetime(env: &Env) -> u32 {
@@ -516,6 +552,17 @@ impl Storage {
         env.storage().instance().get(&StorageKey::Paused).unwrap_or(false)
     }
 
+    pub fn get_global_stats(env: &Env) -> GlobalStats {
+        Self::get_global_stats_raw(env)
+    }
+
+    pub fn get_global_stats_raw(env: &Env) -> GlobalStats {
+        env.storage()
+            .instance()
+            .get(&StorageKey::GlobalStats)
+            .unwrap_or(GlobalStats { total_attestations: 0, total_revocations: 0, total_issuers: 0 })
+    }
+
     pub fn set_global_stats(env: &Env, stats: &GlobalStats) {
         Self::set_global_stats_raw(env, stats)
     }
@@ -581,7 +628,47 @@ impl Storage {
     }
 
     pub fn get_limits(env: &Env) -> StorageLimits {
-        env.storage().instance().get(&StorageKey::StorageLimits).unwrap_or_default()
+        get_misc_config(env).storage_limits
+    }
+
+    pub fn set_limits(env: &Env, limits: &StorageLimits) {
+        let mut config = get_misc_config(env);
+        config.storage_limits = limits.clone();
+        set_misc_config(env, &config);
+    }
+
+    pub fn get_rate_limit_config(env: &Env) -> Option<RateLimitConfig> {
+        let misc = get_misc_config(env);
+        if misc.rate_limit_config_set { Some(misc.rate_limit_config) } else { None }
+    }
+
+    pub fn set_rate_limit_config(env: &Env, config: &RateLimitConfig) {
+        let mut misc = get_misc_config(env);
+        misc.rate_limit_config_set = true;
+        misc.rate_limit_config = config.clone();
+        set_misc_config(env, &misc);
+    }
+
+    pub fn get_last_issuance_time(env: &Env, issuer: &Address) -> Option<u64> {
+        env.storage().persistent().get(&StorageKey::LastIssuanceTime(issuer.clone()))
+    }
+
+    pub fn set_last_issuance_time(env: &Env, issuer: &Address, timestamp: u64) {
+        let key = StorageKey::LastIssuanceTime(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, &timestamp);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn get_multisig_proposal(env: &Env, proposal_id: &String) -> Result<MultiSigProposal, Error> {
+        env.storage().persistent().get(&StorageKey::MultiSigProposal(proposal_id.clone())).ok_or(Error::NotFound)
+    }
+
+    pub fn set_multisig_proposal(env: &Env, proposal: &MultiSigProposal) {
+        let key = StorageKey::MultiSigProposal(proposal.id.clone());
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, proposal);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 
     /// Get the per-claim-type rate limit override for a claim type, or None if not set.
@@ -629,7 +716,7 @@ impl Storage {
     }
 
     pub fn get_multisig_ttl_days(env: &Env) -> u32 {
-        env.storage().instance().get(&StorageKey::MultisigTtl).unwrap_or(7)
+        get_misc_config(env).multisig_ttl_days
     }
 
     pub fn next_proposal_id(env: &Env) -> u32 {
@@ -888,6 +975,31 @@ impl Storage {
             .unwrap_or(Vec::new(env))
     }
 
+    /// Get all endorsements recorded against a given attestation.
+    pub fn get_endorsements(env: &Env, attestation_id: &String) -> Vec<crate::types::Endorsement> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::Endorsements(attestation_id.clone()))
+            .unwrap_or(Vec::new(env))
+    }
+
+    /// Record a new endorsement against an attestation, and index it by endorser.
+    pub fn add_endorsement(env: &Env, attestation_id: &String, endorsement: &crate::types::Endorsement) {
+        let ttl = get_ttl_lifetime(env);
+
+        let key = StorageKey::Endorsements(attestation_id.clone());
+        let mut list = Self::get_endorsements(env, attestation_id);
+        list.push_back(endorsement.clone());
+        env.storage().persistent().set(&key, &list);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+
+        let idx_key = StorageKey::EndorserIndex(endorsement.endorser.clone());
+        let mut by_endorser = Self::get_endorsements_by_endorser(env, &endorsement.endorser);
+        by_endorser.push_back(endorsement.clone());
+        env.storage().persistent().set(&idx_key, &by_endorser);
+        env.storage().persistent().extend_ttl(&idx_key, ttl, ttl);
+    }
+
     // ── Claim type counts ─────────────────────────────────────────────────────
 
     pub fn get_claim_type_count(env: &Env, claim_type: &String) -> u64 {
@@ -938,13 +1050,15 @@ impl Storage {
     // ── Decay config ──────────────────────────────────────────────────────────
 
     pub fn get_decay_config(env: &Env) -> Option<DecayConfig> {
-        env.storage().instance().get(&StorageKey::DecayConfig)
+        let misc = get_misc_config(env);
+        if misc.decay_config_set { Some(misc.decay_config) } else { None }
     }
 
     pub fn set_decay_config(env: &Env, config: &DecayConfig) {
-        let ttl = get_ttl_lifetime(env);
-        env.storage().instance().set(&StorageKey::DecayConfig, config);
-        env.storage().instance().extend_ttl(ttl, ttl);
+        let mut misc = get_misc_config(env);
+        misc.decay_config_set = true;
+        misc.decay_config = config.clone();
+        set_misc_config(env, &misc);
     }
 
     // ── Dispute records ───────────────────────────────────────────────────────
@@ -967,16 +1081,13 @@ impl Storage {
     // ── Council timelock delay ────────────────────────────────────────────────
 
     pub fn get_council_timelock_delay(env: &Env) -> u64 {
-        env.storage()
-            .instance()
-            .get(&StorageKey::CouncilTimelockDelay)
-            .unwrap_or(0u64)
+        get_misc_config(env).council_timelock_delay
     }
 
     pub fn set_council_timelock_delay(env: &Env, delay_seconds: u64) {
-        let ttl = get_ttl_lifetime(env);
-        env.storage().instance().set(&StorageKey::CouncilTimelockDelay, &delay_seconds);
-        env.storage().instance().extend_ttl(ttl, ttl);
+        let mut config = get_misc_config(env);
+        config.council_timelock_delay = delay_seconds;
+        set_misc_config(env, &config);
     }
 
     // ── Per-issuer revocation count ───────────────────────────────────────────
@@ -1033,19 +1144,14 @@ impl Storage {
 
     /// Retrieve the configured multisig proposal TTL in days (default: 7).
     pub fn get_multisig_ttl(env: &Env) -> u32 {
-        env.storage()
-            .instance()
-            .get(&StorageKey::MultisigTtl)
-            .unwrap_or(7u32)
+        get_misc_config(env).multisig_ttl_days
     }
 
     /// Persist the multisig proposal TTL in days.
     pub fn set_multisig_ttl(env: &Env, days: u32) {
-        let ttl = get_ttl_lifetime(env);
-        env.storage()
-            .instance()
-            .set(&StorageKey::MultisigTtl, &days);
-        env.storage().instance().extend_ttl(ttl, ttl);
+        let mut config = get_misc_config(env);
+        config.multisig_ttl_days = days;
+        set_misc_config(env, &config);
     }
 
     /// Return the ordered list of proposal IDs for `subject`.

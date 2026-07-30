@@ -131,7 +131,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "string": "8fffd3fcf161cd7861d18226530b53410091c59de5889c820a3f32ff32bf5cb7"
+                  "string": "abe3b5caaa94116a17e14197d71f8764"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
@@ -157,7 +157,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "string": "8fffd3fcf161cd7861d18226530b53410091c59de5889c820a3f32ff32bf5cb7"
+                  "string": "abe3b5caaa94116a17e14197d71f8764"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
@@ -194,7 +194,7 @@
                   "symbol": "Attestation"
                 },
                 {
-                  "string": "8fffd3fcf161cd7861d18226530b53410091c59de5889c820a3f32ff32bf5cb7"
+                  "string": "abe3b5caaa94116a17e14197d71f8764"
                 }
               ]
             },
@@ -214,13 +214,19 @@
                       "symbol": "Attestation"
                     },
                     {
-                      "string": "8fffd3fcf161cd7861d18226530b53410091c59de5889c820a3f32ff32bf5cb7"
+                      "string": "abe3b5caaa94116a17e14197d71f8764"
                     }
                   ]
                 },
                 "durability": "persistent",
                 "val": {
                   "map": [
+                    {
+                      "key": {
+                        "symbol": "bundle_id"
+                      },
+                      "val": "void"
+                    },
                     {
                       "key": {
                         "symbol": "claim_type"
@@ -248,7 +254,7 @@
                         "symbol": "id"
                       },
                       "val": {
-                        "string": "8fffd3fcf161cd7861d18226530b53410091c59de5889c820a3f32ff32bf5cb7"
+                        "string": "abe3b5caaa94116a17e14197d71f8764"
                       }
                     },
                     {
@@ -356,7 +362,7 @@
                   "symbol": "AuditLog"
                 },
                 {
-                  "string": "8fffd3fcf161cd7861d18226530b53410091c59de5889c820a3f32ff32bf5cb7"
+                  "string": "abe3b5caaa94116a17e14197d71f8764"
                 }
               ]
             },
@@ -376,7 +382,7 @@
                       "symbol": "AuditLog"
                     },
                     {
-                      "string": "8fffd3fcf161cd7861d18226530b53410091c59de5889c820a3f32ff32bf5cb7"
+                      "string": "abe3b5caaa94116a17e14197d71f8764"
                     }
                   ]
                 },
@@ -689,7 +695,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "8fffd3fcf161cd7861d18226530b53410091c59de5889c820a3f32ff32bf5cb7"
+                      "string": "abe3b5caaa94116a17e14197d71f8764"
                     }
                   ]
                 }
@@ -736,7 +742,11 @@
                 },
                 "durability": "persistent",
                 "val": {
-                  "vec": []
+                  "vec": [
+                    {
+                      "string": "abe3b5caaa94116a17e14197d71f8764"
+                    }
+                  ]
                 }
               }
             },
@@ -781,7 +791,11 @@
                 },
                 "durability": "persistent",
                 "val": {
-                  "vec": []
+                  "vec": [
+                    {
+                      "string": "abe3b5caaa94116a17e14197d71f8764"
+                    }
+                  ]
                 }
               }
             },
@@ -828,7 +842,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "8fffd3fcf161cd7861d18226530b53410091c59de5889c820a3f32ff32bf5cb7"
+                      "string": "abe3b5caaa94116a17e14197d71f8764"
                     }
                   ]
                 }
@@ -1139,7 +1153,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "8fffd3fcf161cd7861d18226530b53410091c59de5889c820a3f32ff32bf5cb7"
+                      "string": "abe3b5caaa94116a17e14197d71f8764"
                     }
                   ]
                 }
@@ -1188,7 +1202,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "8fffd3fcf161cd7861d18226530b53410091c59de5889c820a3f32ff32bf5cb7"
+                      "string": "abe3b5caaa94116a17e14197d71f8764"
                     }
                   ]
                 }
@@ -1237,7 +1251,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "8fffd3fcf161cd7861d18226530b53410091c59de5889c820a3f32ff32bf5cb7"
+                      "string": "abe3b5caaa94116a17e14197d71f8764"
                     }
                   ]
                 }
@@ -2048,7 +2062,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "8fffd3fcf161cd7861d18226530b53410091c59de5889c820a3f32ff32bf5cb7"
+                  "string": "abe3b5caaa94116a17e14197d71f8764"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -2083,7 +2097,7 @@
               }
             ],
             "data": {
-              "string": "8fffd3fcf161cd7861d18226530b53410091c59de5889c820a3f32ff32bf5cb7"
+              "string": "abe3b5caaa94116a17e14197d71f8764"
             }
           }
         }
@@ -2114,7 +2128,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "string": "8fffd3fcf161cd7861d18226530b53410091c59de5889c820a3f32ff32bf5cb7"
+                  "string": "abe3b5caaa94116a17e14197d71f8764"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
@@ -2135,7 +2149,7 @@
           "v0": {
             "topics": [
               {
-                "symbol": "att_xfer"
+                "symbol": "xfer"
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -2144,7 +2158,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "8fffd3fcf161cd7861d18226530b53410091c59de5889c820a3f32ff32bf5cb7"
+                  "string": "abe3b5caaa94116a17e14197d71f8764"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
@@ -2196,7 +2210,7 @@
               }
             ],
             "data": {
-              "string": "8fffd3fcf161cd7861d18226530b53410091c59de5889c820a3f32ff32bf5cb7"
+              "string": "abe3b5caaa94116a17e14197d71f8764"
             }
           }
         }
@@ -2220,6 +2234,12 @@
             ],
             "data": {
               "map": [
+                {
+                  "key": {
+                    "symbol": "bundle_id"
+                  },
+                  "val": "void"
+                },
                 {
                   "key": {
                     "symbol": "claim_type"
@@ -2247,7 +2267,7 @@
                     "symbol": "id"
                   },
                   "val": {
-                    "string": "8fffd3fcf161cd7861d18226530b53410091c59de5889c820a3f32ff32bf5cb7"
+                    "string": "abe3b5caaa94116a17e14197d71f8764"
                   }
                 },
                 {
@@ -2367,7 +2387,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "string": "8fffd3fcf161cd7861d18226530b53410091c59de5889c820a3f32ff32bf5cb7"
+                  "string": "abe3b5caaa94116a17e14197d71f8764"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
@@ -2388,7 +2408,7 @@
           "v0": {
             "topics": [
               {
-                "symbol": "att_xfer"
+                "symbol": "xfer"
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
@@ -2397,7 +2417,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "8fffd3fcf161cd7861d18226530b53410091c59de5889c820a3f32ff32bf5cb7"
+                  "string": "abe3b5caaa94116a17e14197d71f8764"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
@@ -2449,7 +2469,7 @@
               }
             ],
             "data": {
-              "string": "8fffd3fcf161cd7861d18226530b53410091c59de5889c820a3f32ff32bf5cb7"
+              "string": "abe3b5caaa94116a17e14197d71f8764"
             }
           }
         }
@@ -2473,6 +2493,12 @@
             ],
             "data": {
               "map": [
+                {
+                  "key": {
+                    "symbol": "bundle_id"
+                  },
+                  "val": "void"
+                },
                 {
                   "key": {
                     "symbol": "claim_type"
@@ -2500,7 +2526,7 @@
                     "symbol": "id"
                   },
                   "val": {
-                    "string": "8fffd3fcf161cd7861d18226530b53410091c59de5889c820a3f32ff32bf5cb7"
+                    "string": "abe3b5caaa94116a17e14197d71f8764"
                   }
                 },
                 {
@@ -2768,7 +2794,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "8fffd3fcf161cd7861d18226530b53410091c59de5889c820a3f32ff32bf5cb7"
+                  "string": "abe3b5caaa94116a17e14197d71f8764"
                 }
               ]
             }

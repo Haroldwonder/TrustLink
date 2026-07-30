@@ -45,6 +45,7 @@ pub fn propose_attestation(
                 tags: None,
                 revocation_reason: None,
                 deleted: false,
+                bundle_id: None,
             };
             store_attestation(env, &attestation);
             Events::attestation_created(env, &attestation);
@@ -130,6 +131,7 @@ pub fn cosign_attestation(env: &Env, issuer: Address, proposal_id: String) -> Re
             source_tx: None,
             tags: None,
             revocation_reason: None,
+            bundle_id: None,
         };
 
         store_attestation(env, &attestation);

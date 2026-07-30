@@ -178,7 +178,7 @@
                   "symbol": "Attestation"
                 },
                 {
-                  "string": "d8632105c7dfd7352d07ce99b7040d2fece86c229a0772f0de7b2784f865093b"
+                  "string": "5a4f87ca5ca8240983f8a62913f2ef6d"
                 }
               ]
             },
@@ -198,13 +198,19 @@
                       "symbol": "Attestation"
                     },
                     {
-                      "string": "d8632105c7dfd7352d07ce99b7040d2fece86c229a0772f0de7b2784f865093b"
+                      "string": "5a4f87ca5ca8240983f8a62913f2ef6d"
                     }
                   ]
                 },
                 "durability": "persistent",
                 "val": {
                   "map": [
+                    {
+                      "key": {
+                        "symbol": "bundle_id"
+                      },
+                      "val": "void"
+                    },
                     {
                       "key": {
                         "symbol": "claim_type"
@@ -232,7 +238,7 @@
                         "symbol": "id"
                       },
                       "val": {
-                        "string": "d8632105c7dfd7352d07ce99b7040d2fece86c229a0772f0de7b2784f865093b"
+                        "string": "5a4f87ca5ca8240983f8a62913f2ef6d"
                       }
                     },
                     {
@@ -509,7 +515,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "d8632105c7dfd7352d07ce99b7040d2fece86c229a0772f0de7b2784f865093b"
+                      "string": "5a4f87ca5ca8240983f8a62913f2ef6d"
                     }
                   ]
                 }
@@ -558,7 +564,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "d8632105c7dfd7352d07ce99b7040d2fece86c229a0772f0de7b2784f865093b"
+                      "string": "5a4f87ca5ca8240983f8a62913f2ef6d"
                     }
                   ]
                 }
@@ -711,6 +717,14 @@
                   "map": [
                     {
                       "key": {
+                        "symbol": "cancelled"
+                      },
+                      "val": {
+                        "bool": false
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "claim_type"
                       },
                       "val": {
@@ -822,6 +836,55 @@
             "key": {
               "vec": [
                 {
+                  "symbol": "ProposalIndex"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+                }
+              ]
+            },
+            "durability": "persistent"
+          }
+        },
+        [
+          {
+            "last_modified_ledger_seq": 0,
+            "data": {
+              "contract_data": {
+                "ext": "v0",
+                "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+                "key": {
+                  "vec": [
+                    {
+                      "symbol": "ProposalIndex"
+                    },
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+                    }
+                  ]
+                },
+                "durability": "persistent",
+                "val": {
+                  "vec": [
+                    {
+                      "string": "f2eac624c10e2cf1d5c726c1b07434d6784eb0304eb51dfdeeba25f18e8406aa"
+                    }
+                  ]
+                }
+              }
+            },
+            "ext": "v0"
+          },
+          518400
+        ]
+      ],
+      [
+        {
+          "contract_data": {
+            "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+            "key": {
+              "vec": [
+                {
                   "symbol": "SubjectAttestationChunk"
                 },
                 {
@@ -859,7 +922,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "d8632105c7dfd7352d07ce99b7040d2fece86c229a0772f0de7b2784f865093b"
+                      "string": "5a4f87ca5ca8240983f8a62913f2ef6d"
                     }
                   ]
                 }
@@ -908,7 +971,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "d8632105c7dfd7352d07ce99b7040d2fece86c229a0772f0de7b2784f865093b"
+                      "string": "5a4f87ca5ca8240983f8a62913f2ef6d"
                     }
                   ]
                 }
@@ -957,7 +1020,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "d8632105c7dfd7352d07ce99b7040d2fece86c229a0772f0de7b2784f865093b"
+                      "string": "5a4f87ca5ca8240983f8a62913f2ef6d"
                     }
                   ]
                 }
@@ -1831,6 +1894,14 @@
               "map": [
                 {
                   "key": {
+                    "symbol": "cancelled"
+                  },
+                  "val": {
+                    "bool": false
+                  }
+                },
+                {
+                  "key": {
                     "symbol": "claim_type"
                   },
                   "val": {
@@ -2070,7 +2141,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "d8632105c7dfd7352d07ce99b7040d2fece86c229a0772f0de7b2784f865093b"
+                  "string": "5a4f87ca5ca8240983f8a62913f2ef6d"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -2107,7 +2178,7 @@
                   "string": "f2eac624c10e2cf1d5c726c1b07434d6784eb0304eb51dfdeeba25f18e8406aa"
                 },
                 {
-                  "string": "d8632105c7dfd7352d07ce99b7040d2fece86c229a0772f0de7b2784f865093b"
+                  "string": "5a4f87ca5ca8240983f8a62913f2ef6d"
                 }
               ]
             }
@@ -2180,6 +2251,14 @@
             ],
             "data": {
               "map": [
+                {
+                  "key": {
+                    "symbol": "cancelled"
+                  },
+                  "val": {
+                    "bool": false
+                  }
+                },
                 {
                   "key": {
                     "symbol": "claim_type"

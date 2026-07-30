@@ -480,10 +480,15 @@ pub fn get_expiring_attestations(
         filtered.set(j, key);
     }
 
-    let paginated = crate::storage::paginate(env, &filtered, start, limit);
     let mut result = Vec::new(env);
-    for attestation in paginated.iter() {
-        result.push_back(attestation);
+    let len = filtered.len();
+    if start < len {
+        let end = (start + limit).min(len);
+        for i in start..end {
+            if let Some(attestation) = filtered.get(i) {
+                result.push_back(attestation);
+            }
+        }
     }
     Ok(result)
 }
@@ -542,10 +547,15 @@ pub fn get_issuer_expiring_attestations(
         filtered.set(j, key);
     }
 
-    let paginated = crate::storage::paginate(env, &filtered, start, limit);
     let mut result = Vec::new(env);
-    for attestation in paginated.iter() {
-        result.push_back(attestation);
+    let len = filtered.len();
+    if start < len {
+        let end = (start + limit).min(len);
+        for i in start..end {
+            if let Some(attestation) = filtered.get(i) {
+                result.push_back(attestation);
+            }
+        }
     }
     Ok(result)
 }
@@ -623,7 +633,7 @@ pub fn export_revocation_list(
     format: RevocationListFormat,
 ) -> Result<RevocationList, Error> {
     // Auth check: caller must be issuer or admin
-    env.auth();
+    issuer.require_auth();
     Validation::require_issuer(env, &issuer)?;
 
     let current_time = env.ledger().timestamp();
@@ -672,6 +682,7 @@ pub fn export_revocation_list(
         RevocationListFormat::SimpleList => None,
     };
 
+    let revoked_count = revoked_ids.len() as u64;
     let revocation_list = RevocationList {
         issuer,
         claim_type,
@@ -679,7 +690,7 @@ pub fn export_revocation_list(
         revoked_attestation_ids: revoked_ids,
         bitstring,
         total_attestation_count: total_count,
-        revoked_count: revoked_ids.len() as u64,
+        revoked_count,
     };
 
     Ok(revocation_list)

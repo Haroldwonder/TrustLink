@@ -263,12 +263,12 @@ impl Validation {
             if let Some(meta) = metadata {
                 let len = meta.len();
                 if let Some(min) = constraints.min_metadata_len {
-                    if len < min as usize {
+                    if len < min {
                         return Err(Error::ConstraintViolation);
                     }
                 }
                 if let Some(max) = constraints.max_metadata_len {
-                    if len > max as usize {
+                    if len > max {
                         return Err(Error::ConstraintViolation);
                     }
                 }

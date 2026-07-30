@@ -113,6 +113,7 @@ pub fn fulfill_request(
         tags: None,
         revocation_reason: None,
         deleted: false,
+        bundle_id: None,
     };
 
     store_attestation(env, &attestation);

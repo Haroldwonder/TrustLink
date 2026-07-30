@@ -30,14 +30,16 @@ pub(crate) mod callback {
     }
 }
 
+use soroban_sdk::{contract, contractimpl, Address, Env, String, Vec};
 use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::{
     AdminCouncil, Attestation, AttestationRequest, AttestationStatus, AttestationTemplate,
-    AttestationVersionSnapshot, AuditAction, AuditEntry, ClaimTypeInfo, CouncilProposal,
+    AttestationVersionSnapshot, AuditAction, AuditEntry, ClaimTypeInfo, CouncilOperation, CouncilProposal,
     ContractConfig, ContractMetadata, DecayConfig, Delegation, DisputeRecord, Endorsement, Error,
     ExpirationHook, FeeConfig, GlobalStats, HealthStatus, IssuerMetadata, IssuerStats, IssuerTier,
-    MultiSigProposal, PendingAdminTransfer, RateLimitConfig, RequestStatus, StorageLimits,
+    MultiSigProposal, PendingAdminTransfer, RateLimitConfig, RequestStatus, RevocationList,
+    RevocationListFormat, StorageLimits,
     TtlConfig, ATTESTATION_REQUEST_TTL_SECS, MULTISIG_PROPOSAL_TTL_SECS, SECS_PER_DAY,
 };
 
@@ -840,6 +842,19 @@ impl TrustLinkContract {
         request::reject_request(&env, issuer, request_id, reason)
     }
 
+    #[must_use]
+    pub fn get_pending_requests(env: Env, issuer: Address, start: u32, limit: u32) -> Vec<AttestationRequest> {
+        request::get_pending_requests(&env, issuer, start, limit)
+    }
+
+    pub fn get_attestation_request(env: Env, request_id: String) -> Result<AttestationRequest, Error> {
+        request::get_request(&env, request_id)
+    }
+
+    pub fn revoke_attestations_batch(env: Env, issuer: Address, attestation_ids: Vec<String>, reason: Option<String>) -> Result<u32, Error> {
+        attestation::revoke_attestations_batch(&env, issuer, attestation_ids, reason)
+    }
+
     /// Fetch the full attestation record by ID.
     ///
     /// # Errors
@@ -1165,7 +1180,7 @@ impl TrustLinkContract {
     // -----------------------------------------------------------------------
 
     pub fn get_bundle(env: Env, bundle_id: String) -> Result<crate::types::AttestationBundle, Error> {
-        Storage::get_bundle(&env, &bundle_id)
+        Storage::get_bundle(&env, &bundle_id).ok_or(Error::NotFound)
     }
 
     pub fn get_bundle_attestations(env: Env, bundle_id: String) -> Result<Vec<Attestation>, Error> {

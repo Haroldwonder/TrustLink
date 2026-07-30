@@ -92,6 +92,37 @@ pub struct ContractMetadata {
     pub description: String,
 }
 
+/// Per-issuer statistics.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IssuerStats {
+    pub total_issued: u64,
+}
+
+/// Output format for `export_revocation_list`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RevocationListFormat {
+    /// Plain list of revoked attestation IDs.
+    SimpleList,
+    /// Compact bitstring encoding (Status List 2021 compatible).
+    Bitstring,
+}
+
+/// A snapshot of an issuer's revocation status for external verifiers,
+/// produced by `export_revocation_list`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RevocationList {
+    pub issuer: Address,
+    pub claim_type: Option<String>,
+    pub generated_at: u64,
+    pub revoked_attestation_ids: Vec<String>,
+    pub bitstring: Option<Bytes>,
+    pub total_attestation_count: u64,
+    pub revoked_count: u64,
+}
+
 /// Metadata about a registered issuer.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -238,6 +269,9 @@ pub struct Attestation {
     pub tags: Option<Vec<String>>,
     pub revocation_reason: Option<String>,
     pub deleted: bool,
+    /// ISO 3166-1 alpha-2 jurisdiction code, when the attestation was created
+    /// via `create_attestation_jurisdiction`.
+    pub jurisdiction: Option<String>,
     /// Optional: shared bundle ID if this attestation was created as part of a bundle.
     /// Allows verifiers to confirm a set of claims were issued atomically.
     pub bundle_id: Option<String>,
@@ -311,19 +345,9 @@ pub struct StorageLimits {
     pub max_attestations_per_subject: u32,
 }
 
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum Error {
-    AlreadyInitialized = 1,
-    NotInitialized = 2,
-    Unauthorized = 3,
-    NotFound = 4,
-    DuplicateAttestation = 5,
-    AlreadyRevoked = 6,
-    InvalidValidFrom = 7,
-    InvalidExpiration = 8,
-    MetadataTooLong = 9,
-}
+/// Contract error codes are defined in [`crate::errors`] and re-exported
+/// here so `crate::types::Error` remains a stable import path.
+pub use crate::errors::Error;
 
 impl Default for StorageLimits {
     fn default() -> Self {
@@ -463,6 +487,35 @@ impl Attestation {
         bytes.append(&issuer.clone().to_xdr(env));
         bytes.append(&subject.clone().to_xdr(env));
         bytes.append(&claim_type.clone().to_xdr(env));
+        bytes.append(&Bytes::from_slice(env, &timestamp.to_be_bytes()));
+
+        let hash = env.crypto().sha256(&bytes).to_array();
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        let mut id = [0u8; 32];
+        for i in 0..16 {
+            id[i * 2] = HEX[(hash[i] >> 4) as usize];
+            id[i * 2 + 1] = HEX[(hash[i] & 0x0f) as usize];
+        }
+        String::from_str(env, core::str::from_utf8(&id).unwrap_or(""))
+    }
+
+    /// Derives a deterministic attestation ID for a bridged attestation from
+    /// `(bridge, subject, claim_type, source_chain, source_tx, timestamp)`.
+    pub fn generate_bridge_id(
+        env: &Env,
+        bridge: &Address,
+        subject: &Address,
+        claim_type: &String,
+        source_chain: &String,
+        source_tx: &String,
+        timestamp: u64,
+    ) -> String {
+        let mut bytes = Bytes::new(env);
+        bytes.append(&bridge.clone().to_xdr(env));
+        bytes.append(&subject.clone().to_xdr(env));
+        bytes.append(&claim_type.clone().to_xdr(env));
+        bytes.append(&source_chain.clone().to_xdr(env));
+        bytes.append(&source_tx.clone().to_xdr(env));
         bytes.append(&Bytes::from_slice(env, &timestamp.to_be_bytes()));
 
         let hash = env.crypto().sha256(&bytes).to_array();

@@ -148,7 +148,7 @@
                   "symbol": "Attestation"
                 },
                 {
-                  "string": "36552a8971adb2ce869caea39812717cabb3cf05d970ecb6a7d344e26fdd1e2a"
+                  "string": "249cb3c43168bb7e590dfc874490882d"
                 }
               ]
             },
@@ -168,13 +168,19 @@
                       "symbol": "Attestation"
                     },
                     {
-                      "string": "36552a8971adb2ce869caea39812717cabb3cf05d970ecb6a7d344e26fdd1e2a"
+                      "string": "249cb3c43168bb7e590dfc874490882d"
                     }
                   ]
                 },
                 "durability": "persistent",
                 "val": {
                   "map": [
+                    {
+                      "key": {
+                        "symbol": "bundle_id"
+                      },
+                      "val": "void"
+                    },
                     {
                       "key": {
                         "symbol": "claim_type"
@@ -202,7 +208,7 @@
                         "symbol": "id"
                       },
                       "val": {
-                        "string": "36552a8971adb2ce869caea39812717cabb3cf05d970ecb6a7d344e26fdd1e2a"
+                        "string": "249cb3c43168bb7e590dfc874490882d"
                       }
                     },
                     {
@@ -310,7 +316,7 @@
                   "symbol": "Attestation"
                 },
                 {
-                  "string": "de66fb9824f52506614f37c376c1428017d3489fa9fac65cb425dc81e48ea821"
+                  "string": "fa5458a8c11127423b74a732275295c8"
                 }
               ]
             },
@@ -330,13 +336,19 @@
                       "symbol": "Attestation"
                     },
                     {
-                      "string": "de66fb9824f52506614f37c376c1428017d3489fa9fac65cb425dc81e48ea821"
+                      "string": "fa5458a8c11127423b74a732275295c8"
                     }
                   ]
                 },
                 "durability": "persistent",
                 "val": {
                   "map": [
+                    {
+                      "key": {
+                        "symbol": "bundle_id"
+                      },
+                      "val": "void"
+                    },
                     {
                       "key": {
                         "symbol": "claim_type"
@@ -364,7 +376,7 @@
                         "symbol": "id"
                       },
                       "val": {
-                        "string": "de66fb9824f52506614f37c376c1428017d3489fa9fac65cb425dc81e48ea821"
+                        "string": "fa5458a8c11127423b74a732275295c8"
                       }
                     },
                     {
@@ -472,7 +484,7 @@
                   "symbol": "AuditLog"
                 },
                 {
-                  "string": "36552a8971adb2ce869caea39812717cabb3cf05d970ecb6a7d344e26fdd1e2a"
+                  "string": "249cb3c43168bb7e590dfc874490882d"
                 }
               ]
             },
@@ -492,7 +504,7 @@
                       "symbol": "AuditLog"
                     },
                     {
-                      "string": "36552a8971adb2ce869caea39812717cabb3cf05d970ecb6a7d344e26fdd1e2a"
+                      "string": "249cb3c43168bb7e590dfc874490882d"
                     }
                   ]
                 },
@@ -556,7 +568,7 @@
                   "symbol": "AuditLog"
                 },
                 {
-                  "string": "de66fb9824f52506614f37c376c1428017d3489fa9fac65cb425dc81e48ea821"
+                  "string": "fa5458a8c11127423b74a732275295c8"
                 }
               ]
             },
@@ -576,7 +588,7 @@
                       "symbol": "AuditLog"
                     },
                     {
-                      "string": "de66fb9824f52506614f37c376c1428017d3489fa9fac65cb425dc81e48ea821"
+                      "string": "fa5458a8c11127423b74a732275295c8"
                     }
                   ]
                 },
@@ -824,10 +836,10 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "36552a8971adb2ce869caea39812717cabb3cf05d970ecb6a7d344e26fdd1e2a"
+                      "string": "249cb3c43168bb7e590dfc874490882d"
                     },
                     {
-                      "string": "de66fb9824f52506614f37c376c1428017d3489fa9fac65cb425dc81e48ea821"
+                      "string": "fa5458a8c11127423b74a732275295c8"
                     }
                   ]
                 }
@@ -876,10 +888,10 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "36552a8971adb2ce869caea39812717cabb3cf05d970ecb6a7d344e26fdd1e2a"
+                      "string": "249cb3c43168bb7e590dfc874490882d"
                     },
                     {
-                      "string": "de66fb9824f52506614f37c376c1428017d3489fa9fac65cb425dc81e48ea821"
+                      "string": "fa5458a8c11127423b74a732275295c8"
                     }
                   ]
                 }
@@ -1076,7 +1088,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "36552a8971adb2ce869caea39812717cabb3cf05d970ecb6a7d344e26fdd1e2a"
+                      "string": "249cb3c43168bb7e590dfc874490882d"
                     }
                   ]
                 }
@@ -1131,7 +1143,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "de66fb9824f52506614f37c376c1428017d3489fa9fac65cb425dc81e48ea821"
+                      "string": "fa5458a8c11127423b74a732275295c8"
                     }
                   ]
                 }
@@ -1180,7 +1192,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "36552a8971adb2ce869caea39812717cabb3cf05d970ecb6a7d344e26fdd1e2a"
+                      "string": "249cb3c43168bb7e590dfc874490882d"
                     }
                   ]
                 }
@@ -1229,7 +1241,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "de66fb9824f52506614f37c376c1428017d3489fa9fac65cb425dc81e48ea821"
+                      "string": "fa5458a8c11127423b74a732275295c8"
                     }
                   ]
                 }
@@ -1278,7 +1290,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "36552a8971adb2ce869caea39812717cabb3cf05d970ecb6a7d344e26fdd1e2a"
+                      "string": "249cb3c43168bb7e590dfc874490882d"
                     }
                   ]
                 }
@@ -1327,7 +1339,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "de66fb9824f52506614f37c376c1428017d3489fa9fac65cb425dc81e48ea821"
+                      "string": "fa5458a8c11127423b74a732275295c8"
                     }
                   ]
                 }
@@ -1389,6 +1401,14 @@
                           "map": [
                             {
                               "key": {
+                                "symbol": "chunk_size"
+                              },
+                              "val": {
+                                "u32": 50
+                              }
+                            },
+                            {
+                              "key": {
                                 "symbol": "contract_description"
                               },
                               "val": {
@@ -1443,6 +1463,20 @@
                                     "val": "void"
                                   }
                                 ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "max_attestations_per_subject"
+                              },
+                              "val": "void"
+                            },
+                            {
+                              "key": {
+                                "symbol": "metadata_hash_only"
+                              },
+                              "val": {
+                                "bool": false
                               }
                             },
                             {
@@ -2139,7 +2173,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "36552a8971adb2ce869caea39812717cabb3cf05d970ecb6a7d344e26fdd1e2a"
+                  "string": "249cb3c43168bb7e590dfc874490882d"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -2176,7 +2210,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "de66fb9824f52506614f37c376c1428017d3489fa9fac65cb425dc81e48ea821"
+                  "string": "fa5458a8c11127423b74a732275295c8"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -2213,10 +2247,10 @@
             "data": {
               "vec": [
                 {
-                  "string": "36552a8971adb2ce869caea39812717cabb3cf05d970ecb6a7d344e26fdd1e2a"
+                  "string": "249cb3c43168bb7e590dfc874490882d"
                 },
                 {
-                  "string": "de66fb9824f52506614f37c376c1428017d3489fa9fac65cb425dc81e48ea821"
+                  "string": "fa5458a8c11127423b74a732275295c8"
                 }
               ]
             }
@@ -2286,7 +2320,7 @@
             ],
             "data": {
               "error": {
-                "contract": 31
+                "contract": 26
               }
             }
           }
@@ -2307,7 +2341,7 @@
               },
               {
                 "error": {
-                  "contract": 31
+                  "contract": 26
                 }
               }
             ],
@@ -2332,7 +2366,7 @@
               },
               {
                 "error": {
-                  "contract": 31
+                  "contract": 26
                 }
               }
             ],
