@@ -38,8 +38,6 @@ pub enum StorageKey {
     ExpirationHook(Address),
     Endorsements(String),
     StorageLimits,
-    RateLimitConfig,
-    LastIssuanceTime(Address),
     IssuerWhitelistMode(Address),
     /// Version history for an attestation (Vec<AttestationVersionSnapshot>).
     AttestationHistory(String),
@@ -385,12 +383,6 @@ impl Storage {
         env.storage().persistent().get(&StorageKey::ClaimTypeList).unwrap_or(Vec::new(env))
     }
 
-    /// Persist storage limits in instance storage.
-    pub fn set_limits(env: &Env, limits: &StorageLimits) {
-        let ttl = get_ttl_lifetime(env);
-        env.storage().instance().set(&StorageKey::Limits, limits);
-        env.storage().instance().extend_ttl(ttl, ttl);
-    }
 
     pub fn set_claim_type_constraints(env: &Env, claim_type: &String, constraints: &crate::types::ClaimTypeConstraints) {
         let key = StorageKey::ClaimTypeConstraints(claim_type.clone());
@@ -467,18 +459,8 @@ impl Storage {
         env.storage().instance().get(&StorageKey::Paused).unwrap_or(false)
     }
 
-    pub fn get_global_stats(env: &Env) -> GlobalStats {
-        env.storage().instance()
-            .get(&StorageKey::GlobalStats)
-            .unwrap_or(GlobalStats { total_attestations: 0, total_revocations: 0, total_issuers: 0 })
-    }
-
     pub fn set_global_stats(env: &Env, stats: &GlobalStats) {
         Self::set_global_stats_raw(env, stats)
-    }
-
-    pub fn get_global_stats_raw(env: &Env) -> GlobalStats {
-        Self::get_global_stats(env)
     }
 
     fn set_global_stats_raw(env: &Env, stats: &GlobalStats) {
@@ -539,22 +521,6 @@ impl Storage {
         env.storage().instance().get(&StorageKey::StorageLimits).unwrap_or_default()
     }
 
-    pub fn set_limits(env: &Env, limits: &StorageLimits) {
-        let ttl = get_ttl_lifetime(env);
-        env.storage().instance().set(&StorageKey::StorageLimits, limits);
-        env.storage().instance().extend_ttl(ttl, ttl);
-    }
-
-    pub fn get_rate_limit_config(env: &Env) -> Option<RateLimitConfig> {
-        env.storage().instance().get(&StorageKey::RateLimitConfig)
-    }
-
-    pub fn set_rate_limit_config(env: &Env, config: &RateLimitConfig) {
-        let ttl = get_ttl_lifetime(env);
-        env.storage().instance().set(&StorageKey::RateLimitConfig, config);
-        env.storage().instance().extend_ttl(ttl, ttl);
-    }
-
     /// Get the per-claim-type rate limit override for a claim type, or None if not set.
     pub fn get_claim_type_rate_limit(env: &Env, claim_type: &String) -> Option<u64> {
         env.storage()
@@ -569,17 +535,6 @@ impl Storage {
             .instance()
             .set(&StorageKey::ClaimTypeRateLimit(claim_type.clone()), &interval_secs);
         env.storage().instance().extend_ttl(ttl, ttl);
-    }
-
-    pub fn get_last_issuance_time(env: &Env, issuer: &Address) -> Option<u64> {
-        env.storage().persistent().get(&StorageKey::LastIssuanceTime(issuer.clone()))
-    }
-
-    pub fn set_last_issuance_time(env: &Env, issuer: &Address, timestamp: u64) {
-        let key = StorageKey::LastIssuanceTime(issuer.clone());
-        let ttl = get_ttl_lifetime(env);
-        env.storage().persistent().set(&key, &timestamp);
-        env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 
     pub fn get_audit_log(env: &Env, attestation_id: &String) -> Vec<AuditEntry> {
@@ -610,37 +565,8 @@ impl Storage {
         env.storage().persistent().remove(&StorageKey::ExpirationHook(subject.clone()));
     }
 
-    pub fn get_multisig_proposal(env: &Env, proposal_id: &String) -> Result<MultiSigProposal, Error> {
-        env.storage().persistent().get(&StorageKey::MultiSigProposal(proposal_id.clone())).ok_or(Error::NotFound)
-    }
-
-    pub fn set_multisig_proposal(env: &Env, proposal: &MultiSigProposal) {
-        let key = StorageKey::MultiSigProposal(proposal.id.clone());
-        let ttl = get_ttl_lifetime(env);
-        env.storage().persistent().set(&key, proposal);
-        env.storage().persistent().extend_ttl(&key, ttl, ttl);
-    }
-
     pub fn get_multisig_ttl_days(env: &Env) -> u32 {
         env.storage().instance().get(&StorageKey::MultisigTtlDays).unwrap_or(7)
-    }
-
-    pub fn get_endorsements(env: &Env, attestation_id: &String) -> Vec<Endorsement> {
-        env.storage().persistent().get(&StorageKey::Endorsements(attestation_id.clone())).unwrap_or(Vec::new(env))
-    }
-
-    pub fn add_endorsement(env: &Env, attestation_id: &String, endorsement: &Endorsement) {
-        let key = StorageKey::Endorsements(attestation_id.clone());
-        let ttl = get_ttl_lifetime(env);
-        let mut list = Self::get_endorsements(env, attestation_id);
-        list.push_back(endorsement.clone());
-        env.storage().persistent().set(&key, &list);
-        env.storage().persistent().extend_ttl(&key, ttl, ttl);
-        let endorser_key = StorageKey::EndorserIndex(endorsement.endorser.clone());
-        let mut endorser_list: Vec<Endorsement> = env.storage().persistent().get(&endorser_key).unwrap_or(Vec::new(env));
-        endorser_list.push_back(endorsement.clone());
-        env.storage().persistent().set(&endorser_key, &endorser_list);
-        env.storage().persistent().extend_ttl(&endorser_key, ttl, ttl);
     }
 
     pub fn next_proposal_id(env: &Env) -> u32 {

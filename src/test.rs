@@ -9407,3 +9407,173 @@ fn test_min_ttl_threshold_is_actually_used() {
     assert_eq!(attestation.subject, subject);
     assert_eq!(attestation.issuer, issuer);
 }
+
+// Issue #917: Test for multisig proposal cancellation behavior after removing stray code
+#[test]
+fn test_cancel_multisig_proposal_validation() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC");
+
+    env.ledger().set_timestamp(1000);
+    client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+
+    let threshold = 2u32;
+    let proposal_id = client.propose_multisig_attestation(
+        &subject,
+        &issuer,
+        &subject,
+        &claim_type,
+        &threshold,
+    );
+
+    // Verify proposal can be cancelled by proposer
+    let result = client.cancel_multisig_proposal(&subject, &proposal_id);
+    assert!(result.is_ok());
+
+    // Verify proposal is marked as cancelled
+    let proposal = client.get_multisig_proposal(&proposal_id);
+    assert!(proposal.is_ok());
+    assert!(proposal.unwrap().cancelled);
+}
+
+// Issue #916: Test for single get_multisig_ttl function
+#[test]
+fn test_get_multisig_ttl_returns_configured_value() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _issuer, client) = setup(&env);
+
+    // Default TTL should be 7 days
+    let default_ttl = client.get_multisig_ttl(&admin);
+    assert_eq!(default_ttl, 7);
+
+    // Set a custom TTL
+    let new_ttl = 14u32;
+    let result = client.set_multisig_ttl(&admin, &new_ttl);
+    assert!(result.is_ok());
+
+    // Verify new TTL is returned
+    let updated_ttl = client.get_multisig_ttl(&admin);
+    assert_eq!(updated_ttl, new_ttl);
+}
+
+// Issue #915: Test for event emission with proper topic constants
+#[test]
+fn test_deletion_requested_event_emission() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC");
+
+    env.ledger().set_timestamp(1000);
+    let attestation_id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+
+    // Request deletion
+    env.ledger().set_timestamp(2000);
+    client.request_deletion(&subject, &attestation_id);
+
+    let events = env.events().all();
+    let deletion_events: Vec<_> = events.iter()
+        .filter(|(event_type, _)| {
+            format!("{:?}", event_type).contains("del_req")
+        })
+        .collect();
+
+    // Should have at least one deletion requested event
+    assert!(!deletion_events.is_empty());
+}
+
+// Issue #915: Test for attestation_transferred event emission
+#[test]
+fn test_attestation_transferred_event_emission() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, issuer, client) = setup(&env);
+    let new_issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC");
+
+    // Register new issuer
+    client.register_issuer(&admin, &new_issuer);
+
+    env.ledger().set_timestamp(1000);
+    let attestation_id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+
+    // Transfer attestation to new issuer
+    let result = client.transfer_attestation_issuer(&admin, &attestation_id, &new_issuer);
+    assert!(result.is_ok());
+
+    let events = env.events().all();
+    let transfer_events: Vec<_> = events.iter()
+        .filter(|(event_type, _)| {
+            format!("{:?}", event_type).contains("xfer")
+        })
+        .collect();
+
+    // Should have at least one transfer event
+    assert!(!transfer_events.is_empty());
+}
+
+// Issue #914: Test for non-duplicated storage methods
+#[test]
+fn test_storage_multisig_proposal_persistence() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC");
+
+    env.ledger().set_timestamp(1000);
+    client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+
+    let threshold = 2u32;
+    let proposal_id = client.propose_multisig_attestation(
+        &subject,
+        &issuer,
+        &subject,
+        &claim_type,
+        &threshold,
+    );
+
+    // Retrieve the proposal to verify it was stored correctly
+    let proposal = client.get_multisig_proposal(&proposal_id);
+    assert!(proposal.is_ok());
+
+    let retrieved = proposal.unwrap();
+    assert_eq!(retrieved.id, proposal_id);
+    assert_eq!(retrieved.threshold, threshold);
+    assert!(!retrieved.cancelled);
+    assert!(!retrieved.finalized);
+}
+
+// Issue #914: Test for global stats persistence
+#[test]
+fn test_storage_global_stats_persistence() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC");
+
+    env.ledger().set_timestamp(1000);
+
+    // Create multiple attestations
+    client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+
+    let subject2 = Address::generate(&env);
+    client.create_attestation(&issuer, &subject2, &claim_type, &None, &None, &None);
+
+    // Get global stats
+    let stats = client.get_global_stats();
+    assert!(stats.total_attestations >= 2);
+}
