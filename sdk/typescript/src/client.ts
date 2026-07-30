@@ -43,7 +43,7 @@ import {
 
 const RPC_URLS: Record<string, string> = {
   testnet: "https://soroban-testnet.stellar.org",
-  mainnet: "https://mainnet.stellar.validationcloud.io/v1/XCSmR1nSS3we7PCXV4oMiA",
+  mainnet: "https://mainnet.stellar.org",
   local: "http://localhost:8000/soroban/rpc",
 };
 
