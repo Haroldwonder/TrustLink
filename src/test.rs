@@ -9577,3 +9577,77 @@ fn test_storage_global_stats_persistence() {
     let stats = client.get_global_stats();
     assert!(stats.total_attestations >= 2);
 }
+
+#[test]
+fn test_issue_922_get_claim_type_constraints() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let claim_type = String::from_str(&env, "email");
+    let constraints = crate::types::ClaimTypeConstraints {
+        min_metadata_len: Some(5),
+        max_metadata_len: Some(255),
+        require_metadata: true,
+    };
+
+    Storage::set_claim_type_constraints(&env, &claim_type, &constraints);
+
+    let retrieved = Storage::get_claim_type_constraints(&env, &claim_type);
+    assert!(retrieved.is_some());
+
+    let retrieved_constraints = retrieved.unwrap();
+    assert_eq!(retrieved_constraints.min_metadata_len, Some(5));
+    assert_eq!(retrieved_constraints.max_metadata_len, Some(255));
+    assert_eq!(retrieved_constraints.require_metadata, true);
+
+    let nonexistent = Storage::get_claim_type_constraints(&env, &String::from_str(&env, "nonexistent"));
+    assert!(nonexistent.is_none());
+}
+
+#[test]
+fn test_issue_924_increment_issuer_stats() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let issuer = Address::generate(&env);
+
+    let initial_stats = Storage::get_issuer_stats(&env, &issuer);
+    assert_eq!(initial_stats.total_issued, 0);
+
+    Storage::increment_issuer_stats(&env, &issuer, 5);
+
+    let after_first = Storage::get_issuer_stats(&env, &issuer);
+    assert_eq!(after_first.total_issued, 5);
+
+    Storage::increment_issuer_stats(&env, &issuer, 3);
+
+    let after_second = Storage::get_issuer_stats(&env, &issuer);
+    assert_eq!(after_second.total_issued, 8);
+
+    Storage::increment_issuer_stats(&env, &issuer, 0);
+    let after_zero = Storage::get_issuer_stats(&env, &issuer);
+    assert_eq!(after_zero.total_issued, 8);
+}
+
+#[test]
+fn test_issue_923_remove_issuer_attestation() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+    let attestations_before = client.get_issuer_attestations(&issuer, &0, &100);
+    assert!(attestations_before.len() > 0);
+
+    let first_attestation_id = attestations_before.get(0).unwrap().id;
+
+    Storage::remove_issuer_attestation(&env, &issuer, &first_attestation_id);
+
+    let attestations_after = client.get_issuer_attestations(&issuer, &0, &100);
+    for att in attestations_after.iter() {
+        assert_ne!(att.id, first_attestation_id);
+    }
+}

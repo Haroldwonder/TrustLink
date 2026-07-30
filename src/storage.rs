@@ -348,6 +348,10 @@ impl Storage {
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 
+    pub fn remove_issuer_attestation(env: &Env, issuer: &Address, attestation_id: &String) {
+        ChunkedIndex::remove_issuer(env, issuer, attestation_id);
+    }
+
     /// Persist `metadata` for `issuer` and refresh its TTL.
     pub fn set_issuer_metadata(env: &Env, issuer: &Address, metadata: &IssuerMetadata) {
         let key = StorageKey::IssuerMetadata(issuer.clone());
@@ -389,6 +393,10 @@ impl Storage {
         let ttl = get_ttl_lifetime(env);
         env.storage().persistent().set(&key, constraints);
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn get_claim_type_constraints(env: &Env, claim_type: &String) -> Option<crate::types::ClaimTypeConstraints> {
+        env.storage().persistent().get(&StorageKey::ClaimTypeConstraints(claim_type.clone()))
     }
 
     pub fn set_whitelist_mode(env: &Env, issuer: &Address, enabled: bool) {
@@ -504,6 +512,12 @@ impl Storage {
         let ttl = get_ttl_lifetime(env);
         env.storage().persistent().set(&key, stats);
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn increment_issuer_stats(env: &Env, issuer: &Address, count: u32) {
+        let mut stats = Self::get_issuer_stats(env, issuer);
+        stats.total_issued = stats.total_issued.saturating_add(count as u64);
+        Self::set_issuer_stats(env, issuer, &stats);
     }
 
     pub fn set_issuer_tier(env: &Env, issuer: &Address, tier: &IssuerTier) {

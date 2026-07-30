@@ -33,10 +33,12 @@ pub(crate) mod callback {
 use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::{
-    Attestation, AttestationRequest, AttestationStatus, AuditAction, AuditEntry, ClaimTypeInfo,
-    ContractConfig, ContractMetadata, Endorsement, Error, FeeConfig, GlobalStats, HealthStatus,
-    IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, RateLimitConfig, RequestStatus,
-    StorageLimits, TtlConfig, ATTESTATION_REQUEST_TTL_SECS, MULTISIG_PROPOSAL_TTL_SECS,
+    AdminCouncil, Attestation, AttestationRequest, AttestationStatus, AttestationTemplate,
+    AttestationVersionSnapshot, AuditAction, AuditEntry, ClaimTypeInfo, CouncilProposal,
+    ContractConfig, ContractMetadata, DecayConfig, Delegation, DisputeRecord, Endorsement, Error,
+    ExpirationHook, FeeConfig, GlobalStats, HealthStatus, IssuerMetadata, IssuerStats, IssuerTier,
+    MultiSigProposal, PendingAdminTransfer, RateLimitConfig, RequestStatus, StorageLimits,
+    TtlConfig, ATTESTATION_REQUEST_TTL_SECS, MULTISIG_PROPOSAL_TTL_SECS, SECS_PER_DAY,
 };
 
 #[contract]
