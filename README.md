@@ -860,15 +860,15 @@ Tests cover:
 - Pagination
 - Cross-contract verification
 
-### Event ticketing example
+### Trade-finance example
 
-[`examples/event_ticketing.rs`](examples/event_ticketing.rs) demonstrates a
-single-use `TICKET_VALID` attestation. The ticket is issued to the purchaser's
-address, cannot be presented by another address, and is revoked immediately at
-venue check-in.
+[`examples/trade_finance.rs`](examples/trade_finance.rs) demonstrates a
+bill-of-lading attestation chain. An exporter, customs authority, and financing
+bank independently attest to the same shipment reference; clearance requires all
+three claims to remain valid.
 
 ```bash
-cargo test --example event_ticketing
+cargo test --example trade_finance
 ```
 
 ## Security Considerations

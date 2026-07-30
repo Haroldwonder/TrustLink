@@ -11,7 +11,6 @@ pub struct ContractMetadata {
     pub description: String,
 }
 
-/// A registered claim type and its human-readable description.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClaimTypeInfo {
@@ -34,7 +33,6 @@ pub struct Attestation {
     pub valid_from: Option<u64>,
 }
 
-/// Public metadata associated with an issuer.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AuditAction {
@@ -47,7 +45,6 @@ pub enum AuditAction {
     Amended,
 }
 
-/// The current validity state of an attestation.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StorageLimits {
@@ -55,7 +52,6 @@ pub struct StorageLimits {
     pub max_attestations_per_subject: u32,
 }
 
-/// Errors returned by TrustLink contract functions.
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Error {
@@ -71,7 +67,6 @@ pub enum Error {
 }
 
 impl Attestation {
-    /// Generate a compact deterministic identifier for an attestation.
     pub fn generate_id(
         env: &Env,
         issuer: &Address,
