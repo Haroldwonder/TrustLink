@@ -1,157 +1,143 @@
-# Insurance Example
+# Insurance Policy Underwriting Example
 
-This example demonstrates how to build a parametric insurance smart contract on Stellar using TrustLink's oracle infrastructure.
+This example shows how a Soroban insurance contract uses TrustLink to verify a policyholder before issuing coverage. It models a minimal underwriting flow: an insurer may only issue a policy to a subject who holds valid `KYC_PASSED` and `AML_CLEARED` attestations, keeping identity verification out of the insurer's own storage and delegated to TrustLink.
 
-## Overview
+## What It Demonstrates
 
-The insurance contract accepts premiums from policyholders and automatically pays out claims when predefined conditions are met, as verified by TrustLink's decentralized oracle network.
+- A contract stores a TrustLink contract address at `initialize` time.
+- `issue_policy` checks `has_all_claims(subject, ["KYC_PASSED", "AML_CLEARED"])` on the policyholder before underwriting.
+- Policy issuance is rejected (the call panics) unless **both** identity claims are valid — `has_all_claims` uses AND-logic.
+- Issued policies are numbered sequentially and stored so `get_policy_holder` can look up the holder of any policy.
+- Unit tests cover both the allowed and blocked issuance flows using a mock TrustLink contract.
 
-## Architecture
+## Contract Pattern
 
+The key underwriting guard is:
+
+```rust
+let mut required_claims: Vec<String> = Vec::new(&env);
+required_claims.push_back(String::from_str(&env, "KYC_PASSED"));
+required_claims.push_back(String::from_str(&env, "AML_CLEARED"));
+
+if !trustlink.has_all_claims(&policyholder, &required_claims) {
+    panic!("policyholder must have valid KYC_PASSED and AML_CLEARED claims");
+}
 ```
-┌─────────────┐     ┌──────────────┐     ┌─────────────┐
-│ Policyholder │────▶│   Insurance   │◀────│   Oracle    │
-│   (User)     │     │   Contract    │     │  (TrustLink)│
-└─────────────┘     └──────────────┘     └─────────────┘
-                            │
-                            ▼
-                    ┌──────────────┐
-                    │   Payout     │
-                    │   (XLM/USDC) │
-                    └──────────────┘
-```
 
-## Features
+`issue_policy` requires the insurer's authorization (`insurer.require_auth()`), calls out to the configured TrustLink contract to evaluate the claims, and only then persists a new policy record keyed by an incrementing policy number.
 
-- **Parametric triggers**: Payouts are triggered automatically when oracle-reported conditions cross predefined thresholds
-- **Multi-oracle consensus**: Requires confirmation from multiple independent oracles before triggering payouts
-- **Premium management**: Handles premium collection, escrow, and refund logic
-- **Dispute resolution**: Built-in time windows for challenging oracle reports
-- **Gas optimization**: Batched operations minimize transaction costs on Stellar
+## Scenario Walkthrough
 
-## Prerequisites
+1. **Deploy TrustLink** (or reuse an existing deployment) and register the issuers that will attest `KYC_PASSED` and `AML_CLEARED` for prospective policyholders.
+2. **Deploy the insurance contract** and call `initialize(admin, trustlink_contract)` once, pointing it at the TrustLink deployment.
+3. **Issue attestations** for a policyholder from the registered issuers — `KYC_PASSED` from a KYC provider, `AML_CLEARED` from an AML screening issuer.
+4. **Issue the policy**: the insurer calls `issue_policy(insurer, policyholder)`. TrustLink is queried via `has_all_claims`; if the policyholder is missing either claim (or either has expired or been revoked), the call panics and no policy is created.
+5. **Look up the policyholder** for any issued policy with `get_policy_holder(policy_id)`.
 
-- Rust 1.70+ with `wasm32-unknown-unknown` target
-- Stellar CLI (`soroban-cli`) for local testing
-- A funded Stellar testnet account
+## Files
+
+- `src/lib.rs`: Insurance contract and unit tests.
+- `Cargo.toml`: Example crate configuration.
+
+## Run Tests
 
 ```bash
-rustup target add wasm32-unknown-unknown
-cargo install soroban-cli
+cd examples/insurance
+cargo test
 ```
 
-## Quick Start
+The test suite uses a mock `TrustLink` contract (`MockTrustLink`) to exercise both branches:
 
-### 1. Build the contract
+| Scenario | Test |
+|---|---|
+| Policyholder has both `KYC_PASSED` and `AML_CLEARED` → policy issued | `issue_policy_allowed_for_policyholders_with_all_claims` |
+| Policyholder is missing at least one claim → issuance rejected | `issue_policy_rejected_when_policyholder_missing_a_claim` |
+
+## Deployment
+
+### Prerequisites
+
+```bash
+cargo install --locked stellar-cli --features opt
+rustup target add wasm32-unknown-unknown
+```
+
+### 1. Build
 
 ```bash
 cd examples/insurance
 cargo build --target wasm32-unknown-unknown --release
 ```
 
-### 2. Run tests
+### 2. Deploy TrustLink (if you need your own instance)
 
 ```bash
-cargo test
+export ADMIN_SECRET=SXXX...
+cd ../..
+make deploy NETWORK=testnet
+export TRUSTLINK_ID=C...
 ```
 
-Expected output:
-```
-running 5 tests
-test test_initialize_contract ... ok
-test test_collect_premium ... ok
-test test_trigger_payout ... ok
-test test_dispute_window ... ok
-test test_multi_oracle_consensus ... ok
-```
-
-### 3. Deploy to testnet
+### 3. Register the KYC and AML issuers
 
 ```bash
-soroban contract deploy   --wasm target/wasm32-unknown-unknown/release/insurance.wasm   --source <your-key>   --network testnet
+stellar contract invoke --id $TRUSTLINK_ID --source $ADMIN_SECRET --network testnet \
+  -- register_issuer --admin <ADMIN_ADDRESS> --issuer <KYC_ISSUER_ADDRESS>
+
+stellar contract invoke --id $TRUSTLINK_ID --source $ADMIN_SECRET --network testnet \
+  -- register_issuer --admin <ADMIN_ADDRESS> --issuer <AML_ISSUER_ADDRESS>
 ```
 
-### 4. Initialize the contract
+### 4. Issue the required claims for a policyholder
 
 ```bash
-soroban contract invoke   --id <contract-id>   --source <your-key>   --network testnet   -- initialize   --oracle <oracle-address>   --threshold 1000   --premium 100   --coverage 10000
+stellar contract invoke --id $TRUSTLINK_ID --source <KYC_ISSUER_SECRET> --network testnet \
+  -- create_attestation \
+  --issuer <KYC_ISSUER_ADDRESS> \
+  --subject <POLICYHOLDER_ADDRESS> \
+  --claim_type KYC_PASSED \
+  --expiration null \
+  --metadata null
+
+stellar contract invoke --id $TRUSTLINK_ID --source <AML_ISSUER_SECRET> --network testnet \
+  -- create_attestation \
+  --issuer <AML_ISSUER_ADDRESS> \
+  --subject <POLICYHOLDER_ADDRESS> \
+  --claim_type AML_CLEARED \
+  --expiration null \
+  --metadata null
 ```
 
-## Contract Interface
-
-### Data Structures
-
-| Structure | Fields | Description |
-|-----------|--------|-------------|
-| `Policy` | `policyholder`, `premium`, `coverage`, `start_time`, `end_time`, `status` | Represents an active insurance policy |
-| `OracleReport` | `oracle_id`, `value`, `timestamp`, `signature` | Oracle-submitted data point |
-| `Claim` | `policy_id`, `amount`, `status`, `filed_at` | Payout claim record |
-
-### Functions
-
-| Function | Access | Description |
-|----------|--------|-------------|
-| `initialize(oracle, threshold, premium, coverage)` | Admin | Set up contract parameters |
-| `purchase_policy()` | Public | Pay premium and activate coverage |
-| `submit_report(value)` | Oracle | Submit oracle data point |
-| `file_claim(policy_id)` | Policyholder | Request payout |
-| `dispute_report(report_id)` | Policyholder | Challenge an oracle report |
-| `resolve_dispute(report_id)` | Admin | Resolve after dispute window |
-| `withdraw_premiums()` | Admin | Collect accumulated premiums |
-
-## Testing
-
-The test suite covers:
-
-- **Unit tests**: Contract functions in isolation (`tests/test_contract.rs`)
-- **Integration tests**: End-to-end flows with mock oracles (`tests/test_integration.rs`)
-- **Edge cases**: Expired policies, duplicate reports, invalid signatures
+### 5. Deploy and initialize the insurance contract
 
 ```bash
-# Run all tests
-cargo test
+stellar contract deploy \
+  --wasm target/wasm32-unknown-unknown/release/insurance_example.wasm \
+  --source $ADMIN_SECRET \
+  --network testnet
+export INSURANCE_ID=C...
 
-# Run specific test
-cargo test test_trigger_payout
-
-# With verbose output
-cargo test -- --nocapture
+stellar contract invoke --id $INSURANCE_ID --source $ADMIN_SECRET --network testnet \
+  -- initialize \
+  --admin <ADMIN_ADDRESS> \
+  --trustlink_contract $TRUSTLINK_ID
 ```
 
-## Configuration
+### 6. Issue a policy
 
-Environment variables for local development:
+```bash
+stellar contract invoke --id $INSURANCE_ID --source <INSURER_SECRET> --network testnet \
+  -- issue_policy \
+  --insurer <INSURER_ADDRESS> \
+  --policyholder <POLICYHOLDER_ADDRESS>
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `STELLAR_NETWORK` | `testnet` | Stellar network to use |
-| `ORACLE_COUNT` | `3` | Minimum oracles for consensus |
-| `DISPUTE_WINDOW` | `3600` | Dispute window in seconds |
-| `PREMIUM_DENOM` | `XLM` | Premium payment token |
+stellar contract invoke --id $INSURANCE_ID --network testnet \
+  -- get_policy_holder --policy_id 1
+```
 
-## Security Considerations
+## Production Notes
 
-- **Oracle trust**: The contract relies on TrustLink's oracle reputation system — verify oracle identities before deployment
-- **Premium escrow**: All premiums are held in the contract until payout or expiry
-- **Dispute window**: A 1-hour window allows challenging potentially incorrect oracle reports
-- **Re-entrancy protection**: All state-changing functions follow checks-effects-interactions pattern
-- **Overflow protection**: Uses Rust's safe math with explicit bounds checking
-
-## Troubleshooting
-
-| Problem | Solution |
-|---------|----------|
-| `Error: Contract not found` | Ensure the contract was deployed with `soroban contract deploy` |
-| `Error: Insufficient balance` | Fund your testnet account at the Stellar friendbot |
-| `Error: Oracle not authorized` | Only registered oracle addresses can submit reports |
-| `wasm32 target not installed` | Run `rustup target add wasm32-unknown-unknown` |
-
-## Related Examples
-
-- [Lending](../lending/README.md) — DeFi lending with oracle-backed collateral
-- [Prediction Market](../prediction-market/README.md) — Binary outcome markets
-- [Escrow](../escrow/README.md) — Time-locked escrow with oracle release conditions
-
-## License
-
-This example is part of TrustLink and is licensed under the same terms as the parent project.
+- Set a meaningful `expiration` on `KYC_PASSED` and `AML_CLEARED` attestations rather than leaving them permanent — most underwriting programs require periodic re-verification.
+- Use `has_valid_claim_from_issuer` instead of `has_all_claims` if only specific accredited KYC/AML providers should be trusted for underwriting decisions.
+- Subscribe to `Revoked` events from TrustLink in an off-chain indexer so previously-issued policies can be flagged for review if a policyholder's claims are later revoked.
+- Keep sensitive underwriting data (health details, financial history) off-chain; TrustLink attestations here only carry a boolean claim of KYC/AML status, not the underlying documentation.
