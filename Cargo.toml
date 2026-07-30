@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 autobenches = false
+rust-version = "1.81"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
