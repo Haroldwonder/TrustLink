@@ -236,11 +236,34 @@ export function buildResolvers(db: PrismaClient, redis: Redis | null = null) {
     },
 
     Subscription: {
+      /**
+       * Subscribe to attestation creation events.
+       * 
+       * @param subject - Optional: filter by subject address
+       * @param topics - Optional: allowlist of event topics to receive. 
+       *                 If provided, only 'created' is relevant for this subscription.
+       *                 Useful for consolidated topic-filtered subscriptions.
+       */
       onAttestationCreated: {
-        subscribe: (_: unknown, args: { subject?: string }) => {
+        subscribe: (_: unknown, args: { subject?: string; topics?: string[] }) => {
           const iter = pubsub.asyncIterableIterator<{
             onAttestationCreated: ReturnType<typeof mapAttestation>;
           }>(ATTESTATION_CREATED);
+
+          // If topics filter is provided and "created" is not in the list, return empty
+          if (args.topics && !args.topics.includes("created")) {
+            return {
+              [Symbol.asyncIterator]() {
+                return this;
+              },
+              async next(): Promise<IteratorResult<unknown>> {
+                return { done: true, value: undefined };
+              },
+              async return() {
+                return iter.return?.() ?? { done: true as const, value: undefined };
+              },
+            };
+          }
 
           if (!args.subject) return iter;
 
@@ -267,11 +290,34 @@ export function buildResolvers(db: PrismaClient, redis: Redis | null = null) {
         }) => payload.onAttestationCreated,
       },
 
+      /**
+       * Subscribe to attestation revocation events.
+       * 
+       * @param issuer - Optional: filter by issuer address
+       * @param topics - Optional: allowlist of event topics to receive.
+       *                 If provided, only 'revoked' is relevant for this subscription.
+       *                 Useful for consolidated topic-filtered subscriptions.
+       */
       onAttestationRevoked: {
-        subscribe: (_: unknown, args: { issuer?: string }) => {
+        subscribe: (_: unknown, args: { issuer?: string; topics?: string[] }) => {
           const iter = pubsub.asyncIterableIterator<{
             onAttestationRevoked: { id: string; issuer: string; revokedAt: string };
           }>(ATTESTATION_REVOKED);
+
+          // If topics filter is provided and "revoked" is not in the list, return empty
+          if (args.topics && !args.topics.includes("revoked")) {
+            return {
+              [Symbol.asyncIterator]() {
+                return this;
+              },
+              async next(): Promise<IteratorResult<unknown>> {
+                return { done: true, value: undefined };
+              },
+              async return() {
+                return iter.return?.() ?? { done: true as const, value: undefined };
+              },
+            };
+          }
 
           if (!args.issuer) return iter;
 
@@ -298,11 +344,36 @@ export function buildResolvers(db: PrismaClient, redis: Redis | null = null) {
         }) => payload.onAttestationRevoked,
       },
 
+      /**
+       * Subscribe to issuer registration events.
+       * 
+       * @param topics - Optional: allowlist of event topics to receive.
+       *                 If provided, only 'iss_reg' is relevant for this subscription.
+       *                 Useful for consolidated topic-filtered subscriptions.
+       */
       onIssuerRegistered: {
-        subscribe: () =>
-          pubsub.asyncIterableIterator<{
+        subscribe: (_: unknown, args: { topics?: string[] }) => {
+          const iter = pubsub.asyncIterableIterator<{
             onIssuerRegistered: { issuer: string; registeredAt: string };
-          }>(ISSUER_REGISTERED),
+          }>(ISSUER_REGISTERED);
+
+          // If topics filter is provided and "iss_reg" is not in the list, return empty
+          if (args.topics && !args.topics.includes("iss_reg")) {
+            return {
+              [Symbol.asyncIterator]() {
+                return this;
+              },
+              async next(): Promise<IteratorResult<unknown>> {
+                return { done: true, value: undefined };
+              },
+              async return() {
+                return iter.return?.() ?? { done: true as const, value: undefined };
+              },
+            };
+          }
+
+          return iter;
+        },
         resolve: (payload: {
           onIssuerRegistered: { issuer: string; registeredAt: string };
         }) => payload.onIssuerRegistered,
