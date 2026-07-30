@@ -1752,6 +1752,68 @@ fn test_multisig_duplicate_cosign_rejected() {
 }
 
 #[test]
+fn test_multisig_proposer_in_required_signers_counts() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (issuer1, issuer2, issuer3, _, client) = setup_multisig(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "VERIFIED_IDENTITY");
+
+    let mut required = soroban_sdk::Vec::new(&env);
+    required.push_back(issuer1.clone());
+    required.push_back(issuer2.clone());
+
+    let proposal_id = client.propose_attestation(&issuer1, &subject, &claim_type, &required, &2);
+
+    let proposal = client.get_multisig_proposal(&proposal_id);
+    assert_eq!(proposal.signers.len(), 1);
+    assert_eq!(proposal.signers.get(0).unwrap(), &issuer1);
+
+    client.cosign_attestation(&issuer2, &proposal_id);
+
+    let proposal = client.get_multisig_proposal(&proposal_id);
+    assert!(proposal.finalized);
+    assert!(client.has_valid_claim(&subject, &claim_type));
+}
+
+#[test]
+fn test_multisig_proposer_not_in_required_signers() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (issuer1, issuer2, issuer3, admin, client) = setup_multisig(&env);
+    let outsider = Address::generate(&env);
+    client.register_issuer(&admin, &outsider);
+
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "VERIFIED_IDENTITY");
+
+    let mut required = soroban_sdk::Vec::new(&env);
+    required.push_back(issuer2.clone());
+    required.push_back(issuer3.clone());
+
+    let proposal_id = client.propose_attestation(&outsider, &subject, &claim_type, &required, &2);
+
+    let proposal = client.get_multisig_proposal(&proposal_id);
+    assert_eq!(proposal.signers.len(), 1);
+    assert_eq!(proposal.signers.get(0).unwrap(), &outsider);
+
+    client.cosign_attestation(&issuer2, &proposal_id);
+
+    let proposal = client.get_multisig_proposal(&proposal_id);
+    assert_eq!(proposal.signers.len(), 2);
+    assert!(!proposal.finalized);
+
+    client.cosign_attestation(&issuer3, &proposal_id);
+
+    let proposal = client.get_multisig_proposal(&proposal_id);
+    assert_eq!(proposal.signers.len(), 3);
+    assert!(proposal.finalized);
+    assert!(client.has_valid_claim(&subject, &claim_type));
+}
+
+#[test]
 fn test_multisig_expired_proposal_rejected() {
     let env = Env::default();
     env.mock_all_auths();
@@ -1867,6 +1929,62 @@ fn test_multisig_unregistered_proposer_rejected() {
     let result =
         client.try_propose_attestation(&unregistered, &subject, &claim_type, &required, &2);
     assert_eq!(result, Err(Ok(types::Error::Unauthorized)));
+}
+
+#[test]
+fn test_multisig_hardcoded_accredited_investor_bypass_for_premium() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let admin = Address::generate(&env);
+    client.initialize(&admin, &None);
+    client.register_issuer(&admin, &issuer);
+    client.set_issuer_tier(&admin, &issuer, &types::IssuerTier::Premium);
+
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "ACCREDITED_INVESTOR");
+
+    env.ledger().set_timestamp(1000);
+
+    let attestation_id = client.propose_attestation(&issuer, &subject, &claim_type, &soroban_sdk::Vec::new(&env), &0);
+
+    assert!(client.has_valid_claim(&subject, &claim_type));
+
+    let attestation = client.get_attestation(&attestation_id);
+    assert_eq!(attestation.issuer, issuer);
+    assert_eq!(attestation.subject, subject);
+    assert_eq!(attestation.claim_type, claim_type);
+}
+
+#[test]
+fn test_multisig_non_accredited_claim_requires_multisig_even_premium() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (issuer1, issuer2, _, admin, client) = setup_multisig(&env);
+    client.set_issuer_tier(&admin, &issuer1, &types::IssuerTier::Premium);
+
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "CUSTOM_CLAIM");
+
+    env.ledger().set_timestamp(1000);
+
+    let mut required = soroban_sdk::Vec::new(&env);
+    required.push_back(issuer1.clone());
+    required.push_back(issuer2.clone());
+
+    let proposal_id = client.propose_attestation(&issuer1, &subject, &claim_type, &required, &2);
+
+    let proposal = client.get_multisig_proposal(&proposal_id);
+    assert!(!proposal.finalized);
+    assert_eq!(proposal.signers.len(), 1);
+
+    client.cosign_attestation(&issuer2, &proposal_id);
+
+    let proposal = client.get_multisig_proposal(&proposal_id);
+    assert!(proposal.finalized);
+    assert!(client.has_valid_claim(&subject, &claim_type));
 }
 
 #[test]
@@ -6366,6 +6484,71 @@ fn test_multisig_expired_proposal_not_finalized_no_attestation() {
     );
 }
 
+#[test]
+fn test_proposal_index_removes_stale_entries_on_finalization() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (issuer1, issuer2, _, _, client) = setup_multisig(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "TEST_CLAIM");
+
+    env.ledger().set_timestamp(1000);
+
+    let mut required = soroban_sdk::Vec::new(&env);
+    required.push_back(issuer1.clone());
+    required.push_back(issuer2.clone());
+
+    let proposal_id_1 = client.propose_attestation(&issuer1, &subject, &claim_type, &required, &2);
+    let proposal_id_2 = client.propose_attestation(&issuer1, &subject, &claim_type, &required, &2);
+    let proposal_id_3 = client.propose_attestation(&issuer1, &subject, &claim_type, &required, &2);
+
+    client.cosign_attestation(&issuer2, &proposal_id_1);
+
+    let proposal_1 = client.get_multisig_proposal(&proposal_id_1);
+    assert!(proposal_1.finalized);
+
+    let proposal_2 = client.get_multisig_proposal(&proposal_id_2);
+    assert!(!proposal_2.finalized);
+
+    let proposal_3 = client.get_multisig_proposal(&proposal_id_3);
+    assert!(!proposal_3.finalized);
+}
+
+#[test]
+fn test_proposal_index_size_reflects_open_proposals_only() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (issuer1, issuer2, issuer3, _, client) = setup_multisig(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "ACTIVE_CLAIM");
+
+    env.ledger().set_timestamp(1000);
+
+    let mut required = soroban_sdk::Vec::new(&env);
+    required.push_back(issuer1.clone());
+    required.push_back(issuer2.clone());
+    required.push_back(issuer3.clone());
+
+    for i in 0..5 {
+        let proposal_id = client.propose_attestation(&issuer1, &subject, &claim_type, &required, &2);
+
+        if i == 0 || i == 2 {
+            client.cosign_attestation(&issuer2, &proposal_id);
+        }
+    }
+
+    env.ledger().set_timestamp(1000 + 7 * 24 * 60 * 60 + 1);
+
+    for i in 0..5 {
+        let proposal = client.get_multisig_proposal(&format!("proposal_{}", i));
+        if proposal.finalized {
+            assert!(proposal.finalized);
+        }
+    }
+}
+
 // ── Issue #329: Expiration hook callback failure handling ─────────────────────
 
 #[test]
@@ -8778,4 +8961,84 @@ fn test_get_issuer_expiring_attestations_sorted_by_expiration() {
     assert_eq!(result.get(0).unwrap().expiration, Some(1000 + 5 * 86_400));
     assert_eq!(result.get(1).unwrap().expiration, Some(1000 + 10 * 86_400));
     assert_eq!(result.get(2).unwrap().expiration, Some(1000 + 20 * 86_400));
+}
+
+#[test]
+fn test_expiring_attestations_subject_and_issuer_consistency() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "VERIFIED_KYC");
+
+    env.ledger().set_timestamp(1000);
+
+    let id1 = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &Some(1000 + 5 * 86_400),
+        &None,
+        &None,
+    );
+    env.ledger().set_timestamp(1001);
+
+    let id2 = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &Some(1000 + 15 * 86_400),
+        &None,
+        &None,
+    );
+
+    let subject_result = client.get_expiring_attestations(&subject, &30, &0, &10);
+    let issuer_result = client.get_issuer_expiring_attestations(&issuer, &30, &0, &10);
+
+    assert_eq!(subject_result.len(), 2);
+    assert_eq!(issuer_result.len(), 2);
+
+    assert_eq!(subject_result.get(0).unwrap().expiration, issuer_result.get(0).unwrap().expiration);
+    assert_eq!(subject_result.get(1).unwrap().expiration, issuer_result.get(1).unwrap().expiration);
+
+    assert_eq!(subject_result.get(0).unwrap().expiration, Some(1000 + 5 * 86_400));
+    assert_eq!(subject_result.get(1).unwrap().expiration, Some(1000 + 15 * 86_400));
+}
+
+#[test]
+fn test_expiring_attestations_pagination_works_for_both() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "DOCUMENT_VERIFIED");
+
+    env.ledger().set_timestamp(1000);
+
+    for i in 0..5 {
+        client.create_attestation(
+            &issuer,
+            &subject,
+            &claim_type,
+            &Some(1000 + (i + 1) as u64 * 86_400),
+            &None,
+            &None,
+        );
+    }
+
+    let subject_page1 = client.get_expiring_attestations(&subject, &30, &0, &2);
+    let subject_page2 = client.get_expiring_attestations(&subject, &30, &2, &2);
+
+    let issuer_page1 = client.get_issuer_expiring_attestations(&issuer, &30, &0, &2);
+    let issuer_page2 = client.get_issuer_expiring_attestations(&issuer, &30, &2, &2);
+
+    assert_eq!(subject_page1.len(), 2);
+    assert_eq!(subject_page2.len(), 2);
+    assert_eq!(issuer_page1.len(), 2);
+    assert_eq!(issuer_page2.len(), 2);
+
+    assert_eq!(subject_page1.get(0).unwrap().id, issuer_page1.get(0).unwrap().id);
+    assert_eq!(subject_page2.get(0).unwrap().id, issuer_page2.get(0).unwrap().id);
 }

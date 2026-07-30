@@ -411,6 +411,8 @@ pub fn set_require_registered_claim_type(env: &Env, admin: Address, require: boo
                 fee_token: None,
             }),
             require_registered_claim_type: false,
+            metadata_hash_only: false,
+            max_attestations_per_subject: None,
         }
     });
     
@@ -442,6 +444,42 @@ pub fn get_metadata_hash_only(env: &Env) -> bool {
     Storage::get_contract_config(env)
         .map(|config| config.metadata_hash_only)
         .unwrap_or(false)
+}
+
+pub fn set_max_attestations_per_subject(env: &Env, admin: Address, limit: Option<u32>) -> Result<(), Error> {
+    admin.require_auth();
+    Validation::require_admin(env, &admin)?;
+
+    if let Some(mut config) = Storage::get_contract_config(env) {
+        config.max_attestations_per_subject = limit;
+        Storage::set_contract_config(env, &config);
+        Events::max_attestations_per_subject_changed(env, &admin, limit);
+        Ok(())
+    } else {
+        // If no config is stored yet, initialize it with the limit
+        let config = ContractConfig {
+            contract_name: soroban_sdk::String::from_str(env, "TrustLink"),
+            contract_version: soroban_sdk::String::from_str(env, "0.1.0"),
+            contract_description: soroban_sdk::String::from_str(env, ""),
+            ttl_config: Storage::get_ttl_config(env).unwrap_or(TtlConfig { ttl_days: 30 }),
+            fee_config: Storage::get_fee_config(env).unwrap_or(FeeConfig {
+                attestation_fee: 0,
+                fee_collector: admin.clone(),
+                fee_token: None,
+            }),
+            require_registered_claim_type: false,
+            metadata_hash_only: false,
+            max_attestations_per_subject: limit,
+        };
+        Storage::set_contract_config(env, &config);
+        Events::max_attestations_per_subject_changed(env, &admin, limit);
+        Ok(())
+    }
+}
+
+pub fn get_max_attestations_per_subject(env: &Env) -> Option<u32> {
+    Storage::get_contract_config(env)
+        .and_then(|config| config.max_attestations_per_subject)
 }
 
 // -----------------------------------------------------------------------

@@ -19,6 +19,18 @@ class Attestation(TypedDict):
     bridged: bool
     source_chain: Optional[str]
     source_tx: Optional[str]
+    bundle_id: Optional[str]
+
+
+class AttestationBundle(TypedDict):
+    """Bundle of attestations issued atomically."""
+    id: str
+    issuer: str
+    subject: str
+    claim_types: List[str]
+    timestamp: int
+    attestation_ids: List[str]
+    all_valid: bool
 
 
 class ClaimTypeInfo(TypedDict):

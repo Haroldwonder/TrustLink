@@ -51,7 +51,7 @@ import {
 export type { Attestation, AttestationStatus, AuditEntry, ClaimTypeInfo,
   ContractConfig, ContractMetadata, Delegation, Endorsement, FeeConfig, GlobalStats,
   HealthStatus, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal,
-  TtlConfig };
+  TtlConfig, RevocationList, RevocationListFormat };
 
 // ─── Client options ───────────────────────────────────────────────────────────
 
@@ -682,7 +682,34 @@ export class TrustLinkClient {
     return this.simulate("get_endorsement_count", [str(attestationId)]) as Promise<number>;
   }
 
-  // ─── Stats & health ──────────────────────────────────────────────────────────
+
+  // -----------------------------------------------------------------------
+  // Attestation simulation
+  // -----------------------------------------------------------------------
+
+  /** Simulate creating an attestation without committing state. */
+  async simulateCreateAttestation(
+    issuer: string,
+    subject: string,
+    claimType: string,
+    expiration?: bigint,
+    metadata?: string,
+    tags?: string[],
+  ): Promise<{ attestationId: string; fee: bigint }> {
+    const result = await this.simulate("simulate_create_attestation", [
+      addr(issuer),
+      addr(subject),
+      str(claimType),
+      optionVal(expiration !== undefined ? u64(expiration) : null),
+      optionVal(metadata !== undefined ? str(metadata) : null),
+      optionVal(tags !== undefined ? vecStr(tags) : null),
+    ]) as [string, string];
+
+    return {
+      attestationId: result[0],
+      fee: BigInt(result[1]),
+    };
+  }
 
   /** Return global contract statistics. */
   async getGlobalStats(): Promise<GlobalStats> {
@@ -693,4 +720,30 @@ export class TrustLinkClient {
   async healthCheck(): Promise<HealthStatus> {
     return this.simulate("health_check", []) as Promise<HealthStatus>;
   }
+
+  /**
+   * Export a revocation list for an issuer.
+   *
+   * Provides a compact, standards-adjacent format for external verifiers to
+   * check revocation status for many attestations at once without individually
+   * querying each one.
+   *
+   * @param issuer - The issuer address whose revocations to export
+   * @param claimType - Optional claim type filter (null = all claim types)
+   * @param format - The desired output format
+   * @returns RevocationList with revoked IDs and metadata
+   */
+  async exportRevocationList(
+    issuer: string,
+    claimType?: string,
+    format: RevocationListFormat = RevocationListFormat.SimpleList,
+  ): Promise<RevocationList> {
+    validateAddress(issuer);
+    return this.simulate("export_revocation_list", [
+      addr(issuer),
+      optionVal(claimType !== undefined ? str(claimType) : null),
+      nativeToScVal(format, { type: "u32" }),
+    ]) as Promise<RevocationList>;
+  }
 }
+

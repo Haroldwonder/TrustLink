@@ -264,9 +264,21 @@ pub fn create_attestation_internal(
     if issuer_count >= limits.max_attestations_per_issuer {
         return Err(Error::LimitExceeded);
     }
-    let subject_count = Storage::get_subject_attestations(env, &subject).len();
-    if subject_count >= limits.max_attestations_per_subject {
-        return Err(Error::LimitExceeded);
+    
+    // Check optional per-subject limit from ContractConfig if configured
+    if let Some(config) = Storage::get_contract_config(env) {
+        if let Some(max_per_subject) = config.max_attestations_per_subject {
+            let subject_count = Storage::get_subject_attestations(env, &subject).len();
+            if subject_count >= max_per_subject as usize {
+                return Err(Error::LimitExceeded);
+            }
+        }
+    } else {
+        // Fallback to StorageLimits for backward compatibility if no config is set
+        let subject_count = Storage::get_subject_attestations(env, &subject).len();
+        if subject_count >= limits.max_attestations_per_subject as usize {
+            return Err(Error::LimitExceeded);
+        }
     }
 
     let timestamp = env.ledger().timestamp();
@@ -370,6 +382,28 @@ pub fn import_attestation(
     Validation::require_issuer(env, &issuer)?;
     validate_import_timestamps(env, timestamp, expiration)?;
 
+    let limits = Storage::get_limits(env);
+    let issuer_count = Storage::get_issuer_attestations(env, &issuer).len();
+    if issuer_count >= limits.max_attestations_per_issuer {
+        return Err(Error::LimitExceeded);
+    }
+    
+    // Check optional per-subject limit from ContractConfig if configured
+    if let Some(config) = Storage::get_contract_config(env) {
+        if let Some(max_per_subject) = config.max_attestations_per_subject {
+            let subject_count = Storage::get_subject_attestations(env, &subject).len();
+            if subject_count >= max_per_subject as usize {
+                return Err(Error::LimitExceeded);
+            }
+        }
+    } else {
+        // Fallback to StorageLimits for backward compatibility if no config is set
+        let subject_count = Storage::get_subject_attestations(env, &subject).len();
+        if subject_count >= limits.max_attestations_per_subject as usize {
+            return Err(Error::LimitExceeded);
+        }
+    }
+
     let attestation_id = Attestation::generate_id(env, &issuer, &subject, &claim_type, timestamp);
     if Storage::has_attestation(env, &attestation_id) {
         return Err(Error::DuplicateAttestation);
@@ -421,6 +455,29 @@ pub fn bridge_attestation(
     Validation::require_bridge(env, &bridge)?;
     Validation::require_not_paused(env)?;
     validate_source_reference(&source_chain, &source_tx)?;
+
+    // Check limits before creating attestation
+    let limits = Storage::get_limits(env);
+    let issuer_count = Storage::get_issuer_attestations(env, &bridge).len();
+    if issuer_count >= limits.max_attestations_per_issuer {
+        return Err(Error::LimitExceeded);
+    }
+    
+    // Check optional per-subject limit from ContractConfig if configured
+    if let Some(config) = Storage::get_contract_config(env) {
+        if let Some(max_per_subject) = config.max_attestations_per_subject {
+            let subject_count = Storage::get_subject_attestations(env, &subject).len();
+            if subject_count >= max_per_subject as usize {
+                return Err(Error::LimitExceeded);
+            }
+        }
+    } else {
+        // Fallback to StorageLimits for backward compatibility if no config is set
+        let subject_count = Storage::get_subject_attestations(env, &subject).len();
+        if subject_count >= limits.max_attestations_per_subject as usize {
+            return Err(Error::LimitExceeded);
+        }
+    }
 
     let timestamp = env.ledger().timestamp();
     let attestation_id = Attestation::generate_bridge_id(
@@ -979,4 +1036,95 @@ pub fn create_attestation_as_delegate(
     );
     Events::attestation_created(env, &attestation);
     Ok(attestation_id)
+}
+/// Simulates creating an attestation without committing any state.
+///
+/// Returns the would-be attestation ID and fee amount that would result from
+/// calling `create_attestation` with the same arguments.
+///
+/// This is a read-only query that can be used by UIs to show users the ID
+/// and fee before they confirm the transaction, eliminating the need to
+/// replicate ID-derivation and fee-calculation logic client-side.
+///
+/// # Parameters
+/// - `issuer` — the issuer address (must authenticate via `require_auth()`)
+/// - `subject` — the subject address
+/// - `claim_type` — the claim type string
+/// - `expiration` — optional expiration timestamp
+/// - `metadata` — optional metadata string
+/// - `tags` — optional tags vector
+///
+/// # Returns
+/// A tuple of `(attestation_id, fee_amount)` where:
+/// - `attestation_id` — the 64-character hex string that would be generated
+/// - `fee_amount` — the fee that would be charged (0 if no fee is configured)
+///
+/// # Errors
+/// Returns the same errors as `create_attestation`:
+/// - `Error::NotInitialized` — contract not initialized
+/// - `Error::Unauthorized` — issuer is not registered or issuer == subject
+/// - `Error::InvalidClaimType` — claim type validation failed
+/// - `Error::NotRegisteredClaimType` — claim type not registered when required
+/// - `Error::InvalidMetadata` — metadata validation failed
+/// - `Error::LimitExceeded` — attestation limits reached
+/// - `Error::SubjectNotWhitelisted` — whitelist mode active and subject not whitelisted
+/// - `Error::RateLimited` — rate limit exceeded
+/// - `Error::FeeTokenRequired` — fee configured but no token address
+pub fn simulate_create_attestation(
+    env: &Env,
+    issuer: Address,
+    subject: Address,
+    claim_type: String,
+    expiration: Option<u64>,
+    metadata: Option<String>,
+    tags: Option<Vec<String>>,
+) -> Result<(String, i128), Error> {
+    Validation::require_not_paused(env)?;
+    Validation::require_issuer(env, &issuer)?;
+    Validation::validate_claim_type(&claim_type)?;
+    Validation::require_registered_claim_type(env, &claim_type)?;
+    Validation::validate_metadata(env, &metadata)?;
+    Validation::validate_claim_constraints(env, &claim_type, &metadata)?;
+    Validation::validate_metadata_hash_only(env, &metadata)?;
+    validate_jurisdiction(env, &None)?;
+    validate_tags(&tags)?;
+    validate_native_expiration(env, expiration)?;
+    validate_valid_from(env, &None)?;
+
+    if issuer == subject {
+        return Err(Error::Unauthorized);
+    }
+
+    if Storage::is_whitelist_mode(env, &issuer) && !Storage::is_whitelisted(env, &issuer, &subject) {
+        return Err(Error::SubjectNotWhitelisted);
+    }
+
+    check_rate_limit(env, &issuer, &claim_type)?;
+
+    let limits = Storage::get_limits(env);
+    let issuer_count = Storage::get_issuer_attestations(env, &issuer).len();
+    if issuer_count >= limits.max_attestations_per_issuer {
+        return Err(Error::LimitExceeded);
+    }
+    let subject_count = Storage::get_subject_attestations(env, &subject).len();
+    if subject_count >= limits.max_attestations_per_subject {
+        return Err(Error::LimitExceeded);
+    }
+
+    let timestamp = env.ledger().timestamp();
+    let attestation_id = Attestation::generate_id(env, &issuer, &subject, &claim_type, timestamp);
+
+    if Storage::has_attestation(env, &attestation_id) {
+        return Err(Error::DuplicateAttestation);
+    }
+
+    // Calculate the fee without charging it
+    let fee_config = load_fee_config(env)?;
+    let fee_amount = if fee_config.attestation_fee == 0 {
+        0
+    } else {
+        fee_config.attestation_fee
+    };
+
+    Ok((attestation_id, fee_amount))
 }

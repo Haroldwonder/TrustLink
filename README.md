@@ -860,6 +860,17 @@ Tests cover:
 - Pagination
 - Cross-contract verification
 
+### Trade-finance example
+
+[`examples/trade_finance.rs`](examples/trade_finance.rs) demonstrates a
+bill-of-lading attestation chain. An exporter, customs authority, and financing
+bank independently attest to the same shipment reference; clearance requires all
+three claims to remain valid.
+
+```bash
+cargo test --example trade_finance
+```
+
 ## Security Considerations
 
 1. **Authorization**: Only admin can manage issuers; only issuers can create attestations
@@ -877,6 +888,7 @@ For the pre-mainnet line-by-line authorization audit, see
 ## Use Cases
 
 - **DeFi Protocols**: Verify KYC before lending/borrowing
+- **Lending Pool**: IssuerTier-gated LTV and liquidation thresholds — see [examples/lending-pool/README.md](examples/lending-pool/README.md)
 - **Token Sales**: Ensure accredited investor status
 - **Payment Systems**: Verify merchant credentials
 - **Governance**: Validate voter eligibility
@@ -887,6 +899,7 @@ For the pre-mainnet line-by-line authorization audit, see
 - **Stellar Anchors**: End-to-end anchor KYC attestation flow example in [examples/anchor-integration/README.md](examples/anchor-integration/README.md)
 - **Soroban Tokens**: KYC-restricted token transfer example in [examples/kyc-token/README.md](examples/kyc-token/README.md)
 - **DAO Governance**: Voter eligibility-gated voting example in [examples/governance/README.md](examples/governance/README.md)
+- **SaaS Seat Licensing**: Multi-tenant per-seat `SEAT_LICENSED` issuance, access gating, and offboarding revocation — see [examples/seat-licensing/README.md](examples/seat-licensing/README.md)
 
 ## Release Process
 
