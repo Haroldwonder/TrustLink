@@ -48,6 +48,16 @@ jobs:
       - name: Check workspace compilation
         run: cargo check --workspace --all-targets
 
+  enum-completeness:
+    name: Enum Completeness
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Verify Error variants referenced in src/ are defined
+        run: python3 scripts/check_error_variants.py
+
   lint:
     name: Lint
     if: github.event_name != 'schedule'

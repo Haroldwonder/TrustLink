@@ -3,6 +3,9 @@
 [![CI](https://github.com/afurious/TrustLink/actions/workflows/ci.yml/badge.svg)](https://github.com/afurious/TrustLink/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/afurious/TrustLink/branch/main/graph/badge.svg)](https://codecov.io/gh/afurious/TrustLink)
 [![Security Audit](https://img.shields.io/badge/Security%20Audit-In%20Progress-yellow)](./AUDIT_SCOPE.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+
+**[Documentation index](docs/README.md)** · **[Contributing](CONTRIBUTING.md)** · **[Code of Conduct](CODE_OF_CONDUCT.md)** · **[License](LICENSE)**
 
 TrustLink is a Soroban smart contract that provides a reusable trust layer for the Stellar blockchain. It enables trusted issuers, bridge contracts, and administrators to create, import, manage, and revoke attestations about wallet addresses, allowing other contracts and applications to verify claims before executing financial operations.
 
@@ -10,7 +13,7 @@ TrustLink is a Soroban smart contract that provides a reusable trust layer for t
 
 TrustLink solves the problem of decentralized identity verification and trust establishment on-chain. Instead of each application building its own KYC/verification system, TrustLink provides a shared attestation infrastructure that can be queried by any smart contract or dApp.
 
-**New here? Start with the [5-Minute Quickstart](docs/quickstart.md)** — go from zero to verifying a testnet attestation using only the TypeScript SDK, in under 15 commands.
+**New here? Start with the [5-Minute Quickstart](docs/quickstart.md)** — go from zero to verifying a testnet attestation using only the TypeScript SDK, in under 15 commands. Browse the full docs catalog in the **[documentation index](docs/README.md)**.
 
 ### Key Features
 
@@ -1077,7 +1080,7 @@ A blank [template](docs/adr/ADR-000-template.md) is available for new decisions.
 
 ## License
 
-MIT
+This project is licensed under the [MIT License](LICENSE).
 
 ## Changelog
 
@@ -1085,7 +1088,7 @@ See [CHANGELOG.md](CHANGELOG.md) for a history of notable changes.
 
 ## Contributing
 
-Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, code style requirements, and the PR process.
+Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, code style requirements, and the PR process. By participating, you agree to abide by our [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Support
 

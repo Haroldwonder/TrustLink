@@ -68,7 +68,7 @@ endif
         deploy invoke \
         testnet mainnet local \
         bindings check-bindings \
-        check-size check-wasm-size rollback \
+        check-size check-wasm-size check-error-variants rollback \
         indexer-dev indexer-build indexer-logs \
         changelog-preview test-changelog-preview \
         help
@@ -95,6 +95,7 @@ help:
 	@echo "make rollback       - Redeploy a verified WASM hash to a specified network"
 	@echo "make bindings       - Generate TypeScript bindings from compiled WASM"
 	@echo "make check-bindings - Fail if committed bindings are out of date"
+	@echo "make check-error-variants - Fail if Error::Variant refs in src/ are undefined"
 	@echo "make deploy         - Build, optimize, and deploy to NETWORK (default: testnet)"
 	@echo "                      Requires: ADMIN_SECRET=<secret>  SOURCE=<key-alias>"
 	@echo "                      Example:  make deploy NETWORK=testnet SOURCE=deployer"
@@ -244,6 +245,10 @@ check-bindings: bindings
 	@echo "Checking bindings are up to date..."
 	git diff --exit-code bindings/typescript/ || \
 		(echo "ERROR: TypeScript bindings are out of date. Run 'make bindings' and commit the result." && exit 1)
+
+## Fail if any Error::Variant reference in src/ is missing from src/errors.rs
+check-error-variants:
+	python3 scripts/check_error_variants.py
 
 # ── Signing key alias (used by deploy and verify) ─────────────────────────────
 # SOURCE is the stellar key alias (not the raw secret) passed to stellar CLI.

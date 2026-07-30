@@ -83,4 +83,6 @@ pub enum Error {
     AlreadyApproved = 43,
     /// `chunk_size` passed to `set_chunk_size` is 0 or otherwise out of range.
     InvalidChunkSize = 45,
+    /// Claim type is not in the registry when registration is required.
+    NotRegisteredClaimType = 46,
 }
