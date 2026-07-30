@@ -17,6 +17,8 @@ import {
 } from "./metrics";
 import { dispatchWebhooks } from "./webhooks";
 import { scheduleArchivalJob } from "./archival";
+import { getTracer } from "./tracing";
+import { logger, logProcessedEvent } from "./logger";
 
 const CONTRACT_ID = process.env.CONTRACT_ID!;
 const RPC_URL = process.env.RPC_URL ?? "https://soroban-testnet.stellar.org";
@@ -38,11 +40,7 @@ const WATCHED = new Set([
   "rate_limit_set", // #775
 ]);
 
-let lastLedger = 0;
-
-export function getLastLedger(): number {
-  return lastLedger;
-}
+import { getLastLedger, setLastLedger } from "./indexer-state";
 
 export async function startIndexer(db: PrismaClient, redis: Redis | null = null): Promise<void> {
   const rpc = new SorobanRpc.Server(RPC_URL, { allowHttp: true });
@@ -115,13 +113,16 @@ async function processRange(
         try {
           await handleEvent(db, ev, redis);
           processedCount++;
-          // Track by event type
           const eventType = normalizeEventType(topicStr);
           if (eventType) {
             incrementEventProcessed(eventType);
           }
+          logProcessedEvent({
+            eventType: topicStr,
+            ledger: ev.ledger,
+          });
         } catch (err) {
-          console.error(`Error processing event at ledger ${ev.ledger}:`, err);
+          logger.error({ err, ledger: ev.ledger, eventType: topicStr }, "failed to process contract event");
           const eventType = normalizeEventType(topicStr);
           if (eventType) {
             incrementEventFailed(eventType);
@@ -151,7 +152,7 @@ async function processRange(
       continue;
     }
 
-    lastLedger = Math.min(startLedger - 1, to);
+    setLastLedger(Math.min(startLedger - 1, to));
   }
 
   logger.info({ from, to, processedCount }, "Completed processing ledger range");

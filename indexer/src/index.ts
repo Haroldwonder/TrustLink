@@ -1,23 +1,24 @@
 import { initTracing, getTracer } from "./tracing";
 initTracing(); // must be first — instruments http, pg, etc.
 
+import { randomUUID } from "crypto";
 import { PrismaClient } from "@prisma/client";
 import { createServer, IncomingMessage, ServerResponse } from "http";
-import Fastify from "fastify";
 import { ApolloServer, HeaderMap } from "@apollo/server";
 import { makeExecutableSchema } from "@graphql-tools/schema";
 import { WebSocketServer } from "ws";
 import { useServer } from "graphql-ws/use/ws";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { startIndexer, getLastLedger, reindex } from "./indexer";
-import { buildResolvers } from "./graphql";
-import { getMetrics } from "./metrics";
-import Redis from "ioredis";
-import { validate, parse } from "graphql";
+import { validate } from "graphql";
+import depthLimit from "graphql-depth-limit";
 import { createComplexityLimitRule } from "graphql-query-complexity";
-import { depthLimit } from "graphql-depth-limit";
-import { randomUUID } from "crypto";
+import { startIndexer } from "./indexer";
+import { buildResolvers } from "./graphql";
+import Redis from "ioredis";
+import { isAuthorized } from "./auth";
+import { logger, requestLogger } from "./logger";
+import { buildRestServer } from "./rest";
 
 const db = new PrismaClient();
 
@@ -61,240 +62,7 @@ async function main() {
   await db.$connect();
 
   // ── REST (Fastify) ─────────────────────────────────────────────────────────
-  const fastify = Fastify({ logger: true });
-
-  fastify.get("/health", async (request, reply) => {
-    let dbConnected = false;
-    try {
-      await db.$queryRaw`SELECT 1`;
-      dbConnected = true;
-    } catch {
-      dbConnected = false;
-    }
-    
-    if (!dbConnected) {
-      reply.code(503);
-      return {
-        status: "error",
-        db: "disconnected",
-        lastLedger: getLastLedger(),
-      };
-    }
-    
-    return {
-      status: "ok",
-      db: "connected",
-      lastLedger: getLastLedger(),
-    };
-  });
-
-  fastify.get("/ready", async () => {
-    const checkpoint = await db.checkpoint.findUnique({ where: { id: 1 } });
-    const rpc = new (await import("@stellar/stellar-sdk")).rpc.Server(
-      process.env.RPC_URL ?? "https://soroban-testnet.stellar.org",
-      { allowHttp: true }
-    );
-    const { sequence: tip } = await rpc.getLatestLedger();
-    const lag = tip - (checkpoint?.ledger ?? 0);
-    if (lag <= 10) {
-      return { status: 200 };
-    }
-    return { status: 503 };
-  });
-
-  fastify.get("/metrics", async () => {
-    const metrics = await getMetrics();
-    return metrics;
-  });
-
-  fastify.get<{ Params: { subject: string } }>(
-    "/attestations/:subject",
-    async (req) => {
-      return db.attestation.findMany({
-        where: { subject: req.params.address },
-        orderBy: { timestamp: "desc" },
-      });
-    }
-  );
-
-  fastify.get<{ Params: { address: string; claim_type: string } }>(
-    "/subjects/:address/claims/:claim_type/valid",
-    async (req) => {
-      const attestation = await db.attestation.findFirst({
-        where: {
-          subject: req.params.address,
-          claimType: req.params.claim_type,
-          isRevoked: false,
-        },
-      });
-      return { valid: !!attestation };
-    }
-  );
-
-  fastify.get<{ Params: { address: string } }>(
-    "/issuers/:address/attestations",
-    async (req) => {
-      return db.attestation.findMany({
-        where: { issuer: req.params.address },
-        orderBy: { timestamp: "desc" },
-      });
-    }
-  );
-
-  fastify.get("/stats", async () => {
-    const [total, revoked, issuers] = await Promise.all([
-      db.attestation.count(),
-      db.attestation.count({ where: { isRevoked: true } }),
-      db.attestation.findMany({
-        distinct: ["issuer"],
-        select: { issuer: true },
-      }),
-    ]);
-    return {
-      total_attestations: total,
-      total_revocations: revoked,
-      total_issuers: issuers.length,
-    };
-  });
-
-  fastify.get("/webhooks", async () => {
-    const webhooks = await db.webhook.findMany({
-      select: { id: true, url: true, active: true, createdAt: true },
-      orderBy: { createdAt: "desc" },
-    });
-    return webhooks;
-  });
-
-  fastify.post<{ Body: { url: string; secret: string } }>(
-    "/webhooks",
-    async (req, reply) => {
-      const apiKey = req.headers["x-api-key"] as string | undefined;
-      const expectedKey = process.env.API_KEY;
-      if (expectedKey && apiKey !== expectedKey) {
-        reply.code(401);
-        return { error: "Unauthorized: valid x-api-key header required" };
-      }
-      const { url, secret } = req.body ?? {};
-      if (!url || !secret) {
-        reply.code(400);
-        return { error: "url and secret are required" };
-      }
-      const webhook = await db.webhook.create({ data: { url, secret } });
-      reply.code(201);
-      return { id: webhook.id, url: webhook.url, active: webhook.active };
-    }
-  );
-
-  fastify.delete<{ Params: { id: string } }>(
-    "/webhooks/:id",
-    async (req, reply) => {
-      const apiKey = req.headers["x-api-key"] as string | undefined;
-      const expectedKey = process.env.API_KEY;
-      if (expectedKey && apiKey !== expectedKey) {
-        reply.code(401);
-        return { error: "Unauthorized: valid x-api-key header required" };
-      }
-      try {
-        await db.webhook.delete({ where: { id: req.params.id } });
-        reply.code(204);
-        return;
-      } catch {
-        reply.code(404);
-        return { error: "Webhook not found" };
-      }
-    }
-  );
-
-  fastify.post<{ Querystring: { from?: string } }>(
-    "/admin/reindex",
-    async (req, reply) => {
-      const apiKey = req.headers["x-api-key"] as string | undefined;
-      const expectedKey = process.env.API_KEY;
-      if (expectedKey && apiKey !== expectedKey) {
-        reply.code(401);
-        return { error: "Unauthorized: valid x-api-key header required" };
-      }
-      const from = req.query.from ? parseInt(req.query.from, 10) : getLastLedger();
-      if (isNaN(from) || from < 0) {
-        reply.code(400);
-        return { error: "Invalid 'from' ledger number" };
-      }
-      reindex(db, from).catch((err) => {
-        logger.error({ err }, "Reindex error");
-      });
-      reply.code(202);
-      return { message: `Reindex started from ledger ${from}` };
-    }
-  );
-
-  fastify.get<{
-    Querystring: { status?: string; eventType?: string; limit?: string; offset?: string; sort?: string };
-  }>("/admin/webhook-failures", async (req, reply) => {
-    const apiKey = req.headers["x-api-key"] as string | undefined;
-    const expectedKey = process.env.API_KEY;
-    if (expectedKey && apiKey !== expectedKey) {
-      reply.code(401);
-      return { error: "Unauthorized: valid x-api-key header required" };
-    }
-    const { status, eventType, limit: limitStr, offset: offsetStr, sort } = req.query;
-    const limit = Math.min(parseInt(limitStr ?? "50", 10) || 50, 200);
-    const offset = parseInt(offsetStr ?? "0", 10) || 0;
-    const orderBy = sort === "asc" ? "asc" : "desc";
-
-    const where: Record<string, unknown> = {};
-    if (status) {
-      if (!["FAILED", "RETRYING", "RECOVERED"].includes(status)) {
-        reply.code(400);
-        return { error: "Invalid status filter" };
-      }
-      where.status = status;
-    }
-    if (eventType) where.eventType = eventType;
-
-    const [items, total] = await Promise.all([
-      db.webhookFailure.findMany({
-        where,
-        orderBy: { failedAt: orderBy },
-        skip: offset,
-        take: limit,
-        select: {
-          id: true, webhookId: true, url: true, eventType: true,
-          statusCode: true, errorMessage: true, attemptCount: true,
-          status: true, failedAt: true, resolvedAt: true, updatedAt: true,
-        },
-      }),
-      db.webhookFailure.count({ where }),
-    ]);
-
-    return { items, total, limit, offset };
-  });
-
-  fastify.post<{ Params: { id: string } }>(
-    "/admin/retry-webhook/:id",
-    async (req, reply) => {
-      const { id } = req.params;
-      if (!id) {
-        reply.code(400);
-        return { error: "Missing failure id" };
-      }
-      const { replayFailure } = await import("./webhooks");
-      const result = await replayFailure(db, id);
-      if (result.error === "Not found") {
-        reply.code(404);
-        return { error: "Webhook failure record not found" };
-      }
-      if (result.error === "Retry already in progress") {
-        reply.code(409);
-        return { error: result.error };
-      }
-      if (result.success) {
-        return { success: true, statusCode: result.statusCode };
-      }
-      reply.code(502);
-      return { success: false, statusCode: result.statusCode, error: result.error };
-    }
-  );
-
+  const fastify = buildRestServer(db);
   const REST_PORT = Number(process.env.PORT ?? 3000);
   await fastify.listen({ port: REST_PORT, host: "0.0.0.0" });
 
