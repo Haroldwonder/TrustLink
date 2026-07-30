@@ -975,6 +975,10 @@ New to TrustLink or Soroban? Watch the [TrustLink Video Tutorial](https://www.yo
 
 A companion written guide with all commands and code snippets is available at [docs/video-tutorial-guide.md](docs/video-tutorial-guide.md).
 
+## Quickstart & Glossary
+
+New to TrustLink? [docs/quickstart.md](docs/quickstart.md) gets you from clone to a verified claim in a few minutes, and [docs/glossary.md](docs/glossary.md) covers the key terms used throughout these docs. Both are also available in [Español](docs/i18n/es/quickstart.md) ([glosario](docs/i18n/es/glossary.md)) — see [docs/i18n/](docs/i18n/) for the translation directory convention.
+
 ## Integration Guide
 
 For a step-by-step walkthrough covering Rust cross-contract patterns, JavaScript/TypeScript usage, error handling, and testnet testing, see [docs/integration-guide.md](docs/integration-guide.md).

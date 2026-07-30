@@ -36,6 +36,10 @@ pre-commit run cargo-fmt     # check one hook by id
 
 Before diving in, read [docs/stellar-concepts.md](docs/stellar-concepts.md) for a beginner-friendly explanation of ledger timestamps, storage TTL, `require_auth`, and the WASM deployment model — concepts that come up throughout the codebase.
 
+## Not sure where to start?
+
+See [docs/good-first-issues.md](docs/good-first-issues.md) for concrete starter tasks across the contract, SDKs, indexer, examples, and docs.
+
 ## Prerequisites
 
 | Tool          | Version                            | Install                                    |
@@ -413,6 +417,19 @@ cargo audit --advisory RUSTSEC-YYYY-NNNNN
 - Review changelogs before major version updates
 - Test thoroughly after updates
 - Document breaking changes in PR description
+
+## Maintainer Response-Time SLA
+
+To set clear expectations for contributors, maintainers aim to respond within the following timeframes. "Respond" means an initial triage comment, label, or reaction — not necessarily a full resolution.
+
+| Item | First response |
+|------|-----------------|
+| New issue (bug, feature, question, docs) | Within 5 business days |
+| New pull request | Within 5 business days |
+| Follow-up comment on an open issue/PR | Within 5 business days |
+| Security report (see [Reporting Security Issues](README.md#reporting-security-issues)) | Follows the dedicated security disclosure process, not this table |
+
+These are targets, not guarantees — response times may be longer around releases or during maintainer availability gaps. If you haven't heard back after the window above, a polite ping on the issue/PR is welcome.
 
 ## Reporting Issues
 
