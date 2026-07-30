@@ -1,177 +1,67 @@
-# Branch Protection Rules
+# Branch Protection
 
-This document outlines the required status checks and branch protection rules for the TrustLink repository, ensuring a green `main` branch and preventing integration failures.
+This document records the intended branch-protection configuration for
+`main`, the repository's only long-lived branch. It exists so that CI/CD
+and review-process changes can be checked against an agreed-upon policy
+instead of tribal knowledge, and so anyone auditing the repository's
+GitHub settings has something to diff against.
 
-## Overview
+> **Maintainers:** if GitHub's settings ever drift from this document,
+> either update the settings to match or update this document to match —
+> don't let them silently diverge. See [Verifying the Configuration](#verifying-the-configuration).
 
-Branch protection on `main` requires all PRs to pass automated checks before merge. This prevents broken builds from reaching production and ensures code quality standards are maintained.
+## Protected Branch
+
+- `main`
 
 ## Required Status Checks
 
-The following CI workflows are **required** to pass before merge:
+Pull requests must pass the following checks before merging, based on the
+workflows defined in [`.github/workflows/`](../.github/workflows):
 
-### 1. **Check** (`check`)
-- **Job**: Runs `cargo check --workspace --all-targets`
-- **Purpose**: Fast, early compilation check to catch syntax errors and type mismatches
-- **Failure**: Blocks merge immediately (fails before expensive tests)
-- **Added**: Issue #927
+| Check | Workflow | Why it's required |
+|---|---|---|
+| `Build and Test` | [`ci.yml`](../.github/workflows/ci.yml) (`ci` job) | Compiles the contract, runs the full test suite, and verifies snapshot files are up to date |
+| `Security Audit` | [`ci.yml`](../.github/workflows/ci.yml) (`audit` job) | Runs `cargo audit --deny warnings`; see [`docs/dependency-security.md`](dependency-security.md) |
+| `WASM Size Check` | [`ci.yml`](../.github/workflows/ci.yml) (`wasm-size` job) | Blocks merges that push the optimized WASM binary over the 100 KB threshold |
+| `TypeScript Bindings` | [`ci.yml`](../.github/workflows/ci.yml) (`bindings` job) | Fails if `bindings/typescript/` is out of sync with the contract interface |
+| `Check Conventional Commits` | [`validate-commits.yml`](../.github/workflows/validate-commits.yml) | Enforces the PR title format described in [CONTRIBUTING.md](../CONTRIBUTING.md#commit-message-conventions), which Release Please depends on |
 
-### 2. **Lint** (`lint`)
-- **Job**: Runs `cargo clippy --all-targets -- -D warnings`
-- **Purpose**: Static analysis and code quality checks
-- **Failure**: Blocks merge (warnings treated as errors)
-- **Depends on**: `check` job (must pass first)
+Branches must be up to date with `main` before merging, so these checks run
+against the code that will actually land.
 
-### 3. **Build and Test** (`ci`)
-- **Job**: Runs `cargo test` and full test suite
-- **Purpose**: Verifies correctness of implementation
-- **Coverage**: Requires 80% line coverage (`cargo llvm-cov --fail-under-lines 80`)
-- **Snapshots**: Verifies test snapshots are up-to-date
-- **Failure**: Blocks merge if tests fail or coverage drops
-- **Depends on**: `check` job (must pass first)
+## Review Requirements
 
-### 4. **Security Audit** (`audit`)
-- **Job**: Runs `cargo audit --deny warnings`
-- **Purpose**: Scans dependencies for known security vulnerabilities
-- **Failure**: Blocks merge if vulnerabilities found
-- **Runs independently**: Does not depend on other jobs (for early detection)
+- At least **one approving review** is required before merging (see
+  [CONTRIBUTING.md § PR Process](../CONTRIBUTING.md#pr-process)).
+- New commits pushed to a PR dismiss stale approvals — reviewers should
+  re-review after force-pushes.
+- Conversation resolution is required: all review comments must be marked
+  resolved before merging.
 
-### 5. **TypeScript Bindings** (`bindings`)
-- **Job**: Runs `make bindings` and verifies bindings are up-to-date
-- **Purpose**: Ensures generated TypeScript bindings match Rust contract
-- **Failure**: Blocks merge if bindings are stale
-- **Depends on**: `ci` job (build artifacts required)
+## Merge Rules
 
-### 6. **WASM Size Check** (`wasm-size`)
-- **Job**: Builds and optimizes WASM with `wasm-opt -Oz`
-- **Purpose**: Enforces 100 KB WASM binary limit
-- **Failure**: Blocks merge if optimized WASM exceeds limit
-- **Depends on**: `ci` job (requires successful build)
+- **Allowed merge strategies**: "Squash and merge" or "Create a merge
+  commit". "Rebase and merge" is disallowed — it would strip the metadata
+  Release Please uses to generate changelogs.
+- **Force pushes to `main`** are disallowed.
+- **Deletion of `main`** is disallowed.
+- Administrators are expected to follow the same rules as everyone else;
+  the "include administrators" option should be enabled.
 
-## Configuration
+## Verifying the Configuration
 
-### GitHub Branch Protection Rules
+To confirm GitHub's actual settings match this document, a maintainer with
+repository admin access should check **Settings → Branches → Branch
+protection rules → `main`** and confirm:
 
-The following repository settings should be configured:
+1. The required status checks listed above are all enabled and set to
+   "must be up to date before merging".
+2. Required approvals is set to at least `1`.
+3. "Do not allow bypassing the above settings" (include administrators) is
+   enabled.
+4. Force pushes and branch deletion are both disallowed.
 
-```
-Settings > Branches > Branch protection rules > main
-
-[x] Require a pull request before merging
-    [x] Require approvals (minimum 1)
-    [x] Require status checks to pass before merging
-    [x] Require branches to be up to date before merging
-
-    Required status checks (must pass):
-    - check
-    - lint
-    - audit
-    - ci
-    - bindings
-    - wasm-size
-
-[x] Require code reviews before merging
-[x] Require conversation resolution before merging
-[x] Require signed commits
-[x] Dismiss stale pull request approvals when new commits are pushed
-[x] Require administrators to follow the same rules
-[x] Restrict who can push to matching branches
-```
-
-### Workflow Execution
-
-- All workflows are triggered on:
-  - **`push` to `main`**: Runs post-merge verification
-  - **Pull requests**: Blocks merge until all checks pass
-  
-- Jobs run concurrently where possible:
-  - `audit` and `check` run independently in parallel
-  - `lint` depends on `check`
-  - `ci` depends on `check`
-  - `bindings` depends on `ci`
-  - `wasm-size` depends on `ci`
-  - `pr-size-comment` depends on `wasm-size`
-
-## Incident: Issue #926
-
-On 2026-07-28, a merge introduced 172 compilation errors that reached `main` despite CI. Analysis revealed:
-
-**Root Causes:**
-1. No early `cargo check` job to fail fast before expensive builds
-2. Branch protection may not have been configured as required
-3. Possible CI bypass or check was not actually enforced
-
-**Resolution:**
-1. Added `check` job (Issue #927) for fast compilation validation
-2. Documented this branch protection policy (Issue #926)
-3. Verified all status checks are actually required on `main`
-4. Added explicit `needs:` dependencies to prevent job skip
-
-## CI Workflow Execution Order
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│ GitHub Actions triggered on push/PR                         │
-└─────────────────────────────────────────────────────────────┘
-                          ↓
-         ┌────────────────┬────────────────┐
-         ↓                ↓                ↓
-     [check]         [audit]          [wasm-size]
-   (cargo check) (cargo audit)      (depends on: ci)
-         ↓
-     [lint]
-   (cargo clippy)
-         ↓
-     [ci]
-   (cargo test + coverage)
-         ↓
-     [bindings]
-   (make bindings)
-         ↓
-   [pr-size-comment]
-   (posts WASM size to PR)
-```
-
-## Bypassing Branch Protection
-
-Administrators can bypass branch protection, but:
-
-1. **This is an explicit action** requiring confirmation
-2. **A security audit trail is created** in repository logs
-3. **This should be rare** — only in critical situations (e.g., security hotfix)
-4. **Always create a post-mortem** documenting why the bypass was necessary
-
-## Contributing
-
-When submitting PRs:
-
-1. Ensure your local `cargo check --workspace` passes before pushing
-2. Wait for all CI checks to pass (typically 5-10 minutes)
-3. If `check` fails, fix compilation errors immediately
-4. If `lint` fails, run `cargo clippy` locally and fix warnings
-5. If `ci` fails, run `cargo test` locally and fix failing tests
-6. If coverage drops, add tests to maintain ≥80% line coverage
-
-## Troubleshooting
-
-### PR is blocked by "check" job
-- **Solution**: Fix compilation errors with `cargo check --workspace`
-- **Common causes**: Type mismatches, missing imports, syntax errors
-
-### PR is blocked by "lint" job
-- **Solution**: Run `cargo clippy --fix` and commit the fixes
-- **Common causes**: Unused variables, lint warnings
-
-### PR is blocked by "ci" job
-- **Solution**: Run `cargo test` locally and fix failing tests
-- **Common causes**: Logic errors, test assumptions, environment setup
-
-### WASM size exceeds limit
-- **Solution**: Optimize code or split functionality into separate contracts
-- **Common causes**: Feature bloat, unused dependencies, unoptimized code
-
-## Related Documentation
-
-- [CI Workflow](../.github/workflows/ci.yml) — Source of truth for CI configuration
-- [Mainnet Runbook](./mainnet-runbook.md) — Production deployment guide
-- [Contributing Guide](../CONTRIBUTING.md) — How to contribute to TrustLink
+If any setting differs, either the GitHub configuration or this document
+should be updated so the two stay in sync — see the note at the top of
+this file.

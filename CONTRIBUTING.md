@@ -682,6 +682,17 @@ cargo audit --advisory RUSTSEC-YYYY-NNNNN
 - Test thoroughly after updates
 - Document breaking changes in PR description
 
+## Proposing Significant Changes (RFCs)
+
+For changes large enough to benefit from discussion before any code is
+written — new storage layouts, public contract interface changes, new
+workflows, or anything with backward-compatibility implications — open an
+RFC instead of jumping straight to a PR. See [docs/rfcs/README.md](docs/rfcs/README.md)
+for the process and [docs/rfcs/TEMPLATE.md](docs/rfcs/TEMPLATE.md) for the
+template. RFCs capture pre-implementation discussion; once a proposal is
+accepted and built, it's typically followed by an [ADR](docs/adr/README.md)
+recording the final decision.
+
 ## Maintainer Response-Time SLA
 
 To set clear expectations for contributors, maintainers aim to respond within the following timeframes. "Respond" means an initial triage comment, label, or reaction — not necessarily a full resolution.

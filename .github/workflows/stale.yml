@@ -1,0 +1,45 @@
+name: Stale Issue Triage
+
+on:
+  schedule:
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+
+jobs:
+  stale:
+    name: Mark and Close Stale Issues
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/stale@v9
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+          days-before-issue-stale: 60
+          days-before-issue-close: 14
+          stale-issue-label: "stale"
+          stale-issue-message: >
+            This issue has been automatically marked as stale because it has
+            had no activity for 60 days. It will be closed in 14 days if no
+            further activity occurs. Remove the `stale` label or comment to
+            keep it open.
+          close-issue-message: >
+            This issue was closed automatically after 14 days of inactivity
+            following the stale warning. Feel free to reopen if it's still
+            relevant.
+          exempt-issue-labels: "high-priority,security,pinned"
+
+          # Pull requests are not auto-closed, only flagged, so reviewers
+          # don't lose in-progress work to inactivity alone.
+          days-before-pr-stale: 30
+          days-before-pr-close: -1
+          stale-pr-label: "stale"
+          stale-pr-message: >
+            This pull request has been automatically marked as stale because
+            it has had no activity for 30 days. Remove the `stale` label or
+            push a commit to keep it open.
+          exempt-pr-labels: "high-priority,security,pinned"
+
+          operations-per-run: 100
