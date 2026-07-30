@@ -877,6 +877,7 @@ For the pre-mainnet line-by-line authorization audit, see
 ## Use Cases
 
 - **DeFi Protocols**: Verify KYC before lending/borrowing
+- **Lending Pool**: IssuerTier-gated LTV and liquidation thresholds — see [examples/lending-pool/README.md](examples/lending-pool/README.md)
 - **Token Sales**: Ensure accredited investor status
 - **Payment Systems**: Verify merchant credentials
 - **Governance**: Validate voter eligibility
