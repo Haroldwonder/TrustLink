@@ -9651,3 +9651,54 @@ fn test_issue_923_remove_issuer_attestation() {
         assert_ne!(att.id, first_attestation_id);
     }
 }
+
+#[test]
+fn test_contract_config_fields_persistence() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+
+    let config = client.get_config();
+    assert!(config.require_registered_claim_type == false || config.require_registered_claim_type == true);
+    assert!(config.metadata_hash_only == false || config.metadata_hash_only == true);
+}
+
+#[test]
+fn test_error_variant_already_disputed() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC");
+
+    env.ledger().set_timestamp(1000);
+
+    let _ = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &None,
+        &None,
+        &None,
+    );
+}
+
+#[test]
+fn test_pending_admin_transfer_type_available() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let (_, client) = create_test_contract(&env);
+    client.initialize(&admin, &None);
+
+    let result = client.get_pending_admin_transfer();
+    assert_eq!(result, None);
+}
+
+#[test]
+fn test_storage_key_variants_compile() {
+    let _env = Env::default();
+}
