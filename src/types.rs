@@ -31,6 +31,44 @@ pub struct Attestation {
     pub revoked: bool,
     pub metadata: Option<String>,
     pub valid_from: Option<u64>,
+    pub origin: AttestationOrigin,
+    pub source_chain: Option<String>,
+    pub source_tx: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub revocation_reason: Option<String>,
+    pub deleted: bool,
+    /// Optional: shared bundle ID if this attestation was created as part of a bundle.
+    /// Allows verifiers to confirm a set of claims were issued atomically.
+    pub bundle_id: Option<String>,
+}
+
+/// Metadata for a bundle of attestations issued atomically.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AttestationBundle {
+    /// Unique bundle identifier (SHA256 of issuer + subject + claim_types + timestamp)
+    pub id: String,
+    /// Issuer who created the bundle
+    pub issuer: Address,
+    /// Subject to whom all attestations in the bundle were issued
+    pub subject: Address,
+    /// List of claim types in the bundle (fixed order for deterministic ID)
+    pub claim_types: Vec<String>,
+    /// Timestamp when the bundle was created
+    pub timestamp: u64,
+    /// IDs of all attestations in this bundle (in same order as claim_types)
+    pub attestation_ids: Vec<String>,
+    /// Whether all attestations in the bundle are still valid (none revoked)
+    pub all_valid: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AttestationStatus {
+    Valid,
+    Expired,
+    Revoked,
+    Pending,
 }
 
 #[contracttype]

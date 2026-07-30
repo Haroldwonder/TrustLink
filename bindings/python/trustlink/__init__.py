@@ -6,6 +6,7 @@ from .types import (
     Attestation,
     AttestationStatus,
     AttestationTemplate,
+    AttestationBundle,
     ClaimTypeInfo,
     ContractConfig,
     ContractMetadata,
@@ -33,6 +34,16 @@ from .event_subscriptions import (
     subscribe_to_graphql_events,
     EventSubscription,
 )
+from .bundle_helpers import (
+    BundleOptions,
+    verify_attestations_in_same_bundle,
+    verify_bundle_claim_types,
+    verify_bundle_size,
+    verify_bundle_subjects,
+    verify_bundle_issuer,
+    get_bundle_summary,
+    group_attestations_by_bundle,
+)
 
 __version__ = "0.1.0"
 __all__ = [
@@ -41,6 +52,7 @@ __all__ = [
     "Attestation",
     "AttestationStatus",
     "AttestationTemplate",
+    "AttestationBundle",
     "ClaimTypeInfo",
     "ContractConfig",
     "ContractMetadata",
@@ -63,4 +75,12 @@ __all__ = [
     "subscribe_to_direct_ledger_events",
     "subscribe_to_graphql_events",
     "EventSubscription",
+    "BundleOptions",
+    "verify_attestations_in_same_bundle",
+    "verify_bundle_claim_types",
+    "verify_bundle_size",
+    "verify_bundle_subjects",
+    "verify_bundle_issuer",
+    "get_bundle_summary",
+    "group_attestations_by_bundle",
 ]
