@@ -9042,3 +9042,238 @@ fn test_expiring_attestations_pagination_works_for_both() {
     assert_eq!(subject_page1.get(0).unwrap().id, issuer_page1.get(0).unwrap().id);
     assert_eq!(subject_page2.get(0).unwrap().id, issuer_page2.get(0).unwrap().id);
 }
+
+// ── Issue #942: Cursor pagination tie-break ordering ────────────────────────
+
+#[test]
+fn test_get_attestations_in_range_after_tie_break_ordering_by_id() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    env.ledger().set_timestamp(5000);
+
+    let _id1 = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &None,
+        &None,
+        &None,
+    );
+
+    let _id2 = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &None,
+        &None,
+        &None,
+    );
+
+    let _id3 = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &None,
+        &None,
+        &None,
+    );
+
+    let all = client.get_attestations_in_range(&subject, &5000, &6000, &0, &10);
+    assert_eq!(all.len(), 3);
+
+    let page1 = client.get_attestations_in_range_after(&subject, &5000, &6000, &None, &2);
+    assert_eq!(page1.len(), 2);
+    let first_cursor_id = page1.get(1).unwrap().id.clone();
+
+    let page2 = client.get_attestations_in_range_after(&subject, &5000, &6000, &Some(first_cursor_id), &2);
+    assert_eq!(page2.len(), 1);
+
+    let mut page1_ids = soroban_sdk::Vec::new(&env);
+    for att in page1.iter() {
+        page1_ids.push_back(att.id.clone());
+    }
+
+    for page2_id in page2.iter() {
+        for page1_id in page1_ids.iter() {
+            assert_ne!(page1_id, &page2_id.id, "ID appeared in both pages");
+        }
+    }
+}
+
+// ── Issue #943: Claim check functions optimization ───────────────────────────
+
+#[test]
+fn test_has_valid_claim_from_issuer_returns_true_for_valid() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+
+    assert!(client.has_valid_claim_from_issuer(&subject, &claim_type, &issuer));
+}
+
+#[test]
+fn test_has_valid_claim_from_issuer_returns_false_for_different_issuer() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let other_issuer = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+
+    assert!(!client.has_valid_claim_from_issuer(&subject, &claim_type, &other_issuer));
+}
+
+#[test]
+fn test_has_any_claim_returns_true_when_any_exists() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type1 = String::from_str(&env, "KYC_PASSED");
+    let claim_type2 = String::from_str(&env, "ACCREDITED");
+
+    client.create_attestation(&issuer, &subject, &claim_type1, &None, &None, &None);
+
+    let mut claim_types = soroban_sdk::Vec::new(&env);
+    claim_types.push_back(claim_type2.clone());
+    claim_types.push_back(claim_type1.clone());
+
+    assert!(client.has_any_claim(&subject, &claim_types));
+}
+
+#[test]
+fn test_has_any_claim_returns_false_when_none_exist() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type1 = String::from_str(&env, "KYC_PASSED");
+    let claim_type2 = String::from_str(&env, "ACCREDITED");
+    let claim_type3 = String::from_str(&env, "VERIFIED");
+
+    client.create_attestation(&issuer, &subject, &claim_type1, &None, &None, &None);
+
+    let mut claim_types = soroban_sdk::Vec::new(&env);
+    claim_types.push_back(claim_type2.clone());
+    claim_types.push_back(claim_type3.clone());
+
+    assert!(!client.has_any_claim(&subject, &claim_types));
+}
+
+#[test]
+fn test_has_all_claims_returns_true_when_all_exist() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type1 = String::from_str(&env, "KYC_PASSED");
+    let claim_type2 = String::from_str(&env, "ACCREDITED");
+
+    client.create_attestation(&issuer, &subject, &claim_type1, &None, &None, &None);
+    env.ledger().with_mut(|l| l.timestamp += 1);
+    client.create_attestation(&issuer, &subject, &claim_type2, &None, &None, &None);
+
+    let mut claim_types = soroban_sdk::Vec::new(&env);
+    claim_types.push_back(claim_type1.clone());
+    claim_types.push_back(claim_type2.clone());
+
+    assert!(client.has_all_claims(&subject, &claim_types));
+}
+
+#[test]
+fn test_has_all_claims_returns_false_when_not_all_exist() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type1 = String::from_str(&env, "KYC_PASSED");
+    let claim_type2 = String::from_str(&env, "ACCREDITED");
+    let claim_type3 = String::from_str(&env, "VERIFIED");
+
+    client.create_attestation(&issuer, &subject, &claim_type1, &None, &None, &None);
+    env.ledger().with_mut(|l| l.timestamp += 1);
+    client.create_attestation(&issuer, &subject, &claim_type2, &None, &None, &None);
+
+    let mut claim_types = soroban_sdk::Vec::new(&env);
+    claim_types.push_back(claim_type1.clone());
+    claim_types.push_back(claim_type2.clone());
+    claim_types.push_back(claim_type3.clone());
+
+    assert!(!client.has_all_claims(&subject, &claim_types));
+}
+
+// ── Issue #944: Distinguish decay configured vs unconfigured ──────────────────
+
+#[test]
+fn test_is_decay_config_set_false_when_not_configured() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, _, client) = setup(&env);
+
+    assert!(!client.is_decay_config_set());
+}
+
+#[test]
+fn test_is_decay_config_set_true_after_configuration() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let config = types::DecayConfig {
+        half_life_days: 90,
+        revocation_weight: 50,
+    };
+
+    client.set_decay_config(&admin, &config);
+    assert!(client.is_decay_config_set());
+}
+
+#[test]
+fn test_get_confidence_score_works_when_decay_configured() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    env.ledger().set_timestamp(1000);
+    let attestation_id = client.create_attestation(
+        &issuer,
+        &subject,
+        &claim_type,
+        &None,
+        &None,
+        &None,
+    );
+
+    let score_before = client.get_confidence_score(&attestation_id);
+    assert!(score_before.is_some());
+
+    let config = types::DecayConfig {
+        half_life_days: 90,
+        revocation_weight: 50,
+    };
+    client.set_decay_config(&admin, &config);
+
+    let score_after = client.get_confidence_score(&attestation_id);
+    assert!(score_after.is_some());
+}

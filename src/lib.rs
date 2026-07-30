@@ -30,12 +30,6 @@ pub(crate) mod callback {
     }
 }
 
-use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String, Vec};
-use types::{Attestation, AttestationStatus, ClaimTypeInfo, ContractMetadata, Error, IssuerMetadata};
-use storage::Storage;
-use validation::Validation;
-use events::Events;
-
 use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::{
@@ -146,6 +140,11 @@ impl TrustLinkContract {
     #[must_use]
     pub fn get_decay_config(env: Env) -> DecayConfig {
         admin::get_decay_config(&env)
+    }
+
+    #[must_use]
+    pub fn is_decay_config_set(env: Env) -> bool {
+        admin::is_decay_config_set(&env)
     }
 
     pub fn get_issuer_metadata(env: Env, issuer: Address) -> Option<IssuerMetadata> {
@@ -666,25 +665,23 @@ impl TrustLinkContract {
         query::get_valid_claim_count(&env, subject)
     }
 
-    #[must_use]
     pub fn get_expiring_attestations(
         env: Env,
         subject: Address,
         within_days: u32,
         start: u32,
         limit: u32,
-    ) -> Vec<Attestation> {
+    ) -> Result<Vec<Attestation>, Error> {
         query::get_expiring_attestations(&env, subject, within_days, start, limit)
     }
 
-    #[must_use]
     pub fn get_issuer_expiring_attestations(
         env: Env,
         issuer: Address,
         days_window: u32,
         start: u32,
         limit: u32,
-    ) -> Vec<Attestation> {
+    ) -> Result<Vec<Attestation>, Error> {
         query::get_issuer_expiring_attestations(&env, issuer, days_window, start, limit)
     }
 
