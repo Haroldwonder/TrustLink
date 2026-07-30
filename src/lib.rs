@@ -30,7 +30,11 @@ pub(crate) mod callback {
     }
 }
 
-use soroban_sdk::{contract, contractimpl, Address, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, String, Vec};
+use types::{Attestation, AttestationStatus, ClaimTypeInfo, ContractMetadata, Error, IssuerMetadata};
+use storage::Storage;
+use validation::Validation;
+use events::Events;
 
 use crate::events::Events;
 use crate::storage::Storage;
@@ -393,18 +397,17 @@ impl TrustLinkContract {
         attestation::create_attestation(&env, issuer, subject, claim_type, expiration, metadata, tags)
     }
 
-    pub fn create_attestation_valid_from(
-        env: Env,
-        issuer: Address,
-        subject: Address,
-        claim_type: String,
-        expiration: Option<u64>,
-        metadata: Option<String>,
-        tags: Option<Vec<String>>,
-        valid_from: u64,
-    ) -> Result<String, Error> {
-        attestation::create_attestation_valid_from(&env, issuer, subject, claim_type, expiration, metadata, tags, valid_from)
-    }
+        let attestation = Attestation {
+            id: attestation_id.clone(),
+            issuer: issuer.clone(),
+            subject: subject.clone(),
+            claim_type: claim_type.clone(),
+            timestamp,
+            expiration,
+            revoked: false,
+            metadata,
+            valid_from: None,
+        };
 
     pub fn create_attestation_jurisdiction(
         env: Env,
@@ -472,9 +475,25 @@ impl TrustLinkContract {
         attestation::renew_attestation(&env, issuer, attestation_id, new_expiration)
     }
 
-    pub fn revoke_attestations_batch(env: Env, issuer: Address, attestation_ids: Vec<String>, reason: Option<String>) -> Result<u32, Error> {
-        attestation::revoke_attestations_batch(&env, issuer, attestation_ids, reason)
-    }
+            let attestation = Attestation {
+                id: attestation_id.clone(),
+                issuer: issuer.clone(),
+                subject: subject.clone(),
+                claim_type: claim_type.clone(),
+                timestamp,
+                expiration,
+                revoked: false,
+                metadata: None,
+                valid_from: None,
+            };
+
+            Storage::set_attestation(&env, &attestation);
+            Storage::add_subject_attestation(&env, &subject, &attestation_id);
+            Storage::add_issuer_attestation(&env, &issuer, &attestation_id);
+            Events::attestation_created(&env, &attestation);
+
+            ids.push_back(attestation_id);
+        }
 
     pub fn update_expiration(env: Env, issuer: Address, attestation_id: String, new_expiration: Option<u64>) -> Result<(), Error> {
         attestation::update_expiration(&env, issuer, attestation_id, new_expiration)
@@ -807,20 +826,7 @@ impl TrustLinkContract {
         request::reject_request(&env, issuer, request_id, reason)
     }
 
-    pub fn get_pending_requests(env: Env, issuer: Address, start: u32, limit: u32) -> Vec<AttestationRequest> {
-        request::get_pending_requests(&env, issuer, start, limit)
-    }
-
-    pub fn get_request(env: Env, request_id: String) -> Result<AttestationRequest, Error> {
-        request::get_request(&env, request_id)
-    }
-
-    /// Return the configured multisig proposal TTL in days (default: 7).
-    pub fn get_multisig_ttl(env: Env) -> u32 {
-        Storage::get_multisig_ttl(&env)
-    }
-
-    /// Set the multisig proposal TTL in days (admin only).
+    /// Fetch the full attestation record by ID.
     ///
     /// # Errors
     /// - [`Error::Unauthorized`] — caller is not the admin.
