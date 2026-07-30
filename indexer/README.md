@@ -46,6 +46,7 @@ Copy `.env.example` to `.env` and fill in the values:
 | `START_LEDGER`                | Override starting ledger (overrides stored checkpoint)        | —                                     |
 | `PORT`                        | HTTP port for the REST API                                    | `3000`                                |
 | `GQL_PORT`                    | HTTP/WS port for the GraphQL API                              | `4000`                                |
+| `REDIS_URL`                   | Redis connection URL used for the GraphQL subscription PubSub bus | `redis://localhost:6379`          |
 | `LOG_LEVEL`                   | Pino log level (`trace` \| `debug` \| `info` \| `warn` \| `error`) | `info`                          |
 | `GRAPHQL_API_KEYS`            | Comma-separated API keys for GraphQL auth; unset = disabled   | —                                     |
 | `GRAPHQL_MAX_DEPTH`           | Maximum GraphQL query depth                                   | `7`                                   |

@@ -9,3 +9,4 @@ data:
   PORT: {{ .Values.port | quote }}
   CONTRACT_ID: {{ required "contractId is required" .Values.contractId | quote }}
   GENESIS_LEDGER: {{ .Values.genesisLedger | quote }}
+  REDIS_URL: {{ .Values.redisUrl | quote }}

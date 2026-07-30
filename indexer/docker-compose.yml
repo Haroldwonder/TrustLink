@@ -43,6 +43,7 @@ services:
       RPC_URL: ${RPC_URL:-https://soroban-testnet.stellar.org}
       GENESIS_LEDGER: ${GENESIS_LEDGER:-0}
       PORT: 3000
+      REDIS_URL: redis://redis:6379
     ports:
       - "3000:3000"
 
