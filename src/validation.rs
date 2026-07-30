@@ -117,6 +117,51 @@ impl Validation {
         Ok(())
     }
 
+    /// Pre-flight interface/version compatibility guard for state-changing
+    /// entry points (issue #952).
+    ///
+    /// `get_version()`/`get_contract_metadata()` expose the deployed
+    /// contract's version, but nothing on the write path previously
+    /// validated a caller's *expected* version before executing a
+    /// state-changing call. After a contract upgrade that changes a
+    /// function's argument shape or semantics, an out-of-date SDK could
+    /// submit a transaction that either fails confusingly or, worse,
+    /// succeeds with different semantics than the caller assumed.
+    ///
+    /// ## Pattern for SDK authors
+    ///
+    /// Entry points that want this guard accept an additional
+    /// `expected_version: Option<String>` parameter (see
+    /// `create_attestation_versioned` for a worked example) and call this
+    /// function first, before any other validation or state mutation. SDKs
+    /// should:
+    ///
+    /// 1. Call `get_version()` once after deploying/connecting, and cache it.
+    /// 2. Pass that cached value as `expected_version` on subsequent
+    ///    state-changing calls that accept it.
+    /// 3. On [`Error::VersionMismatch`], refresh the cached version via
+    ///    `get_version()`, regenerate the call using the SDK version that
+    ///    matches, and prompt the caller to retry — rather than assuming the
+    ///    original call's argument shape and semantics still apply.
+    ///
+    /// Passing `None` skips the check entirely, preserving backward
+    /// compatibility for callers that don't yet track contract versions.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] — the contract has no stored version yet.
+    /// - [`Error::VersionMismatch`] — `expected_version` is `Some` and does
+    ///   not match the contract's currently deployed version.
+    pub fn require_version_match(env: &Env, expected_version: &Option<String>) -> Result<(), Error> {
+        let Some(expected) = expected_version else {
+            return Ok(());
+        };
+        let actual = Storage::get_version(env).ok_or(Error::NotInitialized)?;
+        if expected != &actual {
+            return Err(Error::VersionMismatch);
+        }
+        Ok(())
+    }
+
     /// Validate a `claim_type` string.
     ///
     /// # Rules

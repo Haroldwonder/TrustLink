@@ -85,4 +85,9 @@ pub enum Error {
     InvalidChunkSize = 45,
     /// Claim type is not in the registry when registration is required.
     NotRegisteredClaimType = 46,
+    /// The caller's `expected_version` argument does not match the contract's
+    /// currently deployed version, as returned by `get_version()`. Returned
+    /// by state-changing entry points that opt into the version-guard
+    /// pattern documented on [`crate::validation::Validation::require_version_match`].
+    VersionMismatch = 47,
 }
