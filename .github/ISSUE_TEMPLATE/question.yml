@@ -1,0 +1,37 @@
+name: "❓ Question / Support"
+description: Ask a question or get help using TrustLink
+title: "[Question]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for usage questions or support requests. For bugs, please use the Bug Report template instead.
+  - type: textarea
+    id: question
+    attributes:
+      label: What's your question?
+      description: Be as specific as possible.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What are you trying to accomplish? Include relevant code, config, or contract addresses.
+    validations:
+      required: false
+  - type: input
+    id: area
+    attributes:
+      label: Area
+      description: Which part of TrustLink does this relate to? (e.g. contract, TypeScript SDK, Python SDK, indexer, examples, docs)
+    validations:
+      required: false
+  - type: textarea
+    id: attempts
+    attributes:
+      label: What have you already tried?
+      description: Docs read, approaches attempted, etc.
+    validations:
+      required: false
