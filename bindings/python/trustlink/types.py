@@ -112,40 +112,9 @@ class ContractError(TrustLinkError):
         super().__init__(f"Contract error #{code}: {message}")
 
 
-# Contract error codes — must stay in sync with sdk/error-codes.json and src/errors.rs
-CONTRACT_ERRORS = {
-    1: "AlreadyInitialized",
-    2: "NotInitialized",
-    3: "Unauthorized",
-    4: "NotFound",
-    5: "DuplicateAttestation",
-    6: "AlreadyRevoked",
-    7: "Expired",
-    8: "InvalidValidFrom",
-    9: "InvalidExpiration",
-    10: "MetadataTooLong",
-    11: "InvalidTimestamp",
-    12: "InvalidFee",
-    13: "FeeTokenRequired",
-    14: "TooManyTags",
-    15: "TagTooLong",
-    16: "InvalidThreshold",
-    17: "NotRequiredSigner",
-    18: "AlreadySigned",
-    19: "ProposalFinalized",
-    20: "ProposalExpired",
-    21: "ReasonTooLong",
-    22: "CannotEndorseOwn",
-    23: "AlreadyEndorsed",
-    24: "ContractPaused",
-    25: "SubjectNotWhitelisted",
-    26: "InvalidClaimType",
-    27: "InvalidJurisdiction",
-    28: "RateLimited",
-    29: "LimitExceeded",
-    30: "ProposalCancelled",
-    44: "InvalidSourceReference",
-}
+# Contract error codes are generated from src/errors.rs — do not hand-edit.
+# Run `node scripts/generate-error-codes.mjs` (or `make generate`) to regenerate.
+from trustlink.generated_error_codes import CONTRACT_ERRORS  # noqa: E402, F401
 
 
 def decode_contract_error(error_message: str):
