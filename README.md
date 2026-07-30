@@ -860,6 +860,17 @@ Tests cover:
 - Pagination
 - Cross-contract verification
 
+### Event ticketing example
+
+[`examples/event_ticketing.rs`](examples/event_ticketing.rs) demonstrates a
+single-use `TICKET_VALID` attestation. The ticket is issued to the purchaser's
+address, cannot be presented by another address, and is revoked immediately at
+venue check-in.
+
+```bash
+cargo test --example event_ticketing
+```
+
 ## Security Considerations
 
 1. **Authorization**: Only admin can manage issuers; only issuers can create attestations
