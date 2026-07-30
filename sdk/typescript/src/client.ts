@@ -153,6 +153,33 @@ export class TrustLinkClient {
     }, this.retryOptions, this.breaker);
   }
 
+  /**
+   * Build and simulate a write-adjacent call using a given source account,
+   * returning the raw SimulateTransactionResponse for the caller to sign and
+   * submit. Uses the same retry + circuit-breaker path as `simulate()` so
+   * transient RPC failures are handled consistently.
+   *
+   * NOTE: Only the *simulation* is retried here. The actual transaction
+   * submission is left to the caller, which prevents double-submission on retry.
+   */
+  private async simulateForSigning(
+    source: string,
+    method: string,
+    ...args: xdr.ScVal[]
+  ): Promise<SorobanRpc.Api.SimulateTransactionResponse> {
+    return withRetry(async () => {
+      const account = new Account(source, "0");
+      const tx = new TransactionBuilder(account, {
+        fee: BASE_FEE,
+        networkPassphrase: this.networkPassphrase,
+      })
+        .addOperation(this.contract.call(method, ...args))
+        .setTimeout(30)
+        .build();
+      return this.server.simulateTransaction(tx);
+    }, this.retryOptions, this.breaker);
+  }
+
   private addr(address: string): xdr.ScVal {
     return Address.fromString(address).toScVal();
   }
