@@ -1,0 +1,30 @@
+[package]
+name = "trustlink-client"
+version = "0.1.0"
+edition = "2021"
+description = "Rust RPC client for the TrustLink on-chain attestation contract on Stellar"
+license = "MIT"
+repository = "https://github.com/afurious/TrustLink"
+keywords = ["stellar", "soroban", "attestation", "trustlink", "kyc"]
+categories = ["api-bindings", "web-programming"]
+readme = "README.md"
+
+[dependencies]
+stellar-rpc-client = { version = "21.4.0", package = "stellar-rpc-client" }
+stellar-xdr = { version = "21.2.0", features = ["std", "serde"] }
+stellar-strkey = "0.0.8"
+reqwest = { version = "0.11.27", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1.0.203", features = ["derive"] }
+serde_json = "1.0.120"
+thiserror = "1.0.61"
+tokio = { version = "1.38.0", features = ["rt", "macros"], optional = true }
+hex = "0.4.3"
+base64 = "0.22.1"
+
+[dev-dependencies]
+tokio = { version = "1.38.0", features = ["rt-multi-thread", "macros"] }
+mockito = "1.4.0"
+
+[features]
+default = ["async"]
+async = ["tokio"]
