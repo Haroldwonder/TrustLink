@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security Vulnerability
+    url: https://github.com/Haroldwonder/TrustLink/security/advisories/new
+    about: Report a security vulnerability privately. Do NOT open a public issue — see SECURITY.md. You can also email security@trustlink.io.
+  - name: General Questions & Discussions
+    url: https://github.com/Haroldwonder/TrustLink/discussions
+    about: Ask questions or discuss ideas that aren't a bug report or feature request.

@@ -21,3 +21,5 @@
 export * from "./types";
 export * from "./client";
 export * from "./validation";
+export { CircuitBreaker, withRetry } from "./resilience";
+export type { RetryOptions, CircuitBreakerOptions, ResilienceConfig } from "./resilience";
