@@ -1,7 +1,7 @@
 {
   "name": "@trustlink/sdk",
   "version": "0.1.0",
-  "description": "TypeScript client SDK for the TrustLink Soroban smart contract",
+  "description": "TypeScript SDK for the TrustLink on-chain attestation contract on Stellar",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -15,6 +15,7 @@
     "build": "tsc",
     "clean": "rm -rf dist",
     "test": "node --experimental-vm-modules node_modules/.bin/jest",
+    "test:fuzz": "node --experimental-vm-modules node_modules/.bin/jest __tests__/errorDecode.fuzz.test.ts",
     "validate": "node scripts/validate-package.js",
     "prepublishOnly": "npm run clean && npm run build && npm run validate",
     "docs": "typedoc --out docs/api src/index.ts"

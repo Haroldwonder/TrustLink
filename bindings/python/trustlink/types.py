@@ -112,19 +112,63 @@ class ContractError(TrustLinkError):
         super().__init__(f"Contract error #{code}: {message}")
 
 
-# Contract error codes
+# Contract error codes — must stay in sync with sdk/error-codes.json and src/errors.rs
 CONTRACT_ERRORS = {
-    0: "AlreadyInitialized",
-    1: "NotInitialized",
-    2: "Unauthorized",
-    3: "NotFound",
-    4: "DuplicateAttestation",
-    5: "AlreadyRevoked",
-    6: "Expired",
-    7: "LimitExceeded",
-    8: "InvalidThreshold",
-    9: "NotRequiredSigner",
-    10: "AlreadySigned",
-    11: "ProposalFinalized",
-    12: "ProposalExpired",
+    1: "AlreadyInitialized",
+    2: "NotInitialized",
+    3: "Unauthorized",
+    4: "NotFound",
+    5: "DuplicateAttestation",
+    6: "AlreadyRevoked",
+    7: "Expired",
+    8: "InvalidValidFrom",
+    9: "InvalidExpiration",
+    10: "MetadataTooLong",
+    11: "InvalidTimestamp",
+    12: "InvalidFee",
+    13: "FeeTokenRequired",
+    14: "TooManyTags",
+    15: "TagTooLong",
+    16: "InvalidThreshold",
+    17: "NotRequiredSigner",
+    18: "AlreadySigned",
+    19: "ProposalFinalized",
+    20: "ProposalExpired",
+    21: "ReasonTooLong",
+    22: "CannotEndorseOwn",
+    23: "AlreadyEndorsed",
+    24: "ContractPaused",
+    25: "SubjectNotWhitelisted",
+    26: "InvalidClaimType",
+    27: "InvalidJurisdiction",
+    28: "RateLimited",
+    29: "LimitExceeded",
+    30: "ProposalCancelled",
+    44: "InvalidSourceReference",
 }
+
+
+def decode_contract_error(error_message: str):
+    """Decode a contract simulation error string into a ContractError.
+
+    Looks for ``Error(Contract, #<code>)`` patterns (Soroban RPC style) and
+    maps the numeric code via ``CONTRACT_ERRORS``. Returns ``None`` if the
+    message does not match a known contract error.
+    """
+    import re
+
+    match = re.search(r"Error\(Contract,\s*#(\d+)\)", error_message)
+    if match:
+        code = int(match.group(1))
+        name = CONTRACT_ERRORS.get(code)
+        if name is not None:
+            return ContractError(code, name)
+    for code, name in CONTRACT_ERRORS.items():
+        if name in error_message:
+            return ContractError(code, name)
+    return None
+
+
+def classify_error_code(code: int):
+    """Return the canonical error name for a numeric code, or None if unknown."""
+    return CONTRACT_ERRORS.get(code)

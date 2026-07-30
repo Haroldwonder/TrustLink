@@ -328,6 +328,22 @@ export function parseTrustLinkError(errorMessage: string): TrustLinkError | null
   return null;
 }
 
+/** Return the canonical error name for a numeric contract error code, or null. */
+export function classifyErrorCode(code: number): string | null {
+  const Cls = ERROR_BY_CODE[code];
+  if (!Cls) return null;
+  return new Cls().name;
+}
+
+/** All known contract error codes mapped by this SDK (code → name). */
+export function knownErrorCodes(): Record<number, string> {
+  const out: Record<number, string> = {};
+  for (const [code, Cls] of Object.entries(ERROR_BY_CODE)) {
+    out[Number(code)] = new Cls().name;
+  }
+  return out;
+}
+
 /**
  * Structured export of all data held about a subject, suitable for a
  * GDPR/CCPA data-portability response.

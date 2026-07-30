@@ -16,6 +16,9 @@ from .types import (
     MultiSigProposal,
     TrustLinkError,
     ContractError,
+    CONTRACT_ERRORS,
+    decode_contract_error,
+    classify_error_code,
 )
 from .events import (
     EventTopics,
@@ -62,6 +65,9 @@ __all__ = [
     "MultiSigProposal",
     "TrustLinkError",
     "ContractError",
+    "CONTRACT_ERRORS",
+    "decode_contract_error",
+    "classify_error_code",
     "EventTopics",
     "EventCategories",
     "ContractEvent",
