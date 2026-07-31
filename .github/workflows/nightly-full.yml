@@ -1,0 +1,233 @@
+name: Nightly Full CI
+
+on:
+  schedule:
+    # Runs every night at 3:00 AM UTC
+    - cron: "0 3 * * *"
+    # Also runs weekly on Sunday at 4:00 AM UTC for a deeper check
+    - cron: "0 4 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Rust toolchain
+        run: rustup show
+
+      - name: Run cargo audit
+        run: cargo audit --deny warnings
+
+  lint:
+    name: Clippy Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: rustup show
+
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Run clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+  build-and-test:
+    name: Build, Test & WASM
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Rust toolchain
+        run: rustup show
+
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Check lib compilation
+        run: cargo check --lib
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Verify snapshots are up to date
+        run: |
+          cargo test
+          git diff --exit-code test_snapshots/ || \
+            (echo "::error::Snapshot files changed. Run 'cargo test' locally and commit the updated snapshots." && exit 1)
+
+      - name: Build WASM
+        run: cargo build --target wasm32-unknown-unknown --release
+
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov
+
+      - name: Generate coverage report
+        run: cargo llvm-cov --lcov --output-path lcov.info --fail-under-lines 80
+
+  wasm-size:
+    name: WASM Size Check
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Rust toolchain
+        run: rustup show
+
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install binaryen (wasm-opt)
+        run: sudo apt-get install -y binaryen
+
+      - name: Build WASM
+        run: cargo build --target wasm32-unknown-unknown --release
+
+      - name: Optimize WASM with wasm-opt -Oz
+        run: |
+          wasm-opt -Oz --enable-bulk-memory --strip-debug \
+            target/wasm32-unknown-unknown/release/trustlink.wasm \
+            -o target/wasm32-unknown-unknown/release/trustlink.optimized.wasm
+
+      - name: Measure and check optimized WASM size
+        run: |
+          RAW=target/wasm32-unknown-unknown/release/trustlink.wasm
+          OPT=target/wasm32-unknown-unknown/release/trustlink.optimized.wasm
+          RAW_SIZE=$(stat -c%s "$RAW")
+          OPT_SIZE=$(stat -c%s "$OPT")
+          MAX=$((100 * 1024))
+          SAVED=$(( RAW_SIZE - OPT_SIZE ))
+          PCT=$(( SAVED * 100 / RAW_SIZE ))
+          echo "Raw WASM:       ${RAW_SIZE} bytes ($(( RAW_SIZE / 1024 )) KB)"
+          echo "Optimized WASM: ${OPT_SIZE} bytes ($(( OPT_SIZE / 1024 )) KB)"
+          echo "Saved:          ${SAVED} bytes (~${PCT}%)"
+          echo "${OPT_SIZE}" > wasm-size.txt
+          if [ "$OPT_SIZE" -gt "$MAX" ]; then
+            echo "ERROR: Optimized WASM ${OPT_SIZE} bytes exceeds 100 KB threshold."
+            exit 1
+          fi
+          echo "OK: optimized binary is within the 100 KB limit."
+
+      - name: Upload size artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: wasm-size-nightly-${{ github.sha }}
+          path: wasm-size.txt
+          retention-days: 90
+
+  bindings:
+    name: TypeScript Bindings
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Rust toolchain
+        run: rustup show
+
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install Stellar CLI
+        run: cargo install --locked stellar-cli --features opt
+
+      - name: Build WASM
+        run: cargo build --target wasm32-unknown-unknown --release
+
+      - name: Generate TypeScript bindings
+        run: make bindings
+
+      - name: Fail if bindings are out of date
+        run: |
+          git diff --exit-code bindings/typescript/ || (
+            echo "TypeScript bindings are out of date."
+            echo "Run 'make bindings' locally and commit the updated bindings/typescript/ directory."
+            exit 1
+          )
+
+  notify-failure:
+    name: Notify on Failure
+    runs-on: ubuntu-latest
+    needs: [audit, lint, build-and-test, wasm-size, bindings]
+    if: failure()
+    steps:
+      - name: Create failure issue
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const runUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+            const body = `## Nightly Full CI Failed 🔴
+
+            The [nightly CI run](${runUrl}) has failed. This may indicate a broken dependency or regression on \`main\`.
+
+            ### Trigger
+            - **Event:** ${process.env.GITHUB_EVENT_NAME}
+            - **Run ID:** ${process.env.GITHUB_RUN_ID}
+            - **Branch:** ${process.env.GITHUB_REF_NAME}
+
+            ### Action Required
+            Investigate the failure immediately — the build is broken on \`main\` and will affect all new PRs.`;
+
+            // Search for existing open nightly-failure issue
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'nightly-failure,ci',
+            });
+
+            if (issues.length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `Nightly CI Failure — ${new Date().toISOString().split('T')[0]}`,
+                body,
+                labels: ['nightly-failure', 'ci', 'bug'],
+              });
+            }
