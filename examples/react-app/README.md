@@ -70,6 +70,30 @@ The deployed app will be available at:
 https://<your-org>.github.io/TrustLink/
 ```
 
+## Deploy to Vercel
+
+This app can also be deployed on [Vercel](https://vercel.com) instead of (or alongside) GitHub Pages.
+
+1. In the Vercel dashboard, **Add New Project** and import this repository.
+2. Set **Root Directory** to `examples/react-app` (this repo is a monorepo, so Vercel needs to know where the app lives).
+3. Vercel auto-detects the Vite framework preset from `vercel.json`; build command `npm run build` and output directory `dist` are already configured.
+4. Add the environment variables under **Settings → Environment Variables**:
+
+   | Variable | Value |
+   |---|---|
+   | `VITE_CONTRACT_ID` | Your deployed TrustLink contract address |
+   | `VITE_RPC_URL` | *(optional)* defaults to Stellar testnet RPC if unset |
+
+5. Deploy. Unlike GitHub Pages, Vercel serves the app from the domain root, so no base-path configuration is needed (`VITE_BASE_PATH` only applies to the Pages workflow).
+
+Alternatively, deploy from the CLI:
+
+```bash
+npm install -g vercel
+cd examples/react-app
+vercel --prod
+```
+
 ## Tech stack
 
 - Vite + React 18 + TypeScript

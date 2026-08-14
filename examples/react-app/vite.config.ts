@@ -4,7 +4,9 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
-  base: "/TrustLink/", // GitHub Pages base path
+  // GitHub Pages serves this app from /TrustLink/; Vercel serves it from the
+  // domain root, so default to "/" and let the Pages workflow override it.
+  base: process.env.VITE_BASE_PATH || "/",
   define: {
     global: "globalThis",
   },

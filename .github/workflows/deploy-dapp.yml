@@ -30,6 +30,7 @@ jobs:
         env:
           VITE_CONTRACT_ID: ${{ secrets.VITE_CONTRACT_ID || '' }}
           VITE_RPC_URL: ${{ secrets.VITE_RPC_URL || 'https://soroban-testnet.stellar.org' }}
+          VITE_BASE_PATH: /TrustLink/
         run: npm run build
 
       - name: Deploy to GitHub Pages
