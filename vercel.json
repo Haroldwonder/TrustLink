@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "cd examples/react-app && npm ci",
+  "buildCommand": "cd examples/react-app && npm run build",
+  "outputDirectory": "examples/react-app/dist",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
