@@ -17,7 +17,18 @@ const RPC_URL = import.meta.env.VITE_RPC_URL ?? "https://soroban-testnet.stellar
 const NETWORK_PASSPHRASE = Networks.TESTNET;
 
 const server = new SorobanRpc.Server(RPC_URL, { allowHttp: true });
-const contract = new Contract(CONTRACT_ID);
+
+// Constructing Contract() validates and throws synchronously on a missing/invalid
+// strkey. Deferring it until first use keeps a misconfigured VITE_CONTRACT_ID from
+// crashing module evaluation (and white-screening the whole app) at page load.
+let _contract: Contract | null = null;
+function getContract(): Contract {
+  if (!_contract) {
+    if (!CONTRACT_ID) throw new Error("VITE_CONTRACT_ID is not configured for this deployment");
+    _contract = new Contract(CONTRACT_ID);
+  }
+  return _contract;
+}
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -31,7 +42,7 @@ const DUMMY = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
 async function simulate<T>(method: string, ...args: xdr.ScVal[]): Promise<T> {
   const account = new Account(DUMMY, "0");
   const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: NETWORK_PASSPHRASE })
-    .addOperation(contract.call(method, ...args))
+    .addOperation(getContract().call(method, ...args))
     .setTimeout(30)
     .build();
   const result = await server.simulateTransaction(tx);
@@ -44,7 +55,7 @@ async function simulate<T>(method: string, ...args: xdr.ScVal[]): Promise<T> {
 async function invoke(caller: string, method: string, ...args: xdr.ScVal[]): Promise<void> {
   const account = await server.getAccount(caller);
   const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: NETWORK_PASSPHRASE })
-    .addOperation(contract.call(method, ...args))
+    .addOperation(getContract().call(method, ...args))
     .setTimeout(30)
     .build();
 
