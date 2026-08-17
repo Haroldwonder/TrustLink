@@ -28,7 +28,7 @@
     "@opentelemetry/semantic-conventions": "^1.27.0",
     "@prisma/client": "^5.14.0",
     "@stellar/stellar-sdk": "^14.0.0",
-    "fastify": "^4.28.1",
+    "fastify": "^5.12.0",
     "graphql": "^16.13.2",
     "graphql-depth-limit": "^1.1.0",
     "graphql-query-complexity": "^1.0.0",
