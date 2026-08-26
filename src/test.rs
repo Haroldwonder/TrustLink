@@ -9896,3 +9896,115 @@ fn test_pending_admin_transfer_type_available() {
 fn test_storage_key_variants_compile() {
     let _env = Env::default();
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Property-based tests for attestation ID stability
+// ══════════════════════════════════════════════════════════════════════════════
+
+#[cfg(test)]
+mod attestation_id_stability_property_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    // Feature: attestation-id-stability, Property 1: Output format invariant
+    proptest! {
+        #[test]
+        fn test_generate_id_output_format(
+            issuer_bytes in prop::collection::vec(any::<u8>(), 32),
+            subject_bytes in prop::collection::vec(any::<u8>(), 32),
+            claim_type_str in "[a-zA-Z_]{1,20}",
+            timestamp in 1000u64..1_000_000_000u64,
+        ) {
+            let env = Env::default();
+            let issuer = Address::from_string(&String::from_str(&env, &hex::encode(&issuer_bytes)));
+            let subject = Address::from_string(&String::from_str(&env, &hex::encode(&subject_bytes)));
+            let claim_type = String::from_str(&env, &claim_type_str);
+            
+            let id = types::Attestation::generate_id(&env, &issuer, &subject, &claim_type, timestamp);
+            let id_str = id.to_string();
+            
+            // Must be exactly 32 hex characters
+            assert_eq!(id_str.len(), 32);
+            assert!(id_str.chars().all(|c| c.is_ascii_hexdigit() && c.is_lowercase()));
+        }
+    }
+
+    // Feature: attestation-id-stability, Property 1: Output format invariant (bridge)
+    proptest! {
+        #[test]
+        fn test_generate_bridge_id_output_format(
+            bridge_bytes in prop::collection::vec(any::<u8>(), 32),
+            subject_bytes in prop::collection::vec(any::<u8>(), 32),
+            claim_type_str in "[a-zA-Z_]{1,20}",
+            source_chain_str in "[a-z]{1,10}",
+            source_tx_str in "[0-9a-f]{8}",
+            timestamp in 1000u64..1_000_000_000u64,
+        ) {
+            let env = Env::default();
+            let bridge = Address::from_string(&String::from_str(&env, &hex::encode(&bridge_bytes)));
+            let subject = Address::from_string(&String::from_str(&env, &hex::encode(&subject_bytes)));
+            let claim_type = String::from_str(&env, &claim_type_str);
+            let source_chain = String::from_str(&env, &source_chain_str);
+            let source_tx = String::from_str(&env, &source_tx_str);
+            
+            let id = types::Attestation::generate_bridge_id(
+                &env, &bridge, &subject, &claim_type, &source_chain, &source_tx, timestamp
+            );
+            let id_str = id.to_string();
+            
+            // Must be exactly 32 hex characters
+            assert_eq!(id_str.len(), 32);
+            assert!(id_str.chars().all(|c| c.is_ascii_hexdigit() && c.is_lowercase()));
+        }
+    }
+
+    // Feature: attestation-id-stability, Property 2: Determinism
+    proptest! {
+        #[test]
+        fn test_generate_id_determinism(
+            issuer_bytes in prop::collection::vec(any::<u8>(), 32),
+            subject_bytes in prop::collection::vec(any::<u8>(), 32),
+            claim_type_str in "[a-zA-Z_]{1,20}",
+            timestamp in 1000u64..1_000_000_000u64,
+        ) {
+            let env = Env::default();
+            let issuer = Address::from_string(&String::from_str(&env, &hex::encode(&issuer_bytes)));
+            let subject = Address::from_string(&String::from_str(&env, &hex::encode(&subject_bytes)));
+            let claim_type = String::from_str(&env, &claim_type_str);
+            
+            let id1 = types::Attestation::generate_id(&env, &issuer, &subject, &claim_type, timestamp);
+            let id2 = types::Attestation::generate_id(&env, &issuer, &subject, &claim_type, timestamp);
+            
+            assert_eq!(id1, id2);
+        }
+    }
+
+    // Feature: attestation-id-stability, Property 2: Determinism (bridge)
+    proptest! {
+        #[test]
+        fn test_generate_bridge_id_determinism(
+            bridge_bytes in prop::collection::vec(any::<u8>(), 32),
+            subject_bytes in prop::collection::vec(any::<u8>(), 32),
+            claim_type_str in "[a-zA-Z_]{1,20}",
+            source_chain_str in "[a-z]{1,10}",
+            source_tx_str in "[0-9a-f]{8}",
+            timestamp in 1000u64..1_000_000_000u64,
+        ) {
+            let env = Env::default();
+            let bridge = Address::from_string(&String::from_str(&env, &hex::encode(&bridge_bytes)));
+            let subject = Address::from_string(&String::from_str(&env, &hex::encode(&subject_bytes)));
+            let claim_type = String::from_str(&env, &claim_type_str);
+            let source_chain = String::from_str(&env, &source_chain_str);
+            let source_tx = String::from_str(&env, &source_tx_str);
+            
+            let id1 = types::Attestation::generate_bridge_id(
+                &env, &bridge, &subject, &claim_type, &source_chain, &source_tx, timestamp
+            );
+            let id2 = types::Attestation::generate_bridge_id(
+                &env, &bridge, &subject, &claim_type, &source_chain, &source_tx, timestamp
+            );
+            
+            assert_eq!(id1, id2);
+        }
+    }
+}

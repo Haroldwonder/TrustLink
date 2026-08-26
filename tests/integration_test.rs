@@ -365,3 +365,218 @@ mod multi_issuer_tests {
         assert!(!client.has_valid_claim(&subject, &claim));
     }
 }
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Property-based tests for expiration warning query
+// ══════════════════════════════════════════════════════════════════════════════
+
+#[cfg(test)]
+mod expiration_warning_property_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    // Feature: expiration-warning-query, Property 1: Subject-scoped filter correctness
+    proptest! {
+        #[test]
+        fn test_get_expiring_attestations_filter_correctness(
+            within_seconds in 100u64..10_000u64,
+            num_attestations in 1usize..10usize,
+        ) {
+            let env = Env::default();
+            env.mock_all_auths();
+            
+            let trustlink_id = env.register_contract(None, TrustLinkContract);
+            let trustlink = TrustLinkContractClient::new(&env, &trustlink_id);
+            
+            let admin = Address::generate(&env);
+            let issuer = Address::generate(&env);
+            let subject = Address::generate(&env);
+            
+            trustlink.initialize(&admin, &None);
+            trustlink.register_issuer(&admin, &issuer);
+            
+            let current_time = 10_000u64;
+            env.ledger().with_mut(|li| li.timestamp = current_time);
+            
+            // Create attestations with varied expiration times
+            let mut expected_expiring = std::vec::Vec::new();
+            for i in 0..num_attestations {
+                let claim_type = String::from_str(&env, &format!("CLAIM_{}", i));
+                let exp_offset = (i as u64 * 100) + 50;
+                let expiration = if exp_offset <= within_seconds {
+                    Some(current_time + exp_offset)
+                } else {
+                    Some(current_time + within_seconds + 1000)
+                };
+                
+                let id = trustlink.create_attestation(
+                    &issuer, &subject, &claim_type, &expiration, &None, &None
+                );
+                
+                if let Some(exp) = expiration {
+                    if exp > current_time && exp <= current_time + within_seconds {
+                        expected_expiring.push(id);
+                    }
+                }
+            }
+            
+            let result = trustlink.get_expiring_attestations(&subject, &within_seconds);
+            
+            // Every returned ID must be in the expected set
+            for id in result.iter() {
+                let att = trustlink.get_attestation(&id);
+                assert!(!att.revoked);
+                if let Some(exp) = att.expiration {
+                    assert!(exp > current_time);
+                    assert!(exp <= current_time + within_seconds);
+                }
+            }
+            
+            // Every qualifying attestation must be in the result
+            for expected_id in expected_expiring {
+                assert!(result.iter().any(|id| id == expected_id));
+            }
+        }
+    }
+
+    // Feature: expiration-warning-query, Property 2: Issuer-scoped filter correctness
+    proptest! {
+        #[test]
+        fn test_get_issuer_expiring_attestations_filter_correctness(
+            within_seconds in 100u64..10_000u64,
+            num_attestations in 1usize..10usize,
+        ) {
+            let env = Env::default();
+            env.mock_all_auths();
+            
+            let trustlink_id = env.register_contract(None, TrustLinkContract);
+            let trustlink = TrustLinkContractClient::new(&env, &trustlink_id);
+            
+            let admin = Address::generate(&env);
+            let issuer = Address::generate(&env);
+            
+            trustlink.initialize(&admin, &None);
+            trustlink.register_issuer(&admin, &issuer);
+            
+            let current_time = 10_000u64;
+            env.ledger().with_mut(|li| li.timestamp = current_time);
+            
+            // Create attestations with varied expiration times
+            let mut expected_expiring = std::vec::Vec::new();
+            for i in 0..num_attestations {
+                let subject = Address::generate(&env);
+                let claim_type = String::from_str(&env, &format!("CLAIM_{}", i));
+                let exp_offset = (i as u64 * 100) + 50;
+                let expiration = if exp_offset <= within_seconds {
+                    Some(current_time + exp_offset)
+                } else {
+                    Some(current_time + within_seconds + 1000)
+                };
+                
+                let id = trustlink.create_attestation(
+                    &issuer, &subject, &claim_type, &expiration, &None, &None
+                );
+                
+                if let Some(exp) = expiration {
+                    if exp > current_time && exp <= current_time + within_seconds {
+                        expected_expiring.push(id);
+                    }
+                }
+            }
+            
+            let result = trustlink.get_issuer_expiring_attestations(&issuer, &within_seconds);
+            
+            // Every returned ID must be in the expected set
+            for id in result.iter() {
+                let att = trustlink.get_attestation(&id);
+                assert!(!att.revoked);
+                if let Some(exp) = att.expiration {
+                    assert!(exp > current_time);
+                    assert!(exp <= current_time + within_seconds);
+                }
+            }
+            
+            // Every qualifying attestation must be in the result
+            for expected_id in expected_expiring {
+                assert!(result.iter().any(|id| id == expected_id));
+            }
+        }
+    }
+
+    // Feature: expiration-warning-query, Property 3: Zero window always returns empty
+    proptest! {
+        #[test]
+        fn test_zero_window_returns_empty(
+            num_attestations in 1usize..5usize,
+        ) {
+            let env = Env::default();
+            env.mock_all_auths();
+            
+            let trustlink_id = env.register_contract(None, TrustLinkContract);
+            let trustlink = TrustLinkContractClient::new(&env, &trustlink_id);
+            
+            let admin = Address::generate(&env);
+            let issuer = Address::generate(&env);
+            let subject = Address::generate(&env);
+            
+            trustlink.initialize(&admin, &None);
+            trustlink.register_issuer(&admin, &issuer);
+            
+            env.ledger().with_mut(|li| li.timestamp = 10_000);
+            
+            // Create attestations with various expirations
+            for i in 0..num_attestations {
+                let claim_type = String::from_str(&env, &format!("CLAIM_{}", i));
+                let expiration = Some(10_000 + (i as u64 * 1000) + 100);
+                trustlink.create_attestation(
+                    &issuer, &subject, &claim_type, &expiration, &None, &None
+                );
+            }
+            
+            let result = trustlink.get_expiring_attestations(&subject, &0);
+            assert_eq!(result.len(), 0);
+        }
+    }
+
+    // Feature: expiration-warning-query, Property 4: Query idempotence
+    proptest! {
+        #[test]
+        fn test_query_idempotence(
+            within_seconds in 100u64..10_000u64,
+            num_attestations in 1usize..5usize,
+        ) {
+            let env = Env::default();
+            env.mock_all_auths();
+            
+            let trustlink_id = env.register_contract(None, TrustLinkContract);
+            let trustlink = TrustLinkContractClient::new(&env, &trustlink_id);
+            
+            let admin = Address::generate(&env);
+            let issuer = Address::generate(&env);
+            let subject = Address::generate(&env);
+            
+            trustlink.initialize(&admin, &None);
+            trustlink.register_issuer(&admin, &issuer);
+            
+            env.ledger().with_mut(|li| li.timestamp = 10_000);
+            
+            // Create attestations
+            for i in 0..num_attestations {
+                let claim_type = String::from_str(&env, &format!("CLAIM_{}", i));
+                let expiration = Some(10_000 + (i as u64 * 100));
+                trustlink.create_attestation(
+                    &issuer, &subject, &claim_type, &expiration, &None, &None
+                );
+            }
+            
+            let result1 = trustlink.get_expiring_attestations(&subject, &within_seconds);
+            let result2 = trustlink.get_expiring_attestations(&subject, &within_seconds);
+            
+            assert_eq!(result1.len(), result2.len());
+            for i in 0..result1.len() {
+                assert_eq!(result1.get(i).unwrap(), result2.get(i).unwrap());
+            }
+        }
+    }
+}
