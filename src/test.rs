@@ -8781,6 +8781,83 @@ mod timelock_tests {
         let result = client.try_execute_council_action(&admin1, &proposal_id);
         assert_eq!(result, Err(Ok(Error::CouncilProposalExecuted)));
     }
+
+    #[test]
+    fn test_get_council_proposal_returns_created_proposal() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin1, admin2, issuer, client) = setup_with_second_admin(&env);
+
+        let operation = CouncilOperation::RemoveIssuer(issuer.clone());
+        let proposal_id = client.create_council_proposal(&admin1, &operation);
+
+        // Verify proposal exists and has correct initial state
+        let proposal = client.get_council_proposal(&proposal_id).unwrap();
+        assert_eq!(proposal.id, proposal_id);
+        assert_eq!(proposal.proposer, admin1);
+        assert_eq!(proposal.executed, false);
+        assert_eq!(proposal.quorum_reached_at, None);
+
+        // Verify proposer's approval is included
+        assert!(proposal.approvals.contains(&admin1));
+        assert_eq!(proposal.approvals.len(), 1);
+    }
+
+    #[test]
+    fn test_get_council_proposal_updates_approvals() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin1, admin2, issuer, client) = setup_with_second_admin(&env);
+
+        let operation = CouncilOperation::RemoveIssuer(issuer);
+        let proposal_id = client.create_council_proposal(&admin1, &operation);
+
+        // Before approval
+        let proposal_before = client.get_council_proposal(&proposal_id).unwrap();
+        assert_eq!(proposal_before.approvals.len(), 1);
+        assert!(!proposal_before.approvals.contains(&admin2));
+
+        // After approval by second admin
+        client.approve_council_proposal(&admin2, &proposal_id);
+
+        let proposal_after = client.get_council_proposal(&proposal_id).unwrap();
+        assert_eq!(proposal_after.approvals.len(), 2);
+        assert!(proposal_after.approvals.contains(&admin1));
+        assert!(proposal_after.approvals.contains(&admin2));
+        assert_eq!(proposal_after.quorum_reached_at, Some(env.ledger().timestamp()));
+    }
+
+    #[test]
+    fn test_get_council_proposal_marks_executed() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin1, admin2, issuer, client) = setup_with_second_admin(&env);
+
+        let operation = CouncilOperation::RemoveIssuer(issuer);
+        let proposal_id = client.create_council_proposal(&admin1, &operation);
+
+        // Before execution
+        let proposal_before = client.get_council_proposal(&proposal_id).unwrap();
+        assert_eq!(proposal_before.executed, false);
+
+        // Approve and execute
+        client.approve_council_proposal(&admin2, &proposal_id);
+        client.execute_council_action(&admin1, &proposal_id);
+
+        // After execution
+        let proposal_after = client.get_council_proposal(&proposal_id).unwrap();
+        assert_eq!(proposal_after.executed, true);
+    }
+
+    #[test]
+    fn test_get_council_proposal_returns_none_for_nonexistent_id() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, _, _, client) = setup_with_second_admin(&env);
+
+        let result = client.get_council_proposal(&9999);
+        assert_eq!(result, None);
+    }
 }
 
 // ── get_expiring_attestations tests (Issue #604) ──────────────────────────────
