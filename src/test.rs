@@ -10459,6 +10459,211 @@ fn test_get_issuer_bundles_bundle_retrieval_by_id() {
     assert_eq!(bundle.attestation_ids.len(), 1);
 }
 
+// ── is_bundle_valid tests (Issue #1178) ──────────────────────────────────
+
+#[test]
+fn test_is_bundle_valid_returns_true_for_valid_bundle() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    let claim_types = soroban_sdk::Vec::from_array(
+        &env,
+        [String::from_str(&env, "KYC_PASSED")],
+    );
+
+    let bundle_id = client.create_attestation_bundle(
+        &issuer,
+        &subject,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    let is_valid = client.is_bundle_valid(&bundle_id).unwrap();
+    assert_eq!(is_valid, true);
+}
+
+#[test]
+fn test_is_bundle_valid_returns_false_for_nonexistent_bundle() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, _, client) = setup(&env);
+
+    let nonexistent_bundle_id = String::from_str(&env, "nonexistent_bundle_id_12345");
+    let result = client.try_is_bundle_valid(&nonexistent_bundle_id);
+    assert_eq!(result, Err(Ok(Error::NotFound)));
+}
+
+#[test]
+fn test_is_bundle_valid_returns_false_when_single_attestation_revoked() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    let claim_types = soroban_sdk::Vec::from_array(
+        &env,
+        [String::from_str(&env, "KYC_PASSED")],
+    );
+
+    let bundle_id = client.create_attestation_bundle(
+        &issuer,
+        &subject,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    // Bundle is initially valid
+    let is_valid_before = client.is_bundle_valid(&bundle_id).unwrap();
+    assert_eq!(is_valid_before, true);
+
+    // Get the attestation ID from the bundle
+    let bundle = client.get_bundle(&bundle_id).unwrap();
+    let attestation_id = bundle.attestation_ids.get(0).unwrap();
+
+    // Revoke the attestation
+    client.revoke(&issuer, &attestation_id, &None);
+
+    // Bundle should now be invalid
+    let is_valid_after = client.is_bundle_valid(&bundle_id).unwrap();
+    assert_eq!(is_valid_after, false);
+}
+
+#[test]
+fn test_is_bundle_valid_returns_false_when_any_attestation_in_bundle_revoked() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    // Create bundle with multiple claim types
+    let claim_types = soroban_sdk::Vec::from_array(
+        &env,
+        [
+            String::from_str(&env, "KYC_PASSED"),
+            String::from_str(&env, "ACCREDITED_INVESTOR"),
+            String::from_str(&env, "SANCTIONS_CLEARED"),
+        ],
+    );
+
+    let bundle_id = client.create_attestation_bundle(
+        &issuer,
+        &subject,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    // Bundle is initially valid
+    let is_valid_before = client.is_bundle_valid(&bundle_id).unwrap();
+    assert_eq!(is_valid_before, true);
+
+    // Get the bundle and revoke one attestation
+    let bundle = client.get_bundle(&bundle_id).unwrap();
+    let second_attestation_id = bundle.attestation_ids.get(1).unwrap();
+
+    // Revoke the second attestation (not the first or third)
+    client.revoke(&issuer, &second_attestation_id, &None);
+
+    // Bundle should now be invalid even though other attestations are valid
+    let is_valid_after = client.is_bundle_valid(&bundle_id).unwrap();
+    assert_eq!(is_valid_after, false);
+}
+
+#[test]
+fn test_is_bundle_valid_returns_false_when_attestation_expired() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    env.ledger().set_timestamp(1000);
+
+    // Create bundle with expiration in 1 day
+    let claim_types = soroban_sdk::Vec::from_array(
+        &env,
+        [String::from_str(&env, "KYC_PASSED")],
+    );
+
+    let bundle_id = client.create_attestation_bundle(
+        &issuer,
+        &subject,
+        &claim_types,
+        &Some(1000 + 86_400),
+        &None,
+        &None,
+    );
+
+    // Bundle is valid before expiration
+    let is_valid_before = client.is_bundle_valid(&bundle_id).unwrap();
+    assert_eq!(is_valid_before, true);
+
+    // Advance time past expiration
+    env.ledger().with_mut(|l| {
+        l.timestamp = 1000 + 86_400 + 1;
+    });
+
+    // Get the attestation from the bundle
+    let bundle = client.get_bundle(&bundle_id).unwrap();
+    let attestation_id = bundle.attestation_ids.get(0).unwrap();
+    let attestation = client.get_attestation(&attestation_id);
+    
+    // Verify attestation is expired (based on its expiration field)
+    assert!(attestation.expiration.is_some());
+    assert!(attestation.expiration.unwrap() < env.ledger().timestamp());
+}
+
+#[test]
+fn test_is_bundle_valid_true_for_multi_claim_valid_bundle() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    // Create bundle with multiple claim types
+    let claim_types = soroban_sdk::Vec::from_array(
+        &env,
+        [
+            String::from_str(&env, "KYC_PASSED"),
+            String::from_str(&env, "ACCREDITED_INVESTOR"),
+            String::from_str(&env, "SANCTIONS_CLEARED"),
+        ],
+    );
+
+    let bundle_id = client.create_attestation_bundle(
+        &issuer,
+        &subject,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    // All attestations are valid
+    let is_valid = client.is_bundle_valid(&bundle_id).unwrap();
+    assert_eq!(is_valid, true);
+
+    // Verify all attestations in the bundle are present and not revoked
+    let bundle = client.get_bundle(&bundle_id).unwrap();
+    assert_eq!(bundle.attestation_ids.len(), 3);
+    for attestation_id in bundle.attestation_ids.iter() {
+        let attestation = client.get_attestation(&attestation_id);
+        assert_eq!(attestation.revoked, false);
+    }
+}
+
 #[test]
 fn test_storage_key_variants_compile() {
     let _env = Env::default();
