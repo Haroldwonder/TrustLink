@@ -10183,6 +10183,282 @@ fn test_get_subject_bundles_bundle_retrieval_by_id() {
     assert_eq!(bundle.attestation_ids.len(), 1);
 }
 
+// ── get_issuer_bundles tests (Issue #1179) ─────────────────────────────────
+
+#[test]
+fn test_get_issuer_bundles_returns_empty_for_issuer_with_no_bundles() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, issuer, client) = setup(&env);
+    
+    // Generate a different issuer that hasn't created any bundles
+    let unused_issuer = Address::generate(&env);
+    client.register_issuer(&admin, &unused_issuer);
+
+    let bundles = client.get_issuer_bundles(&unused_issuer);
+    assert_eq!(bundles.len(), 0);
+}
+
+#[test]
+fn test_get_issuer_bundles_returns_single_created_bundle() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    let claim_types = soroban_sdk::Vec::from_array(
+        &env,
+        [String::from_str(&env, "KYC_PASSED")],
+    );
+
+    let bundle_id = client.create_attestation_bundle(
+        &issuer,
+        &subject,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    let bundles = client.get_issuer_bundles(&issuer);
+    assert_eq!(bundles.len(), 1);
+    assert_eq!(bundles.get(0).unwrap(), bundle_id);
+}
+
+#[test]
+fn test_get_issuer_bundles_returns_multiple_bundles_same_issuer() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject1 = Address::generate(&env);
+    let subject2 = Address::generate(&env);
+
+    // Create first bundle for subject1
+    let claim_types1 = soroban_sdk::Vec::from_array(
+        &env,
+        [String::from_str(&env, "KYC_PASSED")],
+    );
+    let bundle_id1 = client.create_attestation_bundle(
+        &issuer,
+        &subject1,
+        &claim_types1,
+        &None,
+        &None,
+        &None,
+    );
+
+    // Advance timestamp to ensure different bundle ID
+    env.ledger().with_mut(|l| {
+        l.timestamp += 1;
+    });
+
+    // Create second bundle for subject2
+    let claim_types2 = soroban_sdk::Vec::from_array(
+        &env,
+        [String::from_str(&env, "ACCREDITED_INVESTOR")],
+    );
+    let bundle_id2 = client.create_attestation_bundle(
+        &issuer,
+        &subject2,
+        &claim_types2,
+        &None,
+        &None,
+        &None,
+    );
+
+    let bundles = client.get_issuer_bundles(&issuer);
+    assert_eq!(bundles.len(), 2);
+    assert_eq!(bundles.get(0).unwrap(), bundle_id1);
+    assert_eq!(bundles.get(1).unwrap(), bundle_id2);
+}
+
+#[test]
+fn test_get_issuer_bundles_isolated_by_issuer() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, issuer1, client) = setup(&env);
+    let issuer2 = Address::generate(&env);
+    client.register_issuer(&admin, &issuer2);
+
+    let subject = Address::generate(&env);
+    let claim_types = soroban_sdk::Vec::from_array(
+        &env,
+        [String::from_str(&env, "KYC_PASSED")],
+    );
+
+    // Create bundle from issuer1
+    let bundle_id1 = client.create_attestation_bundle(
+        &issuer1,
+        &subject,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    // Advance timestamp and create bundle from issuer2
+    env.ledger().with_mut(|l| {
+        l.timestamp += 1;
+    });
+
+    let bundle_id2 = client.create_attestation_bundle(
+        &issuer2,
+        &subject,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    // Verify issuer1 has only its own bundle
+    let bundles1 = client.get_issuer_bundles(&issuer1);
+    assert_eq!(bundles1.len(), 1);
+    assert_eq!(bundles1.get(0).unwrap(), bundle_id1);
+
+    // Verify issuer2 has only its own bundle
+    let bundles2 = client.get_issuer_bundles(&issuer2);
+    assert_eq!(bundles2.len(), 1);
+    assert_eq!(bundles2.get(0).unwrap(), bundle_id2);
+
+    // Verify bundles are different
+    assert_ne!(bundle_id1, bundle_id2);
+}
+
+#[test]
+fn test_get_issuer_bundles_multiple_subjects_same_issuer() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject1 = Address::generate(&env);
+    let subject2 = Address::generate(&env);
+    let subject3 = Address::generate(&env);
+
+    let claim_types = soroban_sdk::Vec::from_array(
+        &env,
+        [String::from_str(&env, "KYC_PASSED")],
+    );
+
+    // Create bundles for three different subjects
+    let bundle_id1 = client.create_attestation_bundle(
+        &issuer,
+        &subject1,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    env.ledger().with_mut(|l| {
+        l.timestamp += 1;
+    });
+
+    let bundle_id2 = client.create_attestation_bundle(
+        &issuer,
+        &subject2,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    env.ledger().with_mut(|l| {
+        l.timestamp += 1;
+    });
+
+    let bundle_id3 = client.create_attestation_bundle(
+        &issuer,
+        &subject3,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    let bundles = client.get_issuer_bundles(&issuer);
+    assert_eq!(bundles.len(), 3);
+    assert_eq!(bundles.get(0).unwrap(), bundle_id1);
+    assert_eq!(bundles.get(1).unwrap(), bundle_id2);
+    assert_eq!(bundles.get(2).unwrap(), bundle_id3);
+}
+
+#[test]
+fn test_get_issuer_bundles_multi_claim_type_bundle() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    // Create bundle with multiple claim types
+    let claim_types = soroban_sdk::Vec::from_array(
+        &env,
+        [
+            String::from_str(&env, "KYC_PASSED"),
+            String::from_str(&env, "ACCREDITED_INVESTOR"),
+            String::from_str(&env, "SANCTIONS_CLEARED"),
+        ],
+    );
+
+    let bundle_id = client.create_attestation_bundle(
+        &issuer,
+        &subject,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    let bundles = client.get_issuer_bundles(&issuer);
+    assert_eq!(bundles.len(), 1);
+    assert_eq!(bundles.get(0).unwrap(), bundle_id);
+
+    // Verify the bundle contains all claim types
+    let bundle = client.get_bundle(&bundle_id).unwrap();
+    assert_eq!(bundle.claim_types.len(), 3);
+    assert_eq!(bundle.issuer, issuer);
+}
+
+#[test]
+fn test_get_issuer_bundles_bundle_retrieval_by_id() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    let claim_types = soroban_sdk::Vec::from_array(
+        &env,
+        [String::from_str(&env, "KYC_PASSED")],
+    );
+
+    let bundle_id = client.create_attestation_bundle(
+        &issuer,
+        &subject,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    // Get bundles for issuer
+    let bundles = client.get_issuer_bundles(&issuer);
+    assert_eq!(bundles.len(), 1);
+
+    // Verify we can retrieve the bundle by ID from the list
+    let returned_bundle_id = bundles.get(0).unwrap();
+    let bundle = client.get_bundle(&returned_bundle_id).unwrap();
+    
+    assert_eq!(bundle.id, bundle_id);
+    assert_eq!(bundle.issuer, issuer);
+    assert_eq!(bundle.subject, subject);
+    assert_eq!(bundle.attestation_ids.len(), 1);
+}
+
 #[test]
 fn test_storage_key_variants_compile() {
     let _env = Env::default();
