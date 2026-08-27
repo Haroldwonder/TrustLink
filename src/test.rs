@@ -10664,6 +10664,261 @@ fn test_is_bundle_valid_true_for_multi_claim_valid_bundle() {
     }
 }
 
+// ── Issue #1172: get_chunk_size / set_chunk_size tests ───────────────────────
+
+#[test]
+fn test_chunk_size_round_trip() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+
+    // Default chunk size is 50
+    assert_eq!(client.get_chunk_size(), 50);
+
+    // Set to 10 and verify
+    client.set_chunk_size(&admin, &10);
+    assert_eq!(client.get_chunk_size(), 10);
+
+    // Set to 100 and verify
+    client.set_chunk_size(&admin, &100);
+    assert_eq!(client.get_chunk_size(), 100);
+}
+
+#[test]
+fn test_set_chunk_size_unauthorized() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, _, client) = setup(&env);
+    let non_admin = Address::generate(&env);
+
+    let res = client.try_set_chunk_size(&non_admin, &20);
+    assert_eq!(res, Err(Ok(types::Error::Unauthorized)));
+}
+
+#[test]
+fn test_set_chunk_size_zero_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+
+    let res = client.try_set_chunk_size(&admin, &0);
+    assert_eq!(res, Err(Ok(types::Error::InvalidChunkSize)));
+}
+
+#[test]
+fn test_chunk_size_affects_downstream_storage_and_query() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    // Set chunk size to 2
+    client.set_chunk_size(&admin, &2);
+    assert_eq!(client.get_chunk_size(), 2);
+
+    let claim1 = String::from_str(&env, "CLAIM_1");
+    let claim2 = String::from_str(&env, "CLAIM_2");
+    let claim3 = String::from_str(&env, "CLAIM_3");
+
+    let id1 = client.create_attestation(&issuer, &subject, &claim1, &None, &None, &None);
+    let id2 = client.create_attestation(&issuer, &subject, &claim2, &None, &None, &None);
+    let id3 = client.create_attestation(&issuer, &subject, &claim3, &None, &None, &None);
+
+    // Query subject attestations across chunks
+    let subject_atts = client.get_subject_attestations(&subject, &0, &10);
+    assert_eq!(subject_atts.len(), 3);
+    assert_eq!(subject_atts.get(0).unwrap(), id1);
+    assert_eq!(subject_atts.get(1).unwrap(), id2);
+    assert_eq!(subject_atts.get(2).unwrap(), id3);
+
+    // Query with offset spanning chunks
+    let paginated = client.get_subject_attestations(&subject, &1, &2);
+    assert_eq!(paginated.len(), 2);
+    assert_eq!(paginated.get(0).unwrap(), id2);
+    assert_eq!(paginated.get(1).unwrap(), id3);
+
+    // Query issuer attestations across chunks
+    let issuer_atts = client.get_issuer_attestations(&issuer, &0, &10);
+    assert_eq!(issuer_atts.len(), 3);
+    assert_eq!(issuer_atts.get(0).unwrap(), id1);
+    assert_eq!(issuer_atts.get(1).unwrap(), id2);
+    assert_eq!(issuer_atts.get(2).unwrap(), id3);
+}
+
+// ── Issue #1173: get_metadata_hash_only / set_metadata_hash_only tests ──────
+
+#[test]
+fn test_metadata_hash_only_round_trip() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+
+    // Default is false
+    assert_eq!(client.get_metadata_hash_only(), false);
+
+    // Set to true
+    client.set_metadata_hash_only(&admin, &true);
+    assert_eq!(client.get_metadata_hash_only(), true);
+
+    // Set back to false
+    client.set_metadata_hash_only(&admin, &false);
+    assert_eq!(client.get_metadata_hash_only(), false);
+}
+
+#[test]
+fn test_set_metadata_hash_only_unauthorized() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, _, client) = setup(&env);
+    let non_admin = Address::generate(&env);
+
+    let res = client.try_set_metadata_hash_only(&non_admin, &true);
+    assert_eq!(res, Err(Ok(types::Error::Unauthorized)));
+}
+
+#[test]
+fn test_metadata_hash_only_enforcement_behavior() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    let arbitrary_meta = Some(String::from_str(&env, "plain text metadata not a hash"));
+    let valid_hash_meta = Some(String::from_str(
+        &env,
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ));
+    let invalid_short_hex = Some(String::from_str(&env, "e3b0c44298fc1c149afbf4c8"));
+    let invalid_uppercase_hex = Some(String::from_str(
+        &env,
+        "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+    ));
+
+    // When metadata_hash_only is false (default), arbitrary metadata is accepted
+    let id1 = client.create_attestation(&issuer, &subject, &claim_type, &None, &arbitrary_meta, &None);
+    assert_eq!(client.get_attestation(&id1).metadata, arbitrary_meta);
+
+    // Enable hash-only mode
+    client.set_metadata_hash_only(&admin, &true);
+    assert_eq!(client.get_metadata_hash_only(), true);
+
+    // Plain text metadata is rejected
+    let res_plain = client.try_create_attestation(&issuer, &subject, &claim_type, &None, &arbitrary_meta, &None);
+    assert_eq!(res_plain, Err(Ok(types::Error::InvalidMetadata)));
+
+    // Short hex is rejected
+    let res_short = client.try_create_attestation(&issuer, &subject, &claim_type, &None, &invalid_short_hex, &None);
+    assert_eq!(res_short, Err(Ok(types::Error::InvalidMetadata)));
+
+    // Uppercase hex is rejected (must be lowercase)
+    let res_upper = client.try_create_attestation(&issuer, &subject, &claim_type, &None, &invalid_uppercase_hex, &None);
+    assert_eq!(res_upper, Err(Ok(types::Error::InvalidMetadata)));
+
+    // None metadata is accepted in hash-only mode
+    let id_none = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+    assert_eq!(client.get_attestation(&id_none).metadata, None);
+
+    // Valid 64-char lowercase hex is accepted
+    let id_valid = client.create_attestation(&issuer, &subject, &claim_type, &None, &valid_hash_meta, &None);
+    assert_eq!(client.get_attestation(&id_valid).metadata, valid_hash_meta);
+
+    // Disable hash-only mode and verify arbitrary metadata is accepted again
+    client.set_metadata_hash_only(&admin, &false);
+    let id_restored = client.create_attestation(&issuer, &subject, &claim_type, &None, &arbitrary_meta, &None);
+    assert_eq!(client.get_attestation(&id_restored).metadata, arbitrary_meta);
+}
+
+// ── Issue #1174: get_max_attestations_per_subject / set_max_attestations_per_subject tests ─
+
+#[test]
+fn test_max_attestations_per_subject_round_trip() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+
+    // Default is None
+    assert_eq!(client.get_max_attestations_per_subject(), None);
+
+    // Set to Some(5)
+    client.set_max_attestations_per_subject(&admin, &Some(5));
+    assert_eq!(client.get_max_attestations_per_subject(), Some(5));
+
+    // Set back to None
+    client.set_max_attestations_per_subject(&admin, &None);
+    assert_eq!(client.get_max_attestations_per_subject(), None);
+}
+
+#[test]
+fn test_set_max_attestations_per_subject_unauthorized() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, _, client) = setup(&env);
+    let non_admin = Address::generate(&env);
+
+    let res = client.try_set_max_attestations_per_subject(&non_admin, &Some(10));
+    assert_eq!(res, Err(Ok(types::Error::Unauthorized)));
+}
+
+#[test]
+fn test_max_attestations_per_subject_enforces_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    // Admin sets per-subject limit to 2
+    client.set_max_attestations_per_subject(&admin, &Some(2));
+    assert_eq!(client.get_max_attestations_per_subject(), Some(2));
+
+    let claim1 = String::from_str(&env, "CLAIM_1");
+    let claim2 = String::from_str(&env, "CLAIM_2");
+    let claim3 = String::from_str(&env, "CLAIM_3");
+    let claim4 = String::from_str(&env, "CLAIM_4");
+
+    // 1st attestation succeeds
+    let id1 = client.create_attestation(&issuer, &subject, &claim1, &None, &None, &None);
+    assert_eq!(client.get_attestation(&id1).subject, subject);
+
+    // 2nd attestation succeeds
+    let id2 = client.create_attestation(&issuer, &subject, &claim2, &None, &None, &None);
+    assert_eq!(client.get_attestation(&id2).subject, subject);
+
+    // 3rd attestation exceeds limit and fails with LimitExceeded
+    let res3 = client.try_create_attestation(&issuer, &subject, &claim3, &None, &None, &None);
+    assert_eq!(res3, Err(Ok(types::Error::LimitExceeded)));
+
+    // Admin raises limit to 3
+    client.set_max_attestations_per_subject(&admin, &Some(3));
+    assert_eq!(client.get_max_attestations_per_subject(), Some(3));
+
+    // 3rd attestation now succeeds
+    let id3 = client.create_attestation(&issuer, &subject, &claim3, &None, &None, &None);
+    assert_eq!(client.get_attestation(&id3).subject, subject);
+
+    // 4th attestation fails
+    let res4 = client.try_create_attestation(&issuer, &subject, &claim4, &None, &None, &None);
+    assert_eq!(res4, Err(Ok(types::Error::LimitExceeded)));
+
+    // Admin removes limit (None = unlimited)
+    client.set_max_attestations_per_subject(&admin, &None);
+    assert_eq!(client.get_max_attestations_per_subject(), None);
+
+    // 4th attestation now succeeds
+    let id4 = client.create_attestation(&issuer, &subject, &claim4, &None, &None, &None);
+    assert_eq!(client.get_attestation(&id4).subject, subject);
+}
+
 #[test]
 fn test_storage_key_variants_compile() {
     let _env = Env::default();
