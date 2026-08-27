@@ -1026,9 +1026,9 @@ make invoke NETWORK=mainnet ARGS='-- get_admin'
 
 ## Video Tutorial
 
-New to TrustLink or Soroban? Watch the [TrustLink Video Tutorial](https://www.youtube.com/watch?v=TODO_REPLACE_WITH_VIDEO_ID) for a 10–15 minute walkthrough covering what TrustLink is, how to deploy it, and how to integrate it into your contracts and frontend.
+New to TrustLink or Soroban? The TrustLink Video Tutorial (coming soon) will provide a 10–15 minute walkthrough covering what TrustLink is, how to deploy it, and how to integrate it into your contracts and frontend.
 
-A companion written guide with all commands and code snippets is available at [docs/video-tutorial-guide.md](docs/video-tutorial-guide.md).
+In the meantime, a companion written guide with all commands and code snippets is available at [docs/video-tutorial-guide.md](docs/video-tutorial-guide.md).
 
 ## Integration Guide
 
