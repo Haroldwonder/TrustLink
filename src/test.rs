@@ -11398,3 +11398,534 @@ fn test_list_open_proposals_isolated_by_subject() {
     assert_eq!(client.list_open_proposals(&subject_a, &0, &10).len(), 2);
     assert_eq!(client.list_open_proposals(&subject_b, &0, &10).len(), 1);
 }
+
+// ── create_attestation_bundle tests (Issue #1175) ────────────────────────────
+
+#[test]
+fn test_create_attestation_bundle_success_single_claim_type() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    let claim_types = soroban_sdk::Vec::from_array(
+        &env,
+        [String::from_str(&env, "KYC_PASSED")],
+    );
+
+    let bundle_id = client.create_attestation_bundle(
+        &issuer,
+        &subject,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    // bundle_id must be non-empty
+    assert!(bundle_id.len() > 0);
+}
+
+#[test]
+fn test_create_attestation_bundle_success_multiple_claim_types() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    let claim_types = soroban_sdk::Vec::from_array(
+        &env,
+        [
+            String::from_str(&env, "KYC_PASSED"),
+            String::from_str(&env, "ACCREDITED_INVESTOR"),
+            String::from_str(&env, "SANCTIONS_CLEARED"),
+        ],
+    );
+
+    let bundle_id = client.create_attestation_bundle(
+        &issuer,
+        &subject,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    assert!(bundle_id.len() > 0);
+
+    // Verify the stored bundle has all three claim types
+    let bundle = client.get_bundle(&bundle_id).unwrap();
+    assert_eq!(bundle.claim_types.len(), 3);
+    assert_eq!(bundle.issuer, issuer);
+    assert_eq!(bundle.subject, subject);
+    assert_eq!(bundle.attestation_ids.len(), 3);
+}
+
+#[test]
+fn test_create_attestation_bundle_unregistered_issuer_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, _, client) = setup(&env);
+    let bad_issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+
+    let claim_types = soroban_sdk::Vec::from_array(
+        &env,
+        [String::from_str(&env, "KYC_PASSED")],
+    );
+
+    let result = client.try_create_attestation_bundle(
+        &bad_issuer,
+        &subject,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    assert_eq!(result, Err(Ok(types::Error::Unauthorized)));
+}
+
+#[test]
+fn test_create_attestation_bundle_empty_claim_types_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    let empty_claim_types: soroban_sdk::Vec<String> = soroban_sdk::Vec::new(&env);
+
+    let result = client.try_create_attestation_bundle(
+        &issuer,
+        &subject,
+        &empty_claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    assert_eq!(result, Err(Ok(types::Error::LimitExceeded)));
+}
+
+#[test]
+fn test_create_attestation_bundle_issuer_self_attestation_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+
+    let claim_types = soroban_sdk::Vec::from_array(
+        &env,
+        [String::from_str(&env, "KYC_PASSED")],
+    );
+
+    // issuer == subject should be rejected
+    let result = client.try_create_attestation_bundle(
+        &issuer,
+        &issuer,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    assert_eq!(result, Err(Ok(types::Error::Unauthorized)));
+}
+
+#[test]
+fn test_create_attestation_bundle_duplicate_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    let claim_types = soroban_sdk::Vec::from_array(
+        &env,
+        [String::from_str(&env, "KYC_PASSED")],
+    );
+
+    // First bundle succeeds
+    client.create_attestation_bundle(
+        &issuer,
+        &subject,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    // Same inputs in the same ledger second → duplicate bundle ID
+    let result = client.try_create_attestation_bundle(
+        &issuer,
+        &subject,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    assert_eq!(result, Err(Ok(types::Error::DuplicateAttestation)));
+}
+
+#[test]
+fn test_create_attestation_bundle_deterministic_id() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    let claim_types = soroban_sdk::Vec::from_array(
+        &env,
+        [String::from_str(&env, "KYC_PASSED")],
+    );
+
+    let bundle_id = client.create_attestation_bundle(
+        &issuer,
+        &subject,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    // Advance timestamp so the next bundle gets a distinct ID
+    env.ledger().with_mut(|l| {
+        l.timestamp += 1;
+    });
+
+    let subject2 = Address::generate(&env);
+    let bundle_id2 = client.create_attestation_bundle(
+        &issuer,
+        &subject2,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    // Two bundles with different subjects must produce different IDs
+    assert_ne!(bundle_id, bundle_id2);
+}
+
+// ── get_bundle tests (Issue #1176) ───────────────────────────────────────────
+
+#[test]
+fn test_get_bundle_returns_created_bundle_by_id() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    let claim_types = soroban_sdk::Vec::from_array(
+        &env,
+        [String::from_str(&env, "KYC_PASSED")],
+    );
+
+    let bundle_id = client.create_attestation_bundle(
+        &issuer,
+        &subject,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    let bundle = client.get_bundle(&bundle_id).unwrap();
+
+    assert_eq!(bundle.id, bundle_id);
+    assert_eq!(bundle.issuer, issuer);
+    assert_eq!(bundle.subject, subject);
+    assert_eq!(bundle.attestation_ids.len(), 1);
+}
+
+#[test]
+fn test_get_bundle_not_found_for_unknown_id() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, _, client) = setup(&env);
+
+    let fake_id = String::from_str(&env, "nonexistent_bundle_abc123");
+    let result = client.try_get_bundle(&fake_id);
+
+    assert_eq!(result, Err(Ok(types::Error::NotFound)));
+}
+
+#[test]
+fn test_get_bundle_fields_match_creation_inputs() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    env.ledger().set_timestamp(5000);
+
+    let claim_types = soroban_sdk::Vec::from_array(
+        &env,
+        [
+            String::from_str(&env, "KYC_PASSED"),
+            String::from_str(&env, "ACCREDITED_INVESTOR"),
+        ],
+    );
+
+    let bundle_id = client.create_attestation_bundle(
+        &issuer,
+        &subject,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    let bundle = client.get_bundle(&bundle_id).unwrap();
+
+    assert_eq!(bundle.id, bundle_id);
+    assert_eq!(bundle.issuer, issuer);
+    assert_eq!(bundle.subject, subject);
+    assert_eq!(bundle.claim_types.len(), 2);
+    assert_eq!(bundle.claim_types.get(0).unwrap(), String::from_str(&env, "KYC_PASSED"));
+    assert_eq!(bundle.claim_types.get(1).unwrap(), String::from_str(&env, "ACCREDITED_INVESTOR"));
+    assert_eq!(bundle.timestamp, 5000);
+    assert_eq!(bundle.attestation_ids.len(), 2);
+    assert_eq!(bundle.all_valid, true);
+}
+
+#[test]
+fn test_get_bundle_all_valid_false_after_revocation() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    let claim_types = soroban_sdk::Vec::from_array(
+        &env,
+        [
+            String::from_str(&env, "KYC_PASSED"),
+            String::from_str(&env, "ACCREDITED_INVESTOR"),
+        ],
+    );
+
+    let bundle_id = client.create_attestation_bundle(
+        &issuer,
+        &subject,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    // Confirm initially valid
+    let bundle_before = client.get_bundle(&bundle_id).unwrap();
+    assert_eq!(bundle_before.all_valid, true);
+
+    // Revoke the first attestation
+    let att_id = bundle_before.attestation_ids.get(0).unwrap();
+    client.revoke(&issuer, &att_id, &None);
+
+    // is_bundle_valid reflects the revocation
+    let still_valid = client.is_bundle_valid(&bundle_id).unwrap();
+    assert_eq!(still_valid, false);
+}
+
+#[test]
+fn test_get_bundle_multiple_bundles_independent() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject1 = Address::generate(&env);
+    let subject2 = Address::generate(&env);
+
+    let claim_types = soroban_sdk::Vec::from_array(
+        &env,
+        [String::from_str(&env, "KYC_PASSED")],
+    );
+
+    let bundle_id1 = client.create_attestation_bundle(
+        &issuer,
+        &subject1,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    env.ledger().with_mut(|l| { l.timestamp += 1; });
+
+    let bundle_id2 = client.create_attestation_bundle(
+        &issuer,
+        &subject2,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    assert_ne!(bundle_id1, bundle_id2);
+
+    let b1 = client.get_bundle(&bundle_id1).unwrap();
+    let b2 = client.get_bundle(&bundle_id2).unwrap();
+
+    assert_eq!(b1.subject, subject1);
+    assert_eq!(b2.subject, subject2);
+    assert_ne!(b1.attestation_ids.get(0).unwrap(), b2.attestation_ids.get(0).unwrap());
+}
+
+// ── get_bundle_attestations tests (Issue #1177) ──────────────────────────────
+
+#[test]
+fn test_get_bundle_attestations_returns_single_attestation() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    let claim_types = soroban_sdk::Vec::from_array(
+        &env,
+        [String::from_str(&env, "KYC_PASSED")],
+    );
+
+    let bundle_id = client.create_attestation_bundle(
+        &issuer,
+        &subject,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    let attestations = client.get_bundle_attestations(&bundle_id).unwrap();
+
+    assert_eq!(attestations.len(), 1);
+    assert_eq!(attestations.get(0).unwrap().claim_type, String::from_str(&env, "KYC_PASSED"));
+    assert_eq!(attestations.get(0).unwrap().issuer, issuer);
+    assert_eq!(attestations.get(0).unwrap().subject, subject);
+}
+
+#[test]
+fn test_get_bundle_attestations_returns_all_attestations_in_order() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    let claim_types = soroban_sdk::Vec::from_array(
+        &env,
+        [
+            String::from_str(&env, "KYC_PASSED"),
+            String::from_str(&env, "ACCREDITED_INVESTOR"),
+            String::from_str(&env, "SANCTIONS_CLEARED"),
+        ],
+    );
+
+    let bundle_id = client.create_attestation_bundle(
+        &issuer,
+        &subject,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    let attestations = client.get_bundle_attestations(&bundle_id).unwrap();
+
+    assert_eq!(attestations.len(), 3);
+    // Order must match the order of claim_types passed to create_attestation_bundle
+    assert_eq!(attestations.get(0).unwrap().claim_type, String::from_str(&env, "KYC_PASSED"));
+    assert_eq!(attestations.get(1).unwrap().claim_type, String::from_str(&env, "ACCREDITED_INVESTOR"));
+    assert_eq!(attestations.get(2).unwrap().claim_type, String::from_str(&env, "SANCTIONS_CLEARED"));
+}
+
+#[test]
+fn test_get_bundle_attestations_not_found_for_unknown_bundle() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, _, client) = setup(&env);
+
+    let fake_id = String::from_str(&env, "nonexistent_bundle_xyz");
+    let result = client.try_get_bundle_attestations(&fake_id);
+
+    assert_eq!(result, Err(Ok(types::Error::NotFound)));
+}
+
+#[test]
+fn test_get_bundle_attestations_ids_match_bundle_attestation_ids() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    let claim_types = soroban_sdk::Vec::from_array(
+        &env,
+        [
+            String::from_str(&env, "KYC_PASSED"),
+            String::from_str(&env, "ACCREDITED_INVESTOR"),
+        ],
+    );
+
+    let bundle_id = client.create_attestation_bundle(
+        &issuer,
+        &subject,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    let bundle = client.get_bundle(&bundle_id).unwrap();
+    let attestations = client.get_bundle_attestations(&bundle_id).unwrap();
+
+    assert_eq!(attestations.len(), bundle.attestation_ids.len());
+    for i in 0..attestations.len() {
+        assert_eq!(
+            attestations.get(i).unwrap().id,
+            bundle.attestation_ids.get(i).unwrap()
+        );
+    }
+}
+
+#[test]
+fn test_get_bundle_attestations_all_share_bundle_id() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    let claim_types = soroban_sdk::Vec::from_array(
+        &env,
+        [
+            String::from_str(&env, "KYC_PASSED"),
+            String::from_str(&env, "ACCREDITED_INVESTOR"),
+            String::from_str(&env, "SANCTIONS_CLEARED"),
+        ],
+    );
+
+    let bundle_id = client.create_attestation_bundle(
+        &issuer,
+        &subject,
+        &claim_types,
+        &None,
+        &None,
+        &None,
+    );
+
+    let attestations = client.get_bundle_attestations(&bundle_id).unwrap();
+
+    for attestation in attestations.iter() {
+        assert_eq!(attestation.bundle_id, Some(bundle_id.clone()));
+    }
+}
