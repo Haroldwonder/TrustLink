@@ -1,4 +1,4 @@
-# ADR-005: Prevent Admin from Setting Themselves as Fee Collector
+# ADR-012: Prevent Admin from Setting Themselves as Fee Collector
 
 - **Status**: Accepted
 - **Date**: 2024-04-23
