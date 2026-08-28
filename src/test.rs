@@ -4757,6 +4757,75 @@ mod pause_tests {
         assert_eq!(result, Err(Ok(Error::ContractPaused)));
     }
 
+    // ── pause / unpause / is_paused core circuit-breaker tests ─────────────
+
+    #[test]
+    fn test_admin_can_pause() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, _, client) = setup(&env);
+
+        assert!(!client.is_paused());
+        client.pause(&admin);
+        assert!(client.is_paused());
+    }
+
+    #[test]
+    fn test_non_admin_cannot_pause() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, _, client) = setup(&env);
+        let non_admin = Address::generate(&env);
+
+        let result = client.try_pause(&non_admin);
+        assert_eq!(result, Err(Ok(Error::Unauthorized)));
+        assert!(!client.is_paused());
+    }
+
+    #[test]
+    fn test_pause_blocks_create_then_unpause_restores() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, issuer, client) = setup(&env);
+        let subject = Address::generate(&env);
+        let claim = String::from_str(&env, "KYC_PASSED");
+
+        client.pause(&admin);
+        let blocked = client.try_create_attestation(&issuer, &subject, &claim, &None, &None, &None);
+        assert_eq!(blocked, Err(Ok(Error::ContractPaused)));
+
+        client.unpause(&admin);
+        let id = client.create_attestation(&issuer, &subject, &claim, &None, &None, &None);
+        assert!(!id.is_empty());
+    }
+
+    #[test]
+    fn test_is_paused_reflects_state() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, _, client) = setup(&env);
+
+        assert!(!client.is_paused());
+        client.pause(&admin);
+        assert!(client.is_paused());
+        client.unpause(&admin);
+        assert!(!client.is_paused());
+    }
+
+    #[test]
+    fn test_get_rate_limit_matches_configured_value() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, _, client) = setup(&env);
+
+        // Before any configuration, rate limit is None.
+        assert!(client.get_rate_limit().is_none());
+
+        client.set_rate_limit(&admin, &300);
+        let cfg = client.get_rate_limit().expect("rate limit should be set");
+        assert_eq!(cfg.min_issuance_interval, 300);
+    }
+
     /// Issue #950: cancel_multisig_proposal was missing the require_not_paused
     /// check that every other mutating entry point performs, so a paused
     /// contract could still have its open proposals cancelled.
