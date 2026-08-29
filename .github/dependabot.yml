@@ -36,13 +36,6 @@ updates:
       - "dependencies"
 
   - package-ecosystem: "npm"
-    directory: "/examples/react-app"
-    schedule:
-      interval: "weekly"
-    labels:
-      - "dependencies"
-
-  - package-ecosystem: "npm"
     directory: "/examples/issuer-cli"
     schedule:
       interval: "weekly"
