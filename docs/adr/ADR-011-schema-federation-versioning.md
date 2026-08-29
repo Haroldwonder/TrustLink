@@ -3,7 +3,7 @@
 **Status:** Accepted  
 **Date:** 2026-07-29  
 **Deciders:** TrustLink indexer team  
-**Issues:** [#976](https://github.com/afurious/TrustLink/issues/976)
+**Issues:** [#976](https://github.com/Idaonoli/TrustLink/issues/976)
 
 ---
 
@@ -184,4 +184,4 @@ cleanly to a BaaS. Rejected.
 - [Apollo Federation v2 documentation](https://www.apollographql.com/docs/federation/)
 - [GraphQL Schema Versioning best practices](https://graphql.org/learn/best-practices/)
 - [ADR-004: Dual indexes](./ADR-004-dual-indexes.md) — context for Issuer and Subject as first-class entities
-- [Issue #976](https://github.com/afurious/TrustLink/issues/976)
+- [Issue #976](https://github.com/Idaonoli/TrustLink/issues/976)
