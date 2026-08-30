@@ -199,6 +199,9 @@ jobs:
       - name: cargo test
         run: cargo test
 
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
       - name: WASM release build
         run: cargo build --target wasm32-unknown-unknown --release
 
