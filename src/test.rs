@@ -4982,6 +4982,122 @@ mod two_step_admin_transfer_tests {
 }
 
 // =============================================================================
+// Issue #1129 — transfer_admin (single-step) tests
+// =============================================================================
+#[cfg(test)]
+mod direct_admin_transfer_tests {
+    use super::*;
+    use soroban_sdk::testutils::Address as _;
+
+    fn setup(env: &Env) -> (Address, TrustLinkContractClient<'_>) {
+        let contract_id = env.register_contract(None, TrustLinkContract);
+        let client = TrustLinkContractClient::new(env, &contract_id);
+        let admin = Address::generate(env);
+        client.initialize(&admin, &None);
+        (admin, client)
+    }
+
+    /// Current admin transfers directly → new admin takes over immediately.
+    #[test]
+    fn test_transfer_admin_by_current_admin_succeeds() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, client) = setup(&env);
+        let new_admin = Address::generate(&env);
+        let issuer = Address::generate(&env);
+
+        client.transfer_admin(&admin, &new_admin);
+
+        assert_eq!(client.get_admin(), new_admin);
+
+        // Old admin no longer has admin privileges.
+        let result = client.try_register_issuer(&admin, &issuer);
+        assert_eq!(result, Err(Ok(Error::Unauthorized)));
+
+        // New admin does.
+        client.register_issuer(&new_admin, &issuer);
+        assert!(client.is_issuer(&issuer));
+    }
+
+    /// Non-admin cannot call transfer_admin.
+    #[test]
+    fn test_transfer_admin_rejects_non_admin() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, client) = setup(&env);
+        let non_admin = Address::generate(&env);
+        let new_admin = Address::generate(&env);
+
+        let result = client.try_transfer_admin(&non_admin, &new_admin);
+        assert_eq!(result, Err(Ok(Error::Unauthorized)));
+        assert_eq!(client.get_admin(), admin);
+    }
+
+    /// A direct transfer_admin call while a propose/accept transfer is in flight:
+    /// the direct transfer takes effect immediately, but the still-pending
+    /// proposal can later be accepted too, adding the proposed address as an
+    /// additional admin without reverting the direct transfer's choice.
+    #[test]
+    fn test_transfer_admin_interacts_with_pending_propose_cycle() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (admin, client) = setup(&env);
+        let proposed_admin = Address::generate(&env);
+        let direct_new_admin = Address::generate(&env);
+        let issuer_a = Address::generate(&env);
+        let issuer_b = Address::generate(&env);
+
+        client.propose_admin_transfer(&admin, &proposed_admin);
+        client.transfer_admin(&admin, &direct_new_admin);
+
+        assert_eq!(client.get_admin(), direct_new_admin);
+
+        // Old admin lost privileges; the direct transfer's target has them.
+        let result = client.try_register_issuer(&admin, &issuer_a);
+        assert_eq!(result, Err(Ok(Error::Unauthorized)));
+        client.register_issuer(&direct_new_admin, &issuer_a);
+
+        // The pending proposal is untouched by the direct transfer and can still be accepted,
+        // granting the proposed address admin privileges too.
+        client.accept_admin_transfer(&proposed_admin);
+        client.register_issuer(&proposed_admin, &issuer_b);
+        assert!(client.is_issuer(&issuer_a));
+        assert!(client.is_issuer(&issuer_b));
+    }
+}
+
+// =============================================================================
+// Issue #1131 — get_contract_metadata tests
+// =============================================================================
+#[cfg(test)]
+mod contract_metadata_tests {
+    use super::*;
+    use soroban_sdk::{testutils::Address as _, String};
+
+    #[test]
+    fn test_get_contract_metadata_matches_initialized_state() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, TrustLinkContract);
+        let client = TrustLinkContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin, &None);
+
+        let metadata = client.get_contract_metadata();
+
+        assert_eq!(metadata.name, String::from_str(&env, "TrustLink"));
+        assert_eq!(metadata.version, String::from_str(&env, "1.0.0"));
+        assert_eq!(
+            metadata.description,
+            String::from_str(
+                &env,
+                "On-chain attestation and verification system for the Stellar blockchain."
+            )
+        );
+    }
+}
+
+// =============================================================================
 // Issue #340 — get_attestations_in_range boundary condition tests
 // =============================================================================
 #[cfg(test)]
