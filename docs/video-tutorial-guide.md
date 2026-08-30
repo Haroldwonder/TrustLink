@@ -408,4 +408,4 @@ assert!(contract.has_valid_claim(
 - [README](../README.md) — full API reference
 - [Integration Guide](./integration-guide.md) — deeper patterns, pagination, testnet CLI examples
 - [Storage Layout](./storage-layout.md) — on-chain key reference for indexer developers
-- [GitHub Issues](https://github.com/unixfundz/TrustLink/issues) — bug reports and feature requests
+- [GitHub Issues](https://github.com/Idaonoli/TrustLink/issues) — bug reports and feature requests
