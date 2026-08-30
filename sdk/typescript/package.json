@@ -54,7 +54,7 @@
     "node": ">=16.0.0"
   },
   "dependencies": {
-    "@stellar/stellar-sdk": "^14.0.0"
+    "@stellar/stellar-sdk": "^17.0.1"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",
