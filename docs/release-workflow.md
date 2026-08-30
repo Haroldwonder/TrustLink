@@ -361,7 +361,7 @@ repos:
 **Cause:** `publish-release` workflow failed.
 
 **Solution:**
-1. Check workflow run: https://github.com/TrustLink/TrustLink/actions
+1. Check workflow run: https://github.com/Haroldwonder/TrustLink/actions
 2. Review logs for build errors
 3. Manually build and attach if needed:
    ```bash
