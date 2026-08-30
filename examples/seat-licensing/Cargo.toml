@@ -1,0 +1,16 @@
+[package]
+name = "seat-licensing-example"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+soroban-sdk = "21.0.0"
+# Pin: soroban-env-host 21.x accepts ed25519-dalek >=2, but 3.0 breaks CryptoRng bounds.
+ed25519-dalek = { version = "=2.2.0", default-features = false, features = ["rand_core"] }
+
+[dev-dependencies]
+soroban-sdk = { version = "21.0.0", features = ["testutils"] }

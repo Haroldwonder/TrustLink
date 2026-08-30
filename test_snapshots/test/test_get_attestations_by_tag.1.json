@@ -136,7 +136,7 @@
                   "symbol": "Attestation"
                 },
                 {
-                  "string": "1464fcfc793a4110012684031664188b79c1cc8f3a6d1ca27b276f3e7675e0bb"
+                  "string": "39954e03a18ba290431b7d85aac67fc4"
                 }
               ]
             },
@@ -156,13 +156,19 @@
                       "symbol": "Attestation"
                     },
                     {
-                      "string": "1464fcfc793a4110012684031664188b79c1cc8f3a6d1ca27b276f3e7675e0bb"
+                      "string": "39954e03a18ba290431b7d85aac67fc4"
                     }
                   ]
                 },
                 "durability": "persistent",
                 "val": {
                   "map": [
+                    {
+                      "key": {
+                        "symbol": "bundle_id"
+                      },
+                      "val": "void"
+                    },
                     {
                       "key": {
                         "symbol": "claim_type"
@@ -190,7 +196,7 @@
                         "symbol": "id"
                       },
                       "val": {
-                        "string": "1464fcfc793a4110012684031664188b79c1cc8f3a6d1ca27b276f3e7675e0bb"
+                        "string": "39954e03a18ba290431b7d85aac67fc4"
                       }
                     },
                     {
@@ -304,7 +310,7 @@
                   "symbol": "Attestation"
                 },
                 {
-                  "string": "57c794777958b8ba958efcfadf308b358e97c50687f51ac48640af3f7468bcf2"
+                  "string": "a32b51a08f634a8091e85abb9b7e99a1"
                 }
               ]
             },
@@ -324,13 +330,19 @@
                       "symbol": "Attestation"
                     },
                     {
-                      "string": "57c794777958b8ba958efcfadf308b358e97c50687f51ac48640af3f7468bcf2"
+                      "string": "a32b51a08f634a8091e85abb9b7e99a1"
                     }
                   ]
                 },
                 "durability": "persistent",
                 "val": {
                   "map": [
+                    {
+                      "key": {
+                        "symbol": "bundle_id"
+                      },
+                      "val": "void"
+                    },
                     {
                       "key": {
                         "symbol": "claim_type"
@@ -358,7 +370,7 @@
                         "symbol": "id"
                       },
                       "val": {
-                        "string": "57c794777958b8ba958efcfadf308b358e97c50687f51ac48640af3f7468bcf2"
+                        "string": "a32b51a08f634a8091e85abb9b7e99a1"
                       }
                     },
                     {
@@ -472,7 +484,7 @@
                   "symbol": "AuditLog"
                 },
                 {
-                  "string": "1464fcfc793a4110012684031664188b79c1cc8f3a6d1ca27b276f3e7675e0bb"
+                  "string": "39954e03a18ba290431b7d85aac67fc4"
                 }
               ]
             },
@@ -492,7 +504,7 @@
                       "symbol": "AuditLog"
                     },
                     {
-                      "string": "1464fcfc793a4110012684031664188b79c1cc8f3a6d1ca27b276f3e7675e0bb"
+                      "string": "39954e03a18ba290431b7d85aac67fc4"
                     }
                   ]
                 },
@@ -556,7 +568,7 @@
                   "symbol": "AuditLog"
                 },
                 {
-                  "string": "57c794777958b8ba958efcfadf308b358e97c50687f51ac48640af3f7468bcf2"
+                  "string": "a32b51a08f634a8091e85abb9b7e99a1"
                 }
               ]
             },
@@ -576,7 +588,7 @@
                       "symbol": "AuditLog"
                     },
                     {
-                      "string": "57c794777958b8ba958efcfadf308b358e97c50687f51ac48640af3f7468bcf2"
+                      "string": "a32b51a08f634a8091e85abb9b7e99a1"
                     }
                   ]
                 },
@@ -719,10 +731,10 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "1464fcfc793a4110012684031664188b79c1cc8f3a6d1ca27b276f3e7675e0bb"
+                      "string": "39954e03a18ba290431b7d85aac67fc4"
                     },
                     {
-                      "string": "57c794777958b8ba958efcfadf308b358e97c50687f51ac48640af3f7468bcf2"
+                      "string": "a32b51a08f634a8091e85abb9b7e99a1"
                     }
                   ]
                 }
@@ -771,10 +783,10 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "1464fcfc793a4110012684031664188b79c1cc8f3a6d1ca27b276f3e7675e0bb"
+                      "string": "39954e03a18ba290431b7d85aac67fc4"
                     },
                     {
-                      "string": "57c794777958b8ba958efcfadf308b358e97c50687f51ac48640af3f7468bcf2"
+                      "string": "a32b51a08f634a8091e85abb9b7e99a1"
                     }
                   ]
                 }
@@ -971,10 +983,10 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "1464fcfc793a4110012684031664188b79c1cc8f3a6d1ca27b276f3e7675e0bb"
+                      "string": "39954e03a18ba290431b7d85aac67fc4"
                     },
                     {
-                      "string": "57c794777958b8ba958efcfadf308b358e97c50687f51ac48640af3f7468bcf2"
+                      "string": "a32b51a08f634a8091e85abb9b7e99a1"
                     }
                   ]
                 }
@@ -1023,10 +1035,10 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "1464fcfc793a4110012684031664188b79c1cc8f3a6d1ca27b276f3e7675e0bb"
+                      "string": "39954e03a18ba290431b7d85aac67fc4"
                     },
                     {
-                      "string": "57c794777958b8ba958efcfadf308b358e97c50687f51ac48640af3f7468bcf2"
+                      "string": "a32b51a08f634a8091e85abb9b7e99a1"
                     }
                   ]
                 }
@@ -1075,10 +1087,10 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "1464fcfc793a4110012684031664188b79c1cc8f3a6d1ca27b276f3e7675e0bb"
+                      "string": "39954e03a18ba290431b7d85aac67fc4"
                     },
                     {
-                      "string": "57c794777958b8ba958efcfadf308b358e97c50687f51ac48640af3f7468bcf2"
+                      "string": "a32b51a08f634a8091e85abb9b7e99a1"
                     }
                   ]
                 }
@@ -1628,7 +1640,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "1464fcfc793a4110012684031664188b79c1cc8f3a6d1ca27b276f3e7675e0bb"
+                  "string": "39954e03a18ba290431b7d85aac67fc4"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -1663,7 +1675,7 @@
               }
             ],
             "data": {
-              "string": "1464fcfc793a4110012684031664188b79c1cc8f3a6d1ca27b276f3e7675e0bb"
+              "string": "39954e03a18ba290431b7d85aac67fc4"
             }
           }
         }
@@ -1733,7 +1745,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "57c794777958b8ba958efcfadf308b358e97c50687f51ac48640af3f7468bcf2"
+                  "string": "a32b51a08f634a8091e85abb9b7e99a1"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -1768,7 +1780,7 @@
               }
             ],
             "data": {
-              "string": "57c794777958b8ba958efcfadf308b358e97c50687f51ac48640af3f7468bcf2"
+              "string": "a32b51a08f634a8091e85abb9b7e99a1"
             }
           }
         }
@@ -1826,7 +1838,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "1464fcfc793a4110012684031664188b79c1cc8f3a6d1ca27b276f3e7675e0bb"
+                  "string": "39954e03a18ba290431b7d85aac67fc4"
                 }
               ]
             }

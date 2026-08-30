@@ -3,6 +3,9 @@
 [![CI](https://github.com/afurious/TrustLink/actions/workflows/ci.yml/badge.svg)](https://github.com/afurious/TrustLink/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/afurious/TrustLink/branch/main/graph/badge.svg)](https://codecov.io/gh/afurious/TrustLink)
 [![Security Audit](https://img.shields.io/badge/Security%20Audit-In%20Progress-yellow)](./AUDIT_SCOPE.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+
+**[Documentation index](docs/README.md)** · **[Contributing](CONTRIBUTING.md)** · **[Code of Conduct](CODE_OF_CONDUCT.md)** · **[License](LICENSE)**
 
 TrustLink is a Soroban smart contract that provides a reusable trust layer for the Stellar blockchain. It enables trusted issuers, bridge contracts, and administrators to create, import, manage, and revoke attestations about wallet addresses, allowing other contracts and applications to verify claims before executing financial operations.
 
@@ -10,7 +13,7 @@ TrustLink is a Soroban smart contract that provides a reusable trust layer for t
 
 TrustLink solves the problem of decentralized identity verification and trust establishment on-chain. Instead of each application building its own KYC/verification system, TrustLink provides a shared attestation infrastructure that can be queried by any smart contract or dApp.
 
-**New here? Start with the [5-Minute Quickstart](docs/quickstart.md)** — go from zero to verifying a testnet attestation using only the TypeScript SDK, in under 15 commands.
+**New here? Start with the [5-Minute Quickstart](docs/quickstart.md)** — go from zero to verifying a testnet attestation using only the TypeScript SDK, in under 15 commands. Browse the full docs catalog in the **[documentation index](docs/README.md)**.
 
 ### Key Features
 
@@ -860,6 +863,17 @@ Tests cover:
 - Pagination
 - Cross-contract verification
 
+### Trade-finance example
+
+[`examples/trade_finance.rs`](examples/trade_finance.rs) demonstrates a
+bill-of-lading attestation chain. An exporter, customs authority, and financing
+bank independently attest to the same shipment reference; clearance requires all
+three claims to remain valid.
+
+```bash
+cargo test --example trade_finance
+```
+
 ## Security Considerations
 
 1. **Authorization**: Only admin can manage issuers; only issuers can create attestations
@@ -877,6 +891,7 @@ For the pre-mainnet line-by-line authorization audit, see
 ## Use Cases
 
 - **DeFi Protocols**: Verify KYC before lending/borrowing
+- **Lending Pool**: IssuerTier-gated LTV and liquidation thresholds — see [examples/lending-pool/README.md](examples/lending-pool/README.md)
 - **Token Sales**: Ensure accredited investor status
 - **Payment Systems**: Verify merchant credentials
 - **Governance**: Validate voter eligibility
@@ -887,6 +902,7 @@ For the pre-mainnet line-by-line authorization audit, see
 - **Stellar Anchors**: End-to-end anchor KYC attestation flow example in [examples/anchor-integration/README.md](examples/anchor-integration/README.md)
 - **Soroban Tokens**: KYC-restricted token transfer example in [examples/kyc-token/README.md](examples/kyc-token/README.md)
 - **DAO Governance**: Voter eligibility-gated voting example in [examples/governance/README.md](examples/governance/README.md)
+- **SaaS Seat Licensing**: Multi-tenant per-seat `SEAT_LICENSED` issuance, access gating, and offboarding revocation — see [examples/seat-licensing/README.md](examples/seat-licensing/README.md)
 
 ## Release Process
 
@@ -1030,6 +1046,10 @@ New to TrustLink or Soroban? Watch the [TrustLink Video Tutorial](https://www.yo
 
 A companion written guide with all commands and code snippets is available at [docs/video-tutorial-guide.md](docs/video-tutorial-guide.md).
 
+## Quickstart & Glossary
+
+New to TrustLink? [docs/quickstart.md](docs/quickstart.md) gets you from clone to a verified claim in a few minutes, and [docs/glossary.md](docs/glossary.md) covers the key terms used throughout these docs. Both are also available in [Español](docs/i18n/es/quickstart.md) ([glosario](docs/i18n/es/glossary.md)) — see [docs/i18n/](docs/i18n/) for the translation directory convention.
+
 ## Integration Guide
 
 For a step-by-step walkthrough covering Rust cross-contract patterns, JavaScript/TypeScript usage, error handling, and testnet testing, see [docs/integration-guide.md](docs/integration-guide.md).
@@ -1058,12 +1078,13 @@ Key design choices are documented as ADRs in [docs/adr/](docs/adr/):
 | [ADR-007](docs/adr/ADR-007-attestation-requests.md)  | Pull-based attestation request workflow          |
 | [ADR-008](docs/adr/ADR-008-rate-limiting.md)         | Rate limiting design and known limitations       |
 | [ADR-009](docs/adr/ADR-009-delegation-model.md)      | Delegation model and trust chain implications    |
+| [ADR-011](docs/adr/ADR-011-schema-federation-versioning.md) | Indexer GraphQL schema federation and versioning |
 
 A blank [template](docs/adr/ADR-000-template.md) is available for new decisions.
 
 ## License
 
-MIT
+This project is licensed under the [MIT License](LICENSE).
 
 ## Changelog
 
@@ -1071,7 +1092,7 @@ See [CHANGELOG.md](CHANGELOG.md) for a history of notable changes.
 
 ## Contributing
 
-Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, code style requirements, and the PR process.
+Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, code style requirements, and the PR process. By participating, you agree to abide by our [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Support
 

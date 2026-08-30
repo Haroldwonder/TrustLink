@@ -28,16 +28,38 @@ from .types import (
     CONTRACT_ERRORS,
 )
 from . import _base
+from ._retry import with_retry
 
 
 class TrustLinkClient:
-    """Client for interacting with TrustLink contract."""
+    """Client for interacting with TrustLink contract.
+
+    All read-only methods automatically retry on transient RPC failures using
+    exponential backoff (default: 3 attempts, starting at 200 ms).
+
+    To opt out of retries on a specific call, pass ``retry_attempts=1``::
+
+        client.has_valid_claim(subject, "KYC_PASSED", retry_attempts=1)
+
+    To change the defaults for all calls, pass keyword arguments to the
+    constructor::
+
+        client = TrustLinkClient(
+            contract_id, rpc_url,
+            retry_attempts=5,
+            retry_base_ms=500,
+        )
+    """
 
     def __init__(
         self,
         contract_id: str,
         rpc_url: str,
         network_passphrase: str = Networks.TESTNET_NETWORK_PASSPHRASE,
+        *,
+        retry_attempts: int = 3,
+        retry_base_ms: float = 200.0,
+        retry_max_ms: float = 10_000.0,
     ):
         """Initialize TrustLink client.
 
@@ -45,17 +67,25 @@ class TrustLinkClient:
             contract_id: Deployed contract address (C...)
             rpc_url: Stellar RPC server URL
             network_passphrase: Network passphrase (defaults to testnet)
+            retry_attempts: Max retry attempts for transient read failures
+                (default: 3). Pass 1 to disable automatic retries.
+            retry_base_ms: Initial backoff delay in milliseconds (default: 200).
+            retry_max_ms: Maximum backoff cap in milliseconds (default: 10 000).
         """
         self.contract_id = contract_id
         self.rpc_url = rpc_url
         self.network_passphrase = network_passphrase
         self.server = Server(rpc_url)
         self.contract = Contract(contract_id)
+        self._retry_attempts = retry_attempts
+        self._retry_base_ms = retry_base_ms
+        self._retry_max_ms = retry_max_ms
 
     # ─── Read Operations ───────────────────────────────────────────────────────
 
     def get_subject_attestations(
-        self, subject: str, offset: int = 0, limit: int = 50
+        self, subject: str, offset: int = 0, limit: int = 50,
+        *, retry_attempts: Optional[int] = None,
     ) -> List[Attestation]:
         """Get attestations for a subject.
 
@@ -63,33 +93,41 @@ class TrustLinkClient:
             subject: Subject address
             offset: Pagination offset
             limit: Pagination limit
+            retry_attempts: Override default retry count for this call.
 
         Returns:
             List of attestations
         """
-        return self._simulate(
+        return self._simulate_with_retry(
+            retry_attempts,
             "get_subject_attestations",
             self._addr(subject),
             self._u32(offset),
             self._u32(limit),
         )
 
-    def has_valid_claim(self, subject: str, claim_type: str) -> bool:
+    def has_valid_claim(
+        self, subject: str, claim_type: str,
+        *, retry_attempts: Optional[int] = None,
+    ) -> bool:
         """Check if subject has valid claim.
 
         Args:
             subject: Subject address
             claim_type: Claim type identifier
+            retry_attempts: Override default retry count for this call.
 
         Returns:
             True if subject has valid claim
         """
-        return self._simulate(
+        return self._simulate_with_retry(
+            retry_attempts,
             "has_valid_claim", self._addr(subject), self._str(claim_type)
         )
 
     def has_valid_claim_from_issuer(
-        self, subject: str, claim_type: str, issuer: str
+        self, subject: str, claim_type: str, issuer: str,
+        *, retry_attempts: Optional[int] = None,
     ) -> bool:
         """Check if subject has valid claim from specific issuer.
 
@@ -97,23 +135,29 @@ class TrustLinkClient:
             subject: Subject address
             claim_type: Claim type identifier
             issuer: Issuer address
+            retry_attempts: Override default retry count for this call.
 
         Returns:
             True if subject has valid claim from issuer
         """
-        return self._simulate(
+        return self._simulate_with_retry(
+            retry_attempts,
             "has_valid_claim_from_issuer",
             self._addr(subject),
             self._str(claim_type),
             self._addr(issuer),
         )
 
-    def has_any_claim(self, subject: str, claim_types: List[str]) -> bool:
+    def has_any_claim(
+        self, subject: str, claim_types: List[str],
+        *, retry_attempts: Optional[int] = None,
+    ) -> bool:
         """Check if subject has any of the claim types.
 
         Args:
             subject: Subject address
             claim_types: List of claim type identifiers (empty list always returns False)
+            retry_attempts: Override default retry count for this call.
 
         Returns:
             True if subject has at least one of the claim types
@@ -125,18 +169,23 @@ class TrustLinkClient:
                 raise TrustLinkError("Each claim type must be a non-empty string")
         if not claim_types:
             return False
-        return self._simulate(
+        return self._simulate_with_retry(
+            retry_attempts,
             "has_any_claim",
             self._addr(subject),
             self._vec_str(claim_types),
         )
 
-    def has_all_claims(self, subject: str, claim_types: List[str]) -> bool:
+    def has_all_claims(
+        self, subject: str, claim_types: List[str],
+        *, retry_attempts: Optional[int] = None,
+    ) -> bool:
         """Check if subject has all claim types.
 
         Args:
             subject: Subject address
             claim_types: List of claim type identifiers (empty list always returns True)
+            retry_attempts: Override default retry count for this call.
 
         Returns:
             True if subject has every claim type in the list
@@ -148,36 +197,52 @@ class TrustLinkClient:
                 raise TrustLinkError("Each claim type must be a non-empty string")
         if not claim_types:
             return True
-        return self._simulate(
+        return self._simulate_with_retry(
+            retry_attempts,
             "has_all_claims",
             self._addr(subject),
             self._vec_str(claim_types),
         )
 
-    def get_attestation(self, attestation_id: str) -> Attestation:
+    def get_attestation(
+        self, attestation_id: str,
+        *, retry_attempts: Optional[int] = None,
+    ) -> Attestation:
         """Get specific attestation.
 
         Args:
             attestation_id: Attestation ID
+            retry_attempts: Override default retry count for this call.
 
         Returns:
             Attestation record
         """
-        return self._simulate("get_attestation", self._str(attestation_id))
+        return self._simulate_with_retry(
+            retry_attempts,
+            "get_attestation", self._str(attestation_id)
+        )
 
-    def get_attestation_status(self, attestation_id: str) -> AttestationStatus:
+    def get_attestation_status(
+        self, attestation_id: str,
+        *, retry_attempts: Optional[int] = None,
+    ) -> AttestationStatus:
         """Get attestation status.
 
         Args:
             attestation_id: Attestation ID
+            retry_attempts: Override default retry count for this call.
 
         Returns:
             Attestation status (Valid, Expired, or Revoked)
         """
-        return self._simulate("get_attestation_status", self._str(attestation_id))
+        return self._simulate_with_retry(
+            retry_attempts,
+            "get_attestation_status", self._str(attestation_id)
+        )
 
     def get_issuer_attestations(
-        self, issuer: str, offset: int = 0, limit: int = 50
+        self, issuer: str, offset: int = 0, limit: int = 50,
+        *, retry_attempts: Optional[int] = None,
     ) -> List[Attestation]:
         """Get attestations issued by issuer.
 
@@ -185,76 +250,105 @@ class TrustLinkClient:
             issuer: Issuer address
             offset: Pagination offset
             limit: Pagination limit
+            retry_attempts: Override default retry count for this call.
 
         Returns:
             List of attestations
         """
-        return self._simulate(
+        return self._simulate_with_retry(
+            retry_attempts,
             "get_issuer_attestations",
             self._addr(issuer),
             self._u32(offset),
             self._u32(limit),
         )
 
-    def list_claim_types(self, offset: int = 0, limit: int = 50) -> List[ClaimTypeInfo]:
+    def list_claim_types(
+        self, offset: int = 0, limit: int = 50,
+        *, retry_attempts: Optional[int] = None,
+    ) -> List[ClaimTypeInfo]:
         """List registered claim types.
 
         Args:
             offset: Pagination offset
             limit: Pagination limit
+            retry_attempts: Override default retry count for this call.
 
         Returns:
             List of claim type info
         """
-        return self._simulate(
+        return self._simulate_with_retry(
+            retry_attempts,
             "list_claim_types", self._u32(offset), self._u32(limit)
         )
 
-    def get_global_stats(self) -> GlobalStats:
+    def get_global_stats(
+        self, *, retry_attempts: Optional[int] = None,
+    ) -> GlobalStats:
         """Get contract-wide statistics.
+
+        Args:
+            retry_attempts: Override default retry count for this call.
 
         Returns:
             Global statistics
         """
-        return self._simulate("get_global_stats")
+        return self._simulate_with_retry(retry_attempts, "get_global_stats")
 
-    def is_issuer(self, address: str) -> bool:
+    def is_issuer(
+        self, address: str,
+        *, retry_attempts: Optional[int] = None,
+    ) -> bool:
         """Check if address is registered issuer.
 
         Args:
             address: Address to check
+            retry_attempts: Override default retry count for this call.
 
         Returns:
             True if address is registered issuer
         """
-        return self._simulate("is_issuer", self._addr(address))
+        return self._simulate_with_retry(
+            retry_attempts,
+            "is_issuer", self._addr(address)
+        )
 
-    def get_template(self, issuer: str, template_id: str) -> AttestationTemplate:
+    def get_template(
+        self, issuer: str, template_id: str,
+        *, retry_attempts: Optional[int] = None,
+    ) -> AttestationTemplate:
         """Get a named attestation template.
 
         Args:
             issuer: Issuer address
             template_id: Template identifier
+            retry_attempts: Override default retry count for this call.
 
         Returns:
             AttestationTemplate record
         """
-        return self._simulate(
+        return self._simulate_with_retry(
+            retry_attempts,
             "get_template", self._addr(issuer), self._str(template_id)
         )
 
-    def list_templates(self, issuer: str, start: int = 0, limit: int = 50) -> List[str]:
+    def list_templates(
+        self, issuer: str, start: int = 0, limit: int = 50,
+        *, retry_attempts: Optional[int] = None,
+    ) -> List[str]:
         """List template IDs registered for an issuer.
 
         Args:
             issuer: Issuer address
             start: Pagination offset
             limit: Pagination limit
+            retry_attempts: Override default retry count for this call.
 
         Returns:
             List of template IDs
         """
-        return self._simulate(
+        return self._simulate_with_retry(
+            retry_attempts,
             "list_templates",
             self._addr(issuer),
             self._u32(start),
@@ -262,7 +356,8 @@ class TrustLinkClient:
         )
 
     def get_delegation(
-        self, delegator: str, delegate: str, claim_type: str
+        self, delegator: str, delegate: str, claim_type: str,
+        *, retry_attempts: Optional[int] = None,
     ) -> Optional[Delegation]:
         """Get a delegation record.
 
@@ -270,87 +365,135 @@ class TrustLinkClient:
             delegator: Delegating issuer address
             delegate: Delegate address
             claim_type: Delegated claim type
+            retry_attempts: Override default retry count for this call.
 
         Returns:
             Delegation record, or None if not found
         """
-        return self._simulate(
+        return self._simulate_with_retry(
+            retry_attempts,
             "get_delegation",
             self._addr(delegator),
             self._addr(delegate),
             self._str(claim_type),
         )
 
-    def get_valid_claims(self, subject: str) -> List[str]:
+    def get_valid_claims(
+        self, subject: str,
+        *, retry_attempts: Optional[int] = None,
+    ) -> List[str]:
         """Get all valid claim IDs for a subject.
 
         Args:
             subject: Subject address
+            retry_attempts: Override default retry count for this call.
 
         Returns:
             List of valid claim IDs
         """
-        return self._simulate("get_valid_claims", self._addr(subject))
+        return self._simulate_with_retry(
+            retry_attempts,
+            "get_valid_claims", self._addr(subject)
+        )
 
-    def get_valid_claim_count(self, subject: str) -> int:
+    def get_valid_claim_count(
+        self, subject: str,
+        *, retry_attempts: Optional[int] = None,
+    ) -> int:
         """Get count of valid claims for a subject.
 
         Args:
             subject: Subject address
+            retry_attempts: Override default retry count for this call.
 
         Returns:
             Number of valid (non-revoked, non-expired) claims
         """
-        return self._simulate("get_valid_claim_count", self._addr(subject))
+        return self._simulate_with_retry(
+            retry_attempts,
+            "get_valid_claim_count", self._addr(subject)
+        )
 
-    def get_config(self) -> ContractConfig:
+    def get_config(
+        self, *, retry_attempts: Optional[int] = None,
+    ) -> ContractConfig:
         """Get contract configuration.
+
+        Args:
+            retry_attempts: Override default retry count for this call.
 
         Returns:
             Contract configuration including admin address and flags
         """
-        return self._simulate("get_config")
+        return self._simulate_with_retry(retry_attempts, "get_config")
 
-    def get_contract_metadata(self) -> ContractMetadata:
+    def get_contract_metadata(
+        self, *, retry_attempts: Optional[int] = None,
+    ) -> ContractMetadata:
         """Get contract metadata.
+
+        Args:
+            retry_attempts: Override default retry count for this call.
 
         Returns:
             Contract metadata including name, description, and version
         """
-        return self._simulate("get_contract_metadata")
+        return self._simulate_with_retry(retry_attempts, "get_contract_metadata")
 
-    def get_version(self) -> str:
+    def get_version(
+        self, *, retry_attempts: Optional[int] = None,
+    ) -> str:
         """Get contract version string.
+
+        Args:
+            retry_attempts: Override default retry count for this call.
 
         Returns:
             Semantic version string (e.g. "0.1.0")
         """
-        return self._simulate("get_version")
+        return self._simulate_with_retry(retry_attempts, "get_version")
 
-    def get_multisig_proposal(self, proposal_id: str) -> MultiSigProposal:
+    def get_multisig_proposal(
+        self, proposal_id: str,
+        *, retry_attempts: Optional[int] = None,
+    ) -> MultiSigProposal:
         """Get multi-sig attestation proposal.
 
         Args:
             proposal_id: Proposal ID
+            retry_attempts: Override default retry count for this call.
 
         Returns:
             MultiSigProposal with cosigner count and finalization status
         """
-        return self._simulate("get_multisig_proposal", self._str(proposal_id))
+        return self._simulate_with_retry(
+            retry_attempts,
+            "get_multisig_proposal", self._str(proposal_id)
+        )
 
-    def is_whitelisted(self, issuer: str, subject: str) -> bool:
+    def is_whitelisted(
+        self, issuer: str, subject: str,
+        *, retry_attempts: Optional[int] = None,
+    ) -> bool:
         """Check if subject is whitelisted by issuer.
 
         Args:
             issuer: Issuer address
             subject: Subject address
+            retry_attempts: Override default retry count for this call.
 
         Returns:
             True if subject is whitelisted
         """
-        return self._simulate("is_whitelisted", self._addr(issuer), self._addr(subject))
+        return self._simulate_with_retry(
+            retry_attempts,
+            "is_whitelisted", self._addr(issuer), self._addr(subject)
+        )
 
     # ─── Write Operations ──────────────────────────────────────────────────────
+    # Write operations are NOT retried automatically — retrying a submitted
+    # transaction can cause double-submission.  Callers who need idempotency
+    # on writes must implement their own logic.
 
     def create_attestation(
         self,
@@ -511,6 +654,27 @@ class TrustLinkClient:
         )
 
     # ─── Internal Helpers ──────────────────────────────────────────────────────
+
+    def _simulate_with_retry(
+        self,
+        retry_attempts: Optional[int],
+        method: str,
+        *args: Any,
+    ) -> Any:
+        """Simulate *method* with automatic retry on transient failures.
+
+        Uses ``retry_attempts`` if given, otherwise falls back to the
+        instance-level default set in the constructor.
+        """
+        attempts = retry_attempts if retry_attempts is not None else self._retry_attempts
+        return with_retry(
+            self._simulate,
+            method,
+            *args,
+            max_attempts=attempts,
+            base_ms=self._retry_base_ms,
+            max_ms=self._retry_max_ms,
+        )
 
     def _simulate(self, method: str, *args: Any) -> Any:
         """Simulate contract call (read-only)."""

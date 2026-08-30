@@ -1,6 +1,8 @@
 # @trustlink/sdk
 
-TypeScript client for the [TrustLink](../../README.md) Soroban attestation contract on Stellar.
+> **Not sure which TypeScript package to use?**
+> See [docs/integration-guide.md — Which TypeScript package do I need?](../../docs/integration-guide.md#which-typescript-package-do-i-need) for a side-by-side comparison.
+
 TypeScript SDK for the [TrustLink](https://github.com/afurious/TrustLink) on-chain attestation contract on Stellar.
 
 [![npm version](https://badge.fury.io/js/@trustlink%2Fsdk.svg)](https://badge.fury.io/js/@trustlink%2Fsdk)
@@ -234,6 +236,44 @@ const euAtts = await client.getAttestationsByJurisdiction(subject, "EU", 0, 10);
 // Audit log for an attestation
 const log = await client.getAuditLog(attestationId);
 ```
+
+### Verifiable Credential export
+
+Convert a TrustLink attestation into a near-conformant
+[W3C Verifiable Credentials Data Model 1.1](https://www.w3.org/TR/vc-data-model/)
+JSON document for off-chain wallets and verifiers:
+
+```typescript
+import { toVerifiableCredential } from "@trustlink/sdk";
+
+const attestation = await client.getAttestation(attestationId);
+const vc = toVerifiableCredential(attestation);
+
+// vc.issuer, vc.credentialSubject, vc.expirationDate, vc.credentialStatus, …
+JSON.stringify(vc, null, 2);
+```
+
+**Mapped fields**
+
+| TrustLink | VC property |
+|-----------|-------------|
+| `issuer` | `issuer` |
+| `subject` | `credentialSubject.id` |
+| `claim_type` | `type` + `credentialSubject.claimType` |
+| `timestamp` | `issuanceDate` |
+| `expiration` | `expirationDate` (omitted when null) |
+| `revoked` / `revocation_reason` | `credentialStatus` |
+
+**Unsupported / non-equivalent fields** (preserved under
+`credentialSubject.trustlink`, ignored by standard VC verifiers):
+
+- `origin`, `source_chain`, `source_tx` — bridge / provenance metadata
+- `tags`, `jurisdiction` — TrustLink-specific classification
+- `deleted` — soft-delete (distinct from revocation)
+- No cryptographic `proof` — export is unsigned; add proofs out-of-band
+- Issuer is a Stellar address, not a DID
+- `valid_from` is placed on `credentialSubject.validFrom` (VC 1.1 has no top-level `validFrom`)
+- `credentialStatus` uses `TrustLinkRevocationStatus`, not BitstringStatusList
 
 ### Pagination Helpers
 

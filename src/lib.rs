@@ -6,6 +6,7 @@ extern crate std;
 
 mod admin;
 mod attestation;
+mod bundle;
 mod errors;
 mod events;
 mod multisig;
@@ -30,14 +31,16 @@ pub(crate) mod callback {
 }
 
 use soroban_sdk::{contract, contractimpl, Address, Env, String, Vec};
-
 use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::{
-    Attestation, AttestationRequest, AttestationStatus, AuditAction, AuditEntry, ClaimTypeInfo,
-    ContractConfig, ContractMetadata, Endorsement, Error, FeeConfig, GlobalStats, HealthStatus,
-    IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, RateLimitConfig, RequestStatus,
-    StorageLimits, TtlConfig, ATTESTATION_REQUEST_TTL_SECS, MULTISIG_PROPOSAL_TTL_SECS,
+    AdminCouncil, Attestation, AttestationRequest, AttestationStatus, AttestationTemplate,
+    AttestationVersionSnapshot, AuditAction, AuditEntry, ClaimTypeInfo, CouncilOperation, CouncilProposal,
+    ContractConfig, ContractMetadata, DecayConfig, Delegation, DisputeRecord, Endorsement, Error,
+    ExpirationHook, FeeConfig, GlobalStats, HealthStatus, IssuerMetadata, IssuerStats, IssuerTier,
+    MultiSigProposal, PendingAdminTransfer, RateLimitConfig, RequestStatus, RevocationList,
+    RevocationListFormat, StorageLimits,
+    TtlConfig, ATTESTATION_REQUEST_TTL_SECS, MULTISIG_PROPOSAL_TTL_SECS, SECS_PER_DAY,
 };
 
 #[contract]
@@ -141,6 +144,11 @@ impl TrustLinkContract {
     #[must_use]
     pub fn get_decay_config(env: Env) -> DecayConfig {
         admin::get_decay_config(&env)
+    }
+
+    #[must_use]
+    pub fn is_decay_config_set(env: Env) -> bool {
+        admin::is_decay_config_set(&env)
     }
 
     pub fn get_issuer_metadata(env: Env, issuer: Address) -> Option<IssuerMetadata> {
@@ -279,6 +287,33 @@ impl TrustLinkContract {
         admin::get_metadata_hash_only(&env)
     }
 
+    /// Set the optional maximum number of attestations per subject.
+    /// When set, new attestations exceeding this limit will be rejected.
+    /// When `None`, attestations are unlimited (default for backward compatibility).
+    pub fn set_max_attestations_per_subject(env: Env, admin: Address, limit: Option<u32>) -> Result<(), Error> {
+        admin::set_max_attestations_per_subject(&env, admin, limit)
+    }
+
+    /// Get the optional maximum number of attestations per subject.
+    /// Returns `None` if unlimited (default).
+    #[must_use]
+    pub fn get_max_attestations_per_subject(env: Env) -> Option<u32> {
+        admin::get_max_attestations_per_subject(&env)
+    }
+
+    /// Sets the `ChunkedIndex` chunk size (number of attestation IDs per
+    /// storage entry). Admin-only. See [`admin::set_chunk_size`] for
+    /// important caveats about calling this after data has been written.
+    pub fn set_chunk_size(env: Env, admin: Address, chunk_size: u32) -> Result<(), Error> {
+        admin::set_chunk_size(&env, admin, chunk_size)
+    }
+
+    /// Returns the currently configured `ChunkedIndex` chunk size (default: 50).
+    #[must_use]
+    pub fn get_chunk_size(env: Env) -> u32 {
+        admin::get_chunk_size(&env)
+    }
+
     // -----------------------------------------------------------------------
     // Limits
     // -----------------------------------------------------------------------
@@ -391,6 +426,31 @@ impl TrustLinkContract {
         attestation::create_attestation_valid_from(&env, issuer, subject, claim_type, expiration, metadata, tags, valid_from)
     }
 
+    /// Same as `create_attestation`, but demonstrates the version-guard
+    /// pattern from issue #952. When `expected_version` is `Some`, it is
+    /// checked against `get_version()` before any other validation runs; a
+    /// mismatch returns `Error::VersionMismatch` instead of proceeding with
+    /// possibly-different semantics than the caller assumed. Pass `None` to
+    /// skip the check.
+    ///
+    /// # Errors
+    /// - [`Error::VersionMismatch`] — `expected_version` is `Some` and does
+    ///   not match the contract's currently deployed version.
+    pub fn create_attestation_versioned(
+        env: Env,
+        issuer: Address,
+        subject: Address,
+        claim_type: String,
+        expiration: Option<u64>,
+        metadata: Option<String>,
+        tags: Option<Vec<String>>,
+        expected_version: Option<String>,
+    ) -> Result<String, Error> {
+        attestation::create_attestation_versioned(
+            &env, issuer, subject, claim_type, expiration, metadata, tags, expected_version,
+        )
+    }
+
     pub fn create_attestation_jurisdiction(
         env: Env,
         issuer: Address,
@@ -437,16 +497,24 @@ impl TrustLinkContract {
         attestation::create_attestations_batch(&env, issuer, subjects, claim_type, expiration)
     }
 
+    pub fn create_attestation_bundle(
+        env: Env,
+        issuer: Address,
+        subject: Address,
+        claim_types: Vec<String>,
+        expiration: Option<u64>,
+        metadata: Option<String>,
+        tags: Option<Vec<String>>,
+    ) -> Result<String, Error> {
+        bundle::create_attestation_bundle(&env, issuer, subject, claim_types, expiration, metadata, tags)
+    }
+
     pub fn revoke_attestation(env: Env, issuer: Address, attestation_id: String, reason: Option<String>) -> Result<(), Error> {
         attestation::revoke_attestation(&env, issuer, attestation_id, reason)
     }
 
     pub fn renew_attestation(env: Env, issuer: Address, attestation_id: String, new_expiration: Option<u64>) -> Result<(), Error> {
         attestation::renew_attestation(&env, issuer, attestation_id, new_expiration)
-    }
-
-    pub fn revoke_attestations_batch(env: Env, issuer: Address, attestation_ids: Vec<String>, reason: Option<String>) -> Result<u32, Error> {
-        attestation::revoke_attestations_batch(&env, issuer, attestation_ids, reason)
     }
 
     pub fn update_expiration(env: Env, issuer: Address, attestation_id: String, new_expiration: Option<u64>) -> Result<(), Error> {
@@ -477,6 +545,11 @@ impl TrustLinkContract {
     #[must_use]
     pub fn get_endorsement_count(env: Env, attestation_id: String) -> u32 {
         attestation::get_endorsement_count(&env, attestation_id)
+    }
+
+    #[must_use]
+    pub fn list_endorsements_by_endorser(env: Env, endorser: Address, start: u32, limit: u32) -> Vec<Endorsement> {
+        attestation::list_endorsements_by_endorser(&env, endorser, start, limit)
     }
 
     pub fn create_attestation_as_delegate(
@@ -639,25 +712,23 @@ impl TrustLinkContract {
         query::get_valid_claim_count(&env, subject)
     }
 
-    #[must_use]
     pub fn get_expiring_attestations(
         env: Env,
         subject: Address,
         within_days: u32,
         start: u32,
         limit: u32,
-    ) -> Vec<Attestation> {
+    ) -> Result<Vec<Attestation>, Error> {
         query::get_expiring_attestations(&env, subject, within_days, start, limit)
     }
 
-    #[must_use]
     pub fn get_issuer_expiring_attestations(
         env: Env,
         issuer: Address,
         days_window: u32,
         start: u32,
         limit: u32,
-    ) -> Vec<Attestation> {
+    ) -> Result<Vec<Attestation>, Error> {
         query::get_issuer_expiring_attestations(&env, issuer, days_window, start, limit)
     }
 
@@ -759,15 +830,6 @@ impl TrustLinkContract {
         multisig::get_multisig_ttl(&env)
     }
 
-        if proposal.cancelled {
-            return Err(Error::ProposalExpired);
-        }
-
-        let current_time = env.ledger().timestamp();
-        if current_time >= proposal.expires_at {
-            return Err(Error::ProposalExpired);
-        }
-
     pub fn request_attestation(env: Env, subject: Address, issuer: Address, claim_type: String) -> Result<String, Error> {
         request::request_attestation(&env, subject, issuer, claim_type)
     }
@@ -780,20 +842,20 @@ impl TrustLinkContract {
         request::reject_request(&env, issuer, request_id, reason)
     }
 
+    #[must_use]
     pub fn get_pending_requests(env: Env, issuer: Address, start: u32, limit: u32) -> Vec<AttestationRequest> {
         request::get_pending_requests(&env, issuer, start, limit)
     }
 
-    pub fn get_request(env: Env, request_id: String) -> Result<AttestationRequest, Error> {
+    pub fn get_attestation_request(env: Env, request_id: String) -> Result<AttestationRequest, Error> {
         request::get_request(&env, request_id)
     }
 
-    /// Return the configured multisig proposal TTL in days (default: 7).
-    pub fn get_multisig_ttl(env: Env) -> u32 {
-        Storage::get_multisig_ttl(&env)
+    pub fn revoke_attestations_batch(env: Env, issuer: Address, attestation_ids: Vec<String>, reason: Option<String>) -> Result<u32, Error> {
+        attestation::revoke_attestations_batch(&env, issuer, attestation_ids, reason)
     }
 
-    /// Set the multisig proposal TTL in days (admin only).
+    /// Fetch the full attestation record by ID.
     ///
     /// # Errors
     /// - [`Error::Unauthorized`] — caller is not the admin.
@@ -820,6 +882,7 @@ impl TrustLinkContract {
         proposal_id: String,
     ) -> Result<(), Error> {
         proposer.require_auth();
+        Validation::require_not_paused(&env)?;
 
         let mut proposal = Storage::get_multisig_proposal(&env, &proposal_id)?;
 
@@ -887,6 +950,13 @@ impl TrustLinkContract {
 
     pub fn cancel_request(env: Env, subject: Address, request_id: String) -> Result<(), Error> {
         request::cancel_request(&env, subject, request_id)
+    }
+
+    pub fn cleanup_expired_requests(env: Env, issuer: Address) -> Result<(), Error> {
+        issuer.require_auth();
+        Validation::require_issuer(&env, &issuer)?;
+        Storage::cleanup_expired_requests(&env, &issuer);
+        Ok(())
     }
 
     // -----------------------------------------------------------------------
@@ -992,26 +1062,29 @@ impl TrustLinkContract {
     }
 
     pub fn get_config(env: Env) -> ContractConfig {
-        let ttl_config = Storage::get_ttl_config(&env).unwrap_or(TtlConfig { ttl_days: 30 });
-
-        let fee_config = Storage::get_fee_config(&env).unwrap_or_else(|| FeeConfig {
-            attestation_fee: 0,
-            fee_collector: env.current_contract_address(),
-            fee_token: None,
-        });
-
-        let version = Storage::get_version(&env).unwrap_or_else(|| String::from_str(&env, ""));
-
-        ContractConfig {
-            ttl_config,
-            fee_config,
-            contract_name: String::from_str(&env, "TrustLink"),
-            contract_version: version,
-            contract_description: String::from_str(
-                &env,
-                "On-chain attestation and verification system for the Stellar blockchain.",
-            ),
-            multisig_ttl_days: Storage::get_multisig_ttl(&env),
+        // Try to get the stored config, or build one with defaults
+        if let Some(config) = Storage::get_contract_config(&env) {
+            config
+        } else {
+            // Provide defaults for backward compatibility
+            ContractConfig {
+                contract_name: String::from_str(&env, "TrustLink"),
+                contract_version: String::from_str(&env, ""),
+                contract_description: String::from_str(
+                    &env,
+                    "On-chain attestation and verification system for the Stellar blockchain.",
+                ),
+                ttl_config: Storage::get_ttl_config(&env).unwrap_or(TtlConfig { ttl_days: 30 }),
+                fee_config: Storage::get_fee_config(&env).unwrap_or_else(|| FeeConfig {
+                    attestation_fee: 0,
+                    fee_collector: env.current_contract_address(),
+                    fee_token: None,
+                }),
+                require_registered_claim_type: false,
+                metadata_hash_only: false,
+                max_attestations_per_subject: None,
+                chunk_size: admin::get_chunk_size(&env),
+            }
         }
     }
 
@@ -1101,3 +1174,27 @@ impl TrustLinkContract {
         Storage::get_template(&env, &issuer, &template_id).ok_or(Error::NotFound)
     }
 }
+
+    // -----------------------------------------------------------------------
+    // Bundle Queries
+    // -----------------------------------------------------------------------
+
+    pub fn get_bundle(env: Env, bundle_id: String) -> Result<crate::types::AttestationBundle, Error> {
+        Storage::get_bundle(&env, &bundle_id).ok_or(Error::NotFound)
+    }
+
+    pub fn get_bundle_attestations(env: Env, bundle_id: String) -> Result<Vec<Attestation>, Error> {
+        bundle::get_bundle_attestations(&env, &bundle_id)
+    }
+
+    pub fn is_bundle_valid(env: Env, bundle_id: String) -> Result<bool, Error> {
+        bundle::is_bundle_valid(&env, &bundle_id)
+    }
+
+    pub fn get_issuer_bundles(env: Env, issuer: Address) -> Vec<String> {
+        Storage::get_issuer_bundles(&env, &issuer)
+    }
+
+    pub fn get_subject_bundles(env: Env, subject: Address) -> Vec<String> {
+        Storage::get_subject_bundles(&env, &subject)
+    }

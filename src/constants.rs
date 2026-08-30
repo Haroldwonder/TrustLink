@@ -14,3 +14,6 @@ pub const DEFAULT_INSTANCE_LIFETIME: u32 = DAY_IN_LEDGERS * DEFAULT_TTL_DAYS;
 
 /// Only extend TTL on read if remaining TTL drops below this threshold.
 pub const MIN_TTL_THRESHOLD: u32 = 7 * DAY_IN_LEDGERS;
+
+/// Maximum days for expiring attestations query window (issue #945).
+pub const MAX_EXPIRING_WINDOW_DAYS: u32 = 365;

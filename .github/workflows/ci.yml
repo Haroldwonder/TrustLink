@@ -4,10 +4,15 @@ on:
   push:
     branches: ["main"]
   pull_request:
+  schedule:
+    # Nightly clean-build safety net (also runs on main pushes below).
+    - cron: "0 4 * * *"
+  workflow_dispatch:
 
 jobs:
   audit:
     name: Security Audit
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -19,9 +24,45 @@ jobs:
       - name: Run cargo audit
         run: cargo audit --deny warnings
 
+  check:
+    name: Check compilation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: rustup show
+
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Check workspace compilation
+        run: cargo check --workspace --all-targets
+
+  enum-completeness:
+    name: Enum Completeness
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Verify Error variants referenced in src/ are defined
+        run: python3 scripts/check_error_variants.py
+
   lint:
     name: Lint
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    needs: check
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -43,10 +84,129 @@ jobs:
       - name: Run clippy
         run: cargo clippy --all-targets -- -D warnings
 
+  storage-keys:
+    name: StorageKey variants
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Check StorageKey usages against enum
+        run: scripts/check-storage-keys.sh
+
+  error-decode-fuzz:
+    name: SDK error-decode fuzz
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.11"
+
+      - name: Sync check (Rust ↔ corpus ↔ SDKs)
+        run: scripts/check-error-code-sync.sh
+
+      - name: Install TypeScript SDK deps
+        working-directory: sdk/typescript
+        run: npm ci
+
+      - name: Build TypeScript SDK
+        working-directory: sdk/typescript
+        run: npm run build
+
+      - name: TypeScript error-decode fuzz
+        working-directory: sdk/typescript
+        run: npm run test:fuzz
+
+      - name: Install pytest (error-decode tests are pure; no stellar-sdk needed)
+        run: pip install pytest
+
+      - name: Python error-decode fuzz
+        working-directory: bindings/python
+        run: pytest tests/test_error_decode_fuzz.py -q
+
+      - name: Differential fuzz (Python ↔ TypeScript)
+        run: scripts/diff-fuzz-error-decode.sh
+
+  indexer-migration-compat:
+    name: Indexer migration compat
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Check new migrations are backward-compatible
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            scripts/check-indexer-migration-compat.sh --base "origin/${{ github.base_ref }}"
+          else
+            scripts/check-indexer-migration-compat.sh
+          fi
+
+  # Full clean-checkout build: no target/ cache. Runs on every merge to main,
+  # nightly, and on manual dispatch. See docs/ci-clean-build.md.
+  clean-build:
+    name: Clean Build
+    if: >
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository (clean tree)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Rust toolchain
+        run: rustup show
+
+      - name: Add wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Cache cargo registry only (NOT target/)
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Ensure no stale target/ artifacts
+        run: |
+          rm -rf target
+          test ! -d target
+          echo "Clean checkout confirmed: no target/ directory"
+
+      - name: cargo check
+        run: cargo check --lib
+
+      - name: cargo test
+        run: cargo test
+
+      - name: WASM release build
+        run: cargo build --target wasm32-unknown-unknown --release
+
   ci:
     name: Build and Test
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
-    needs: lint
+    needs: check
     steps:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -94,8 +254,86 @@ jobs:
           files: ./lcov.info
           fail_ci_if_error: true
 
+  os-matrix:
+    name: Build and Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install Rust toolchain
+        run: rustup show
+
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Check lib
+        run: cargo check --lib
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Run build.ps1 (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./build.ps1
+
+  msrv:
+    name: MSRV Check
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install MSRV toolchain
+        run: |
+          MSRV=$(sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
+          rustup toolchain install "$MSRV" --profile minimal --target wasm32-unknown-unknown
+          rustup default "$MSRV"
+
+      - name: Check lib on MSRV
+        run: cargo check --lib
+
+  nightly-canary:
+    name: Canary (${{ matrix.toolchain }})
+    runs-on: ubuntu-latest
+    needs: lint
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [beta, nightly]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install ${{ matrix.toolchain }} toolchain
+        run: |
+          rustup toolchain install ${{ matrix.toolchain }} --profile minimal --target wasm32-unknown-unknown
+          rustup default ${{ matrix.toolchain }}
+
+      - name: Build and test on ${{ matrix.toolchain }}
+        run: |
+          cargo check --lib
+          cargo test
+
   wasm-size:
     name: WASM Size Check
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     needs: ci
     permissions:
@@ -235,6 +473,7 @@ jobs:
 
   bindings:
     name: TypeScript Bindings
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     needs: ci
     steps:
@@ -271,3 +510,97 @@ jobs:
             echo "Run 'make bindings' locally and commit the updated bindings/typescript/ directory."
             exit 1
           )
+
+  error-codes:
+    name: Error Code Single Source of Truth
+    runs-on: ubuntu-latest
+    needs: ci
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Regenerate error-code artifacts
+        run: node scripts/generate-error-codes.mjs
+
+      - name: Fail if any generated artifact is out of date
+        run: |
+          git diff --exit-code \
+            error-codes.json \
+            sdk/typescript/src/generated/error-codes.ts \
+            bindings/typescript/src/generated/error-codes.ts \
+            bindings/python/trustlink/generated_error_codes.py || (
+            echo "::error::Generated error-code files are out of date."
+            echo "Run 'node scripts/generate-error-codes.mjs' locally and commit the results."
+            exit 1
+          )
+
+      - name: Verify all clients reference the generated source
+        run: node scripts/check-error-codes.mjs
+
+  conformance:
+    name: Cross-SDK Conformance
+    runs-on: ubuntu-latest
+    needs: ci
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Start local Stellar network
+        run: docker compose up -d
+
+      - name: Wait for Soroban RPC
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8000/soroban/rpc > /dev/null; then
+              echo "RPC is ready"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Soroban RPC did not become ready in time"
+          exit 1
+
+      - name: Install Rust toolchain
+        run: rustup show
+
+      - name: Build WASM
+        run: cargo build --target wasm32-unknown-unknown --release
+
+      - name: Install Soroban CLI
+        run: cargo install --locked soroban-cli
+
+      - name: Deploy contract to local network
+        run: ./scripts/setup_local.sh
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5286caeca1862d71fb8fb05a596c6dd0b # v4.4.0
+        with:
+          node-version: "20"
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c2e8e84329e8342716 # v5.6.0
+        with:
+          python-version: "3.11"
+
+      - name: Build TypeScript clients
+        run: |
+          npm --prefix sdk/typescript install
+          npm --prefix sdk/typescript run build
+          npm --prefix bindings/typescript install
+          npm --prefix bindings/typescript run build
+
+      - name: Install Python bindings
+        run: pip install -e bindings/python
+
+      - name: Run conformance suite
+        env:
+          RUN_CONFORMANCE: "1"
+          CI: "true"
+        run: |
+          npm --prefix conformance install
+          npm --prefix conformance test

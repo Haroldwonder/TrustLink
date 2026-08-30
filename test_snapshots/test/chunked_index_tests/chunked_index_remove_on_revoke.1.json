@@ -113,7 +113,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "d589a0d5e1193ce98a615444e6a69be7f602fda644d72f3706408c026b55c875"
+                  "string": "c5b851d83c0381673e146efff4aec5aa"
                 },
                 "void"
               ]
@@ -145,7 +145,7 @@
                   "symbol": "Attestation"
                 },
                 {
-                  "string": "d589a0d5e1193ce98a615444e6a69be7f602fda644d72f3706408c026b55c875"
+                  "string": "c5b851d83c0381673e146efff4aec5aa"
                 }
               ]
             },
@@ -165,13 +165,19 @@
                       "symbol": "Attestation"
                     },
                     {
-                      "string": "d589a0d5e1193ce98a615444e6a69be7f602fda644d72f3706408c026b55c875"
+                      "string": "c5b851d83c0381673e146efff4aec5aa"
                     }
                   ]
                 },
                 "durability": "persistent",
                 "val": {
                   "map": [
+                    {
+                      "key": {
+                        "symbol": "bundle_id"
+                      },
+                      "val": "void"
+                    },
                     {
                       "key": {
                         "symbol": "claim_type"
@@ -199,7 +205,7 @@
                         "symbol": "id"
                       },
                       "val": {
-                        "string": "d589a0d5e1193ce98a615444e6a69be7f602fda644d72f3706408c026b55c875"
+                        "string": "c5b851d83c0381673e146efff4aec5aa"
                       }
                     },
                     {
@@ -307,7 +313,7 @@
                   "symbol": "AuditLog"
                 },
                 {
-                  "string": "d589a0d5e1193ce98a615444e6a69be7f602fda644d72f3706408c026b55c875"
+                  "string": "c5b851d83c0381673e146efff4aec5aa"
                 }
               ]
             },
@@ -327,7 +333,7 @@
                       "symbol": "AuditLog"
                     },
                     {
-                      "string": "d589a0d5e1193ce98a615444e6a69be7f602fda644d72f3706408c026b55c875"
+                      "string": "c5b851d83c0381673e146efff4aec5aa"
                     }
                   ]
                 },
@@ -500,7 +506,11 @@
                 },
                 "durability": "persistent",
                 "val": {
-                  "vec": []
+                  "vec": [
+                    {
+                      "string": "c5b851d83c0381673e146efff4aec5aa"
+                    }
+                  ]
                 }
               }
             },
@@ -904,7 +914,7 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "StorageLimits"
+                              "symbol": "MiscConfig"
                             }
                           ]
                         },
@@ -912,18 +922,101 @@
                           "map": [
                             {
                               "key": {
-                                "symbol": "max_attestations_per_issuer"
+                                "symbol": "council_timelock_delay"
                               },
                               "val": {
-                                "u32": 10000
+                                "u64": 0
                               }
                             },
                             {
                               "key": {
-                                "symbol": "max_attestations_per_subject"
+                                "symbol": "decay_config"
                               },
                               "val": {
-                                "u32": 10000
+                                "map": [
+                                  {
+                                    "key": {
+                                      "symbol": "half_life_days"
+                                    },
+                                    "val": {
+                                      "u32": 90
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "revocation_weight"
+                                    },
+                                    "val": {
+                                      "u32": 50
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "decay_config_set"
+                              },
+                              "val": {
+                                "bool": false
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "multisig_ttl_days"
+                              },
+                              "val": {
+                                "u32": 7
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "rate_limit_config"
+                              },
+                              "val": {
+                                "map": [
+                                  {
+                                    "key": {
+                                      "symbol": "min_issuance_interval"
+                                    },
+                                    "val": {
+                                      "u64": 0
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "rate_limit_config_set"
+                              },
+                              "val": {
+                                "bool": false
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "storage_limits"
+                              },
+                              "val": {
+                                "map": [
+                                  {
+                                    "key": {
+                                      "symbol": "max_attestations_per_issuer"
+                                    },
+                                    "val": {
+                                      "u32": 10000
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "max_attestations_per_subject"
+                                    },
+                                    "val": {
+                                      "u32": 10000
+                                    }
+                                  }
+                                ]
                               }
                             }
                           ]
@@ -1438,7 +1531,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "d589a0d5e1193ce98a615444e6a69be7f602fda644d72f3706408c026b55c875"
+                  "string": "c5b851d83c0381673e146efff4aec5aa"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -1473,7 +1566,7 @@
               }
             ],
             "data": {
-              "string": "d589a0d5e1193ce98a615444e6a69be7f602fda644d72f3706408c026b55c875"
+              "string": "c5b851d83c0381673e146efff4aec5aa"
             }
           }
         }
@@ -1504,7 +1597,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "d589a0d5e1193ce98a615444e6a69be7f602fda644d72f3706408c026b55c875"
+                  "string": "c5b851d83c0381673e146efff4aec5aa"
                 },
                 "void"
               ]
@@ -1532,7 +1625,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "d589a0d5e1193ce98a615444e6a69be7f602fda644d72f3706408c026b55c875"
+                  "string": "c5b851d83c0381673e146efff4aec5aa"
                 },
                 "void"
               ]

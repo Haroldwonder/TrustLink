@@ -1,8 +1,13 @@
-//! Shared data types for TrustLink.
+//! Shared data types and error codes for TrustLink.
+//!
+//! This module defines all contract types including:
+//! - Core attestation types (Attestation, AttestationRequest, MultiSigProposal)
+//! - Configuration types (ContractConfig, FeeConfig, TtlConfig, RateLimitConfig)
+//! - Admin management (AdminCouncil, PendingAdminTransfer, CouncilProposal)
+//! - Advanced features (Delegation, DisputeRecord, DecayConfig, AttestationTemplate, AttestationVersionSnapshot)
+//! - Utility types (GlobalStats, IssuerStats, HealthStatus, AuditEntry, Endorsement)
 
-use soroban_sdk::{contracttype, xdr::ToXdr, Address, Bytes, Env, String, Vec};
-
-pub use crate::errors::Error;
+use soroban_sdk::{contracterror, contracttype, xdr::ToXdr, Address, Bytes, Env, String, Vec};
 
 /// Default lifetime for a multi-sig proposal: 7 days in seconds.
 pub const MULTISIG_PROPOSAL_TTL_SECS: u64 = 7 * 24 * 60 * 60;
@@ -12,15 +17,6 @@ pub const ATTESTATION_REQUEST_TTL_SECS: u64 = 7 * 24 * 60 * 60;
 
 /// Seconds in one day.
 pub const SECS_PER_DAY: u64 = 86_400;
-
-/// Default TTL for persistent storage entries, in days.
-pub const DEFAULT_TTL_DAYS: u32 = 30;
-
-/// Number of ledgers per day on Stellar (one ledger every ~5 seconds).
-pub const DAY_IN_LEDGERS: u32 = 17_280;
-
-/// Minimum TTL threshold in ledgers before a TTL extension is triggered (7 days).
-pub const MIN_TTL_THRESHOLD_LEDGERS: u32 = 7 * DAY_IN_LEDGERS;
 
 /// Status of an attestation request.
 #[contracttype]
@@ -61,13 +57,6 @@ impl IssuerTier {
     }
 }
 
-/// Per-issuer statistics.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct IssuerStats {
-    pub total_issued: u64,
-}
-
 /// A registered expiration notification hook for a subject.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -94,25 +83,44 @@ pub struct MultiSigProposal {
     pub cancelled: bool,
 }
 
-/// Full contract configuration snapshot returned by `get_config`.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ContractConfig {
-    pub ttl_config: TtlConfig,
-    pub fee_config: FeeConfig,
-    pub contract_name: String,
-    pub contract_version: String,
-    pub contract_description: String,
-    /// Configurable TTL for multisig proposals in days (default: 7).
-    pub multisig_ttl_days: u32,
-}
-
+/// Contract metadata returned by `get_contract_metadata`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractMetadata {
     pub name: String,
     pub version: String,
     pub description: String,
+}
+
+/// Per-issuer statistics.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IssuerStats {
+    pub total_issued: u64,
+}
+
+/// Output format for `export_revocation_list`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RevocationListFormat {
+    /// Plain list of revoked attestation IDs.
+    SimpleList,
+    /// Compact bitstring encoding (Status List 2021 compatible).
+    Bitstring,
+}
+
+/// A snapshot of an issuer's revocation status for external verifiers,
+/// produced by `export_revocation_list`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RevocationList {
+    pub issuer: Address,
+    pub claim_type: Option<String>,
+    pub generated_at: u64,
+    pub revoked_attestation_ids: Vec<String>,
+    pub bitstring: Option<Bytes>,
+    pub total_attestation_count: u64,
+    pub revoked_count: u64,
 }
 
 /// Metadata about a registered issuer.
@@ -152,13 +160,6 @@ pub struct HealthStatus {
     pub total_attestations: u64,
 }
 
-/// Issuer statistics.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct IssuerStats {
-    pub total_issued: u64,
-}
-
 /// TTL configuration.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -173,7 +174,7 @@ pub struct RateLimitConfig {
     pub min_issuance_interval: u64,
 }
 
-/// Contract configuration.
+/// Full contract configuration snapshot returned by `get_config`.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractConfig {
@@ -187,6 +188,19 @@ pub struct ContractConfig {
     /// `None` or a 64-character lowercase hexadecimal string (SHA-256 hash).
     /// Enables enforcement of GDPR data-minimisation at the contract level.
     pub metadata_hash_only: bool,
+    /// Optional maximum number of attestations per subject.
+    /// When set, new attestations exceeding this limit will be rejected.
+    /// When `None`, attestations are unlimited (default for backward compatibility).
+    pub max_attestations_per_subject: Option<u32>,
+    /// Number of attestation IDs stored per chunk in the `ChunkedIndex`.
+    ///
+    /// Larger values reduce storage-read counts for high-volume issuers/subjects
+    /// at the cost of larger individual reads/writes. Smaller values keep each
+    /// read/write cheap at the cost of more round-trips for large indexes.
+    /// Must be ≥ 1. Defaults to 50 when not explicitly set.
+    /// **Should only be changed before any attestations are written**; changing
+    /// it afterwards requires a full index migration.
+    pub chunk_size: u32,
 }
 
 #[contracttype]
@@ -236,7 +250,7 @@ pub enum AttestationOrigin {
     Bridged,
 }
 
-/// A single attestation record stored on-chain.
+/// A single issuer-created claim about a subject address.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Attestation {
@@ -248,7 +262,6 @@ pub struct Attestation {
     pub expiration: Option<u64>,
     pub revoked: bool,
     pub metadata: Option<String>,
-    pub jurisdiction: Option<String>,
     pub valid_from: Option<u64>,
     pub origin: AttestationOrigin,
     pub source_chain: Option<String>,
@@ -256,6 +269,32 @@ pub struct Attestation {
     pub tags: Option<Vec<String>>,
     pub revocation_reason: Option<String>,
     pub deleted: bool,
+    /// ISO 3166-1 alpha-2 jurisdiction code, when the attestation was created
+    /// via `create_attestation_jurisdiction`.
+    pub jurisdiction: Option<String>,
+    /// Optional: shared bundle ID if this attestation was created as part of a bundle.
+    /// Allows verifiers to confirm a set of claims were issued atomically.
+    pub bundle_id: Option<String>,
+}
+
+/// Metadata for a bundle of attestations issued atomically.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AttestationBundle {
+    /// Unique bundle identifier (SHA256 of issuer + subject + claim_types + timestamp)
+    pub id: String,
+    /// Issuer who created the bundle
+    pub issuer: Address,
+    /// Subject to whom all attestations in the bundle were issued
+    pub subject: Address,
+    /// List of claim types in the bundle (fixed order for deterministic ID)
+    pub claim_types: Vec<String>,
+    /// Timestamp when the bundle was created
+    pub timestamp: u64,
+    /// IDs of all attestations in this bundle (in same order as claim_types)
+    pub attestation_ids: Vec<String>,
+    /// Whether all attestations in the bundle are still valid (none revoked)
+    pub all_valid: bool,
 }
 
 #[contracttype]
@@ -267,7 +306,6 @@ pub enum AttestationStatus {
     Pending,
 }
 
-/// The action recorded in an audit log entry.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AuditAction {
@@ -299,22 +337,6 @@ pub struct Endorsement {
     pub timestamp: u64,
 }
 
-/// A multi-signature attestation proposal requiring threshold signatures.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct MultiSigProposal {
-    pub id: String,
-    pub proposer: Address,
-    pub subject: Address,
-    pub claim_type: String,
-    pub required_signers: Vec<Address>,
-    pub threshold: u32,
-    pub signers: Vec<Address>,
-    pub created_at: u64,
-    pub expires_at: u64,
-    pub finalized: bool,
-}
-
 /// Configurable storage limits to prevent exhaustion attacks.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -323,6 +345,10 @@ pub struct StorageLimits {
     pub max_attestations_per_subject: u32,
 }
 
+/// Contract error codes are defined in [`crate::errors`] and re-exported
+/// here so `crate::types::Error` remains a stable import path.
+pub use crate::errors::Error;
+
 impl Default for StorageLimits {
     fn default() -> Self {
         Self {
@@ -330,14 +356,6 @@ impl Default for StorageLimits {
             max_attestations_per_subject: 100,
         }
     }
-}
-
-/// Expiration notification hook configuration.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ExpirationHook {
-    pub callback_contract: Address,
-    pub notify_days_before: u32,
 }
 
 /// Delegation from an issuer to a sub-issuer for specific claim types.
@@ -416,39 +434,6 @@ pub struct AttestationTemplate {
     pub default_expiration_days: Option<u32>,
 }
 
-/// Revocation list export format following the Status List 2021 standard pattern.
-/// Returns a compact bitstring representation of revoked attestations.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RevocationList {
-    /// The issuer that created this revocation list
-    pub issuer: Address,
-    /// The claim type these revocations apply to (None = all claim types)
-    pub claim_type: Option<String>,
-    /// Unix timestamp when this list was generated
-    pub generated_at: u64,
-    /// List of revoked attestation IDs
-    pub revoked_attestation_ids: Vec<String>,
-    /// Optional: bitstring encoding for compact representation
-    /// When provided, each bit represents whether the attestation at that
-    /// position in the sorted list is revoked (1) or not (0)
-    pub bitstring: Option<Vec<u8>>,
-    /// Total count of attestations (valid + revoked) at the time of export
-    pub total_attestation_count: u64,
-    /// Count of revoked attestations in this list
-    pub revoked_count: u64,
-}
-
-/// Export format selector for revocation lists
-#[contracttype]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum RevocationListFormat {
-    /// Simple list of revoked attestation IDs
-    SimpleList = 0,
-    /// Compact bitstring encoding (Status List 2021 compatible)
-    Bitstring = 1,
-}
-
 impl Attestation {
     pub fn hash_payload(env: &Env, payload: &Bytes) -> String {
         let hash = env.crypto().sha256(payload).to_array();
@@ -461,6 +446,36 @@ impl Attestation {
         String::from_bytes(env, &hex)
     }
 
+    /// Derives a deterministic attestation ID from `(issuer, subject, claim_type, timestamp)`.
+    ///
+    /// # Same-second collisions (issue #951)
+    ///
+    /// `timestamp` is the Stellar ledger close time, which has **second**
+    /// granularity. Two distinct creation attempts for the same
+    /// `(issuer, subject, claim_type)` triple that land in the same
+    /// ledger-close second — for example, a direct [`create_attestation`]
+    /// call racing a [`fulfill_request`] call for the same underlying claim —
+    /// derive the *same* ID. Whichever call is applied first succeeds; the
+    /// second is rejected with [`Error::DuplicateAttestation`], even though
+    /// from the caller's perspective these may be two genuinely different
+    /// attestation attempts rather than a retry of the same one.
+    ///
+    /// This is a deliberate trade-off: the ID intentionally excludes fields
+    /// like `metadata` so that it stays fully derivable off-chain (e.g. by
+    /// [`crate::attestation::simulate_create_attestation`]) from only the
+    /// four inputs above, and so that legitimate retries of the *same*
+    /// attempt are naturally idempotent rather than creating duplicates. No
+    /// nonce is added, since that would make the ID non-deterministic from
+    /// the caller's point of view and break that off-chain derivability.
+    ///
+    /// If a caller genuinely needs two distinct attestations for the same
+    /// triple within one ledger-close second, they must vary `claim_type`
+    /// (e.g. suffix it with a synthetic differentiator) or retry on the next
+    /// ledger, which advances `timestamp`. `metadata` cannot be used as a
+    /// differentiator, since it is not part of the hashed payload.
+    ///
+    /// [`create_attestation`]: crate::attestation::create_attestation
+    /// [`fulfill_request`]: crate::request::fulfill_request
     pub fn generate_id(
         env: &Env,
         issuer: &Address,
@@ -468,14 +483,24 @@ impl Attestation {
         claim_type: &String,
         timestamp: u64,
     ) -> String {
-        let mut payload = Bytes::new(env);
-        payload.append(&issuer.clone().to_xdr(env));
-        payload.append(&subject.clone().to_xdr(env));
-        payload.append(&claim_type.clone().to_xdr(env));
-        payload.append(&timestamp.to_xdr(env));
-        Self::hash_payload(env, &payload)
+        let mut bytes = Bytes::new(env);
+        bytes.append(&issuer.clone().to_xdr(env));
+        bytes.append(&subject.clone().to_xdr(env));
+        bytes.append(&claim_type.clone().to_xdr(env));
+        bytes.append(&Bytes::from_slice(env, &timestamp.to_be_bytes()));
+
+        let hash = env.crypto().sha256(&bytes).to_array();
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        let mut id = [0u8; 32];
+        for i in 0..16 {
+            id[i * 2] = HEX[(hash[i] >> 4) as usize];
+            id[i * 2 + 1] = HEX[(hash[i] & 0x0f) as usize];
+        }
+        String::from_str(env, core::str::from_utf8(&id).unwrap_or(""))
     }
 
+    /// Derives a deterministic attestation ID for a bridged attestation from
+    /// `(bridge, subject, claim_type, source_chain, source_tx, timestamp)`.
     pub fn generate_bridge_id(
         env: &Env,
         bridge: &Address,
@@ -485,16 +510,26 @@ impl Attestation {
         source_tx: &String,
         timestamp: u64,
     ) -> String {
-        let mut payload = Bytes::new(env);
-        payload.append(&bridge.clone().to_xdr(env));
-        payload.append(&subject.clone().to_xdr(env));
-        payload.append(&claim_type.clone().to_xdr(env));
-        payload.append(&source_chain.clone().to_xdr(env));
-        payload.append(&source_tx.clone().to_xdr(env));
-        payload.append(&timestamp.to_xdr(env));
-        Self::hash_payload(env, &payload)
+        let mut bytes = Bytes::new(env);
+        bytes.append(&bridge.clone().to_xdr(env));
+        bytes.append(&subject.clone().to_xdr(env));
+        bytes.append(&claim_type.clone().to_xdr(env));
+        bytes.append(&source_chain.clone().to_xdr(env));
+        bytes.append(&source_tx.clone().to_xdr(env));
+        bytes.append(&Bytes::from_slice(env, &timestamp.to_be_bytes()));
+
+        let hash = env.crypto().sha256(&bytes).to_array();
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        let mut id = [0u8; 32];
+        for i in 0..16 {
+            id[i * 2] = HEX[(hash[i] >> 4) as usize];
+            id[i * 2 + 1] = HEX[(hash[i] & 0x0f) as usize];
+        }
+        String::from_str(env, core::str::from_utf8(&id).unwrap_or(""))
     }
 
+    /// Compute the current validity state. A pending attestation is not usable,
+    /// and revocation permanently takes precedence over expiration.
     pub fn get_status(&self, current_time: u64) -> AttestationStatus {
         if let Some(valid_from) = self.valid_from {
             if current_time < valid_from {

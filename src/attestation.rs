@@ -264,9 +264,21 @@ pub fn create_attestation_internal(
     if issuer_count >= limits.max_attestations_per_issuer {
         return Err(Error::LimitExceeded);
     }
-    let subject_count = Storage::get_subject_attestations(env, &subject).len();
-    if subject_count >= limits.max_attestations_per_subject {
-        return Err(Error::LimitExceeded);
+    
+    // Check optional per-subject limit from ContractConfig if configured
+    if let Some(config) = Storage::get_contract_config(env) {
+        if let Some(max_per_subject) = config.max_attestations_per_subject {
+            let subject_count = Storage::get_subject_attestations(env, &subject).len();
+            if subject_count >= max_per_subject {
+                return Err(Error::LimitExceeded);
+            }
+        }
+    } else {
+        // Fallback to StorageLimits for backward compatibility if no config is set
+        let subject_count = Storage::get_subject_attestations(env, &subject).len();
+        if subject_count >= limits.max_attestations_per_subject {
+            return Err(Error::LimitExceeded);
+        }
     }
 
     let timestamp = env.ledger().timestamp();
@@ -293,6 +305,7 @@ pub fn create_attestation_internal(
         source_tx: None,
         tags,
         revocation_reason: None,
+        bundle_id: None,
     };
 
     store_attestation(env, &attestation);
@@ -342,6 +355,28 @@ pub fn create_attestation_valid_from(
     create_attestation_internal(env, issuer, subject, claim_type, expiration, metadata, None, tags, Some(valid_from))
 }
 
+/// Same as [`create_attestation`], but demonstrates the version-guard
+/// pattern from issue #952: if `expected_version` is `Some`, it must match
+/// the contract's currently deployed version (as returned by `get_version()`)
+/// or the call is rejected with `Error::VersionMismatch` before any other
+/// validation runs. Passing `None` behaves exactly like `create_attestation`.
+///
+/// See [`crate::validation::Validation::require_version_match`] for the full
+/// pattern documentation aimed at SDK authors.
+pub fn create_attestation_versioned(
+    env: &Env,
+    issuer: Address,
+    subject: Address,
+    claim_type: String,
+    expiration: Option<u64>,
+    metadata: Option<String>,
+    tags: Option<Vec<String>>,
+    expected_version: Option<String>,
+) -> Result<String, Error> {
+    Validation::require_version_match(env, &expected_version)?;
+    create_attestation_internal(env, issuer, subject, claim_type, expiration, metadata, None, tags, None)
+}
+
 pub fn create_attestation_jurisdiction(
     env: &Env,
     issuer: Address,
@@ -370,6 +405,28 @@ pub fn import_attestation(
     Validation::require_issuer(env, &issuer)?;
     validate_import_timestamps(env, timestamp, expiration)?;
 
+    let limits = Storage::get_limits(env);
+    let issuer_count = Storage::get_issuer_attestations(env, &issuer).len();
+    if issuer_count >= limits.max_attestations_per_issuer {
+        return Err(Error::LimitExceeded);
+    }
+    
+    // Check optional per-subject limit from ContractConfig if configured
+    if let Some(config) = Storage::get_contract_config(env) {
+        if let Some(max_per_subject) = config.max_attestations_per_subject {
+            let subject_count = Storage::get_subject_attestations(env, &subject).len();
+            if subject_count >= max_per_subject {
+                return Err(Error::LimitExceeded);
+            }
+        }
+    } else {
+        // Fallback to StorageLimits for backward compatibility if no config is set
+        let subject_count = Storage::get_subject_attestations(env, &subject).len();
+        if subject_count >= limits.max_attestations_per_subject {
+            return Err(Error::LimitExceeded);
+        }
+    }
+
     let attestation_id = Attestation::generate_id(env, &issuer, &subject, &claim_type, timestamp);
     if Storage::has_attestation(env, &attestation_id) {
         return Err(Error::DuplicateAttestation);
@@ -392,6 +449,7 @@ pub fn import_attestation(
         source_tx: None,
         tags: None,
         revocation_reason: None,
+        bundle_id: None,
     };
 
     store_attestation(env, &attestation);
@@ -422,6 +480,29 @@ pub fn bridge_attestation(
     Validation::require_not_paused(env)?;
     validate_source_reference(&source_chain, &source_tx)?;
 
+    // Check limits before creating attestation
+    let limits = Storage::get_limits(env);
+    let issuer_count = Storage::get_issuer_attestations(env, &bridge).len();
+    if issuer_count >= limits.max_attestations_per_issuer {
+        return Err(Error::LimitExceeded);
+    }
+    
+    // Check optional per-subject limit from ContractConfig if configured
+    if let Some(config) = Storage::get_contract_config(env) {
+        if let Some(max_per_subject) = config.max_attestations_per_subject {
+            let subject_count = Storage::get_subject_attestations(env, &subject).len();
+            if subject_count >= max_per_subject {
+                return Err(Error::LimitExceeded);
+            }
+        }
+    } else {
+        // Fallback to StorageLimits for backward compatibility if no config is set
+        let subject_count = Storage::get_subject_attestations(env, &subject).len();
+        if subject_count >= limits.max_attestations_per_subject {
+            return Err(Error::LimitExceeded);
+        }
+    }
+
     let timestamp = env.ledger().timestamp();
     let attestation_id = Attestation::generate_bridge_id(
         env, &bridge, &subject, &claim_type, &source_chain, &source_tx, timestamp,
@@ -447,6 +528,7 @@ pub fn bridge_attestation(
         source_tx: Some(source_tx),
         tags: None,
         revocation_reason: None,
+        bundle_id: None,
     };
 
     store_attestation(env, &attestation);
@@ -513,6 +595,7 @@ pub fn create_attestations_batch(
             source_tx: None,
             tags: None,
             revocation_reason: None,
+            bundle_id: None,
         };
 
         // Write attestation record and per-subject index — issuer index deferred.
@@ -537,7 +620,7 @@ pub fn create_attestations_batch(
         ids.push_back(attestation_id);
     }
 
-    let batch_len = new_issuer_ids.len() as u64;
+    let batch_len = new_issuer_ids.len();
 
     // Single write: issuer index (replaces N add_issuer_attestation calls).
     Storage::add_issuer_attestations_bulk(env, &issuer, &new_issuer_ids);
@@ -547,7 +630,7 @@ pub fn create_attestations_batch(
     Storage::increment_issuer_stats(env, &issuer, batch_len);
 
     // Single write: global stats (replaces N increment_total_attestations calls).
-    Storage::increment_total_attestations(env, batch_len);
+    Storage::increment_total_attestations(env, batch_len as u64);
 
     Storage::set_last_issuance_time(env, &issuer, timestamp);
     if Storage::get_claim_type_rate_limit(env, &claim_type).is_some() {
@@ -894,7 +977,9 @@ pub fn list_endorsements_by_endorser(env: &Env, endorser: Address, start: u32, l
     let end = (start + limit).min(total);
     let mut result = Vec::new(env);
     for i in start..end {
-        result.push_back(all.get(i).unwrap());
+        if let Some(item) = all.get(i) {
+            result.push_back(item);
+        }
     }
     result
 }
@@ -964,6 +1049,7 @@ pub fn create_attestation_as_delegate(
         source_tx: None,
         tags: None,
         revocation_reason: None,
+        bundle_id: None,
     };
 
     store_attestation(env, &attestation);
@@ -1032,7 +1118,7 @@ pub fn simulate_create_attestation(
     validate_jurisdiction(env, &None)?;
     validate_tags(&tags)?;
     validate_native_expiration(env, expiration)?;
-    validate_valid_from(env, &None)?;
+    validate_valid_from(env, None)?;
 
     if issuer == subject {
         return Err(Error::Unauthorized);

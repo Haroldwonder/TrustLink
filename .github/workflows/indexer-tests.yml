@@ -1,0 +1,38 @@
+name: Indexer Tests
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - 'indexer/**'
+  pull_request:
+    paths:
+      - 'indexer/**'
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ['18', '20', '22']
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: indexer/package-lock.json
+
+      - name: Install dependencies
+        working-directory: indexer
+        run: npm ci
+
+      - name: Run tests
+        working-directory: indexer
+        run: npm test

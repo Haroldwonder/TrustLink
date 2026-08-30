@@ -2,6 +2,8 @@
 
 Thanks for your interest in contributing! This guide covers everything you need to go from zero to a merged PR.
 
+Please read and follow our [Code of Conduct](CODE_OF_CONDUCT.md). Reports of unacceptable behavior can be sent to **conduct@trustlink.io**.
+
 ## Local Development Setup
 
 TrustLink uses [pre-commit](https://pre-commit.com) to enforce formatting and linting before every commit.
@@ -44,6 +46,10 @@ pre-commit run cargo-fmt     # check one hook by id
 ## New to Stellar or Soroban?
 
 Before diving in, read [docs/stellar-concepts.md](docs/stellar-concepts.md) for a beginner-friendly explanation of ledger timestamps, storage TTL, `require_auth`, and the WASM deployment model — concepts that come up throughout the codebase.
+
+## Not sure where to start?
+
+See [docs/good-first-issues.md](docs/good-first-issues.md) for concrete starter tasks across the contract, SDKs, indexer, examples, and docs.
 
 ## Prerequisites
 
@@ -675,6 +681,30 @@ cargo audit --advisory RUSTSEC-YYYY-NNNNN
 - Review changelogs before major version updates
 - Test thoroughly after updates
 - Document breaking changes in PR description
+
+## Proposing Significant Changes (RFCs)
+
+For changes large enough to benefit from discussion before any code is
+written — new storage layouts, public contract interface changes, new
+workflows, or anything with backward-compatibility implications — open an
+RFC instead of jumping straight to a PR. See [docs/rfcs/README.md](docs/rfcs/README.md)
+for the process and [docs/rfcs/TEMPLATE.md](docs/rfcs/TEMPLATE.md) for the
+template. RFCs capture pre-implementation discussion; once a proposal is
+accepted and built, it's typically followed by an [ADR](docs/adr/README.md)
+recording the final decision.
+
+## Maintainer Response-Time SLA
+
+To set clear expectations for contributors, maintainers aim to respond within the following timeframes. "Respond" means an initial triage comment, label, or reaction — not necessarily a full resolution.
+
+| Item | First response |
+|------|-----------------|
+| New issue (bug, feature, question, docs) | Within 5 business days |
+| New pull request | Within 5 business days |
+| Follow-up comment on an open issue/PR | Within 5 business days |
+| Security report (see [Reporting Security Issues](README.md#reporting-security-issues)) | Follows the dedicated security disclosure process, not this table |
+
+These are targets, not guarantees — response times may be longer around releases or during maintainer availability gaps. If you haven't heard back after the window above, a polite ping on the issue/PR is welcome.
 
 ## Reporting Issues
 

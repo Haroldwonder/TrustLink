@@ -18,6 +18,33 @@ use crate::storage::Storage;
 use crate::types::Error;
 use soroban_sdk::{Address, Env, String};
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared byte-copy helper
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Copies the bytes of a Soroban SDK `String` into a fixed 64-byte stack
+/// buffer and returns both the buffer and the number of bytes written.
+///
+/// This single helper eliminates the duplicate hand-written buffer-copy logic
+/// that previously appeared in both `validate_claim_type` and
+/// `validate_metadata_hash_only`. Both validators now call this function,
+/// ensuring consistent behaviour if the buffer size or bounds-check ever
+/// needs to change.
+///
+/// # Panics
+/// Panics (via an out-of-bounds slice) if `s.len() > 64`.
+/// All callers **must** validate length ≤ 64 before invoking this helper.
+fn copy_into_fixed_buffer(s: &String) -> ([u8; 64], usize) {
+    let len = s.len() as usize;
+    let mut buf = [0u8; 64];
+    s.copy_into_slice(&mut buf[..len]);
+    (buf, len)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Validation guards
+// ─────────────────────────────────────────────────────────────────────────────
+
 /// Authorization checks used by contract entry points.
 pub struct Validation;
 
@@ -90,6 +117,51 @@ impl Validation {
         Ok(())
     }
 
+    /// Pre-flight interface/version compatibility guard for state-changing
+    /// entry points (issue #952).
+    ///
+    /// `get_version()`/`get_contract_metadata()` expose the deployed
+    /// contract's version, but nothing on the write path previously
+    /// validated a caller's *expected* version before executing a
+    /// state-changing call. After a contract upgrade that changes a
+    /// function's argument shape or semantics, an out-of-date SDK could
+    /// submit a transaction that either fails confusingly or, worse,
+    /// succeeds with different semantics than the caller assumed.
+    ///
+    /// ## Pattern for SDK authors
+    ///
+    /// Entry points that want this guard accept an additional
+    /// `expected_version: Option<String>` parameter (see
+    /// `create_attestation_versioned` for a worked example) and call this
+    /// function first, before any other validation or state mutation. SDKs
+    /// should:
+    ///
+    /// 1. Call `get_version()` once after deploying/connecting, and cache it.
+    /// 2. Pass that cached value as `expected_version` on subsequent
+    ///    state-changing calls that accept it.
+    /// 3. On [`Error::VersionMismatch`], refresh the cached version via
+    ///    `get_version()`, regenerate the call using the SDK version that
+    ///    matches, and prompt the caller to retry — rather than assuming the
+    ///    original call's argument shape and semantics still apply.
+    ///
+    /// Passing `None` skips the check entirely, preserving backward
+    /// compatibility for callers that don't yet track contract versions.
+    ///
+    /// # Errors
+    /// - [`Error::NotInitialized`] — the contract has no stored version yet.
+    /// - [`Error::VersionMismatch`] — `expected_version` is `Some` and does
+    ///   not match the contract's currently deployed version.
+    pub fn require_version_match(env: &Env, expected_version: &Option<String>) -> Result<(), Error> {
+        let Some(expected) = expected_version else {
+            return Ok(());
+        };
+        let actual = Storage::get_version(env).ok_or(Error::NotInitialized)?;
+        if expected != &actual {
+            return Err(Error::VersionMismatch);
+        }
+        Ok(())
+    }
+
     /// Validate a `claim_type` string.
     ///
     /// # Rules
@@ -103,12 +175,9 @@ impl Validation {
         if len == 0 || len > 64 {
             return Err(Error::InvalidClaimType);
         }
-        // Copy bytes out of the host-side String for inspection.
-        // len is u32 in Soroban SDK; safe to cast since we already checked <= 64.
-        let mut buf = [0u8; 64];
-        let slice = &mut buf[..len as usize];
-        claim_type.copy_into_slice(slice);
-        for &b in slice.iter() {
+        // Use the shared helper; length is already verified <= 64 above.
+        let (buf, byte_len) = copy_into_fixed_buffer(claim_type);
+        for &b in buf[..byte_len].iter() {
             let is_alpha = b.is_ascii_alphabetic();
             let is_digit = b.is_ascii_digit();
             let is_underscore = b == b'_';
@@ -151,8 +220,8 @@ impl Validation {
                 if value.len() != 64 {
                     return Err(Error::InvalidMetadata);
                 }
-                let mut buf = [0u8; 64];
-                value.copy_into_slice(&mut buf);
+                // Use the shared helper; length is exactly 64 verified above.
+                let (buf, _) = copy_into_fixed_buffer(value);
                 for &b in buf.iter() {
                     if !matches!(b, b'0'..=b'9' | b'a'..=b'f') {
                         return Err(Error::InvalidMetadata);
@@ -194,12 +263,12 @@ impl Validation {
             if let Some(meta) = metadata {
                 let len = meta.len();
                 if let Some(min) = constraints.min_metadata_len {
-                    if len < min as usize {
+                    if len < min {
                         return Err(Error::ConstraintViolation);
                     }
                 }
                 if let Some(max) = constraints.max_metadata_len {
-                    if len > max as usize {
+                    if len > max {
                         return Err(Error::ConstraintViolation);
                     }
                 }

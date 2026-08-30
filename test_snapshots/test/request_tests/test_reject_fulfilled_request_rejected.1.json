@@ -116,7 +116,7 @@
                   "symbol": "Attestation"
                 },
                 {
-                  "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                  "string": "6495b6242dafd7a7256bfb109136722c"
                 }
               ]
             },
@@ -136,13 +136,19 @@
                       "symbol": "Attestation"
                     },
                     {
-                      "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                      "string": "6495b6242dafd7a7256bfb109136722c"
                     }
                   ]
                 },
                 "durability": "persistent",
                 "val": {
                   "map": [
+                    {
+                      "key": {
+                        "symbol": "bundle_id"
+                      },
+                      "val": "void"
+                    },
                     {
                       "key": {
                         "symbol": "claim_type"
@@ -170,7 +176,7 @@
                         "symbol": "id"
                       },
                       "val": {
-                        "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                        "string": "6495b6242dafd7a7256bfb109136722c"
                       }
                     },
                     {
@@ -465,7 +471,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                      "string": "6495b6242dafd7a7256bfb109136722c"
                     }
                   ]
                 }
@@ -514,7 +520,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                      "string": "6495b6242dafd7a7256bfb109136722c"
                     }
                   ]
                 }
@@ -711,7 +717,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                      "string": "6495b6242dafd7a7256bfb109136722c"
                     }
                   ]
                 }
@@ -760,7 +766,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                      "string": "6495b6242dafd7a7256bfb109136722c"
                     }
                   ]
                 }
@@ -809,7 +815,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                      "string": "6495b6242dafd7a7256bfb109136722c"
                     }
                   ]
                 }
@@ -1443,7 +1449,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                  "string": "6495b6242dafd7a7256bfb109136722c"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -1483,7 +1489,7 @@
                   "string": "334535f383e20e56cb6c2fad6289ef624b67902f28bf4e8e1e30575052426221"
                 },
                 {
-                  "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                  "string": "6495b6242dafd7a7256bfb109136722c"
                 }
               ]
             }
@@ -1508,7 +1514,7 @@
               }
             ],
             "data": {
-              "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+              "string": "6495b6242dafd7a7256bfb109136722c"
             }
           }
         }
@@ -1566,7 +1572,7 @@
             ],
             "data": {
               "error": {
-                "contract": 38
+                "contract": 34
               }
             }
           }
@@ -1587,7 +1593,7 @@
               },
               {
                 "error": {
-                  "contract": 38
+                  "contract": 34
                 }
               }
             ],
@@ -1612,7 +1618,7 @@
               },
               {
                 "error": {
-                  "contract": 38
+                  "contract": 34
                 }
               }
             ],

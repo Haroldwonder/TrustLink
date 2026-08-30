@@ -1,5 +1,12 @@
 """
 TrustLink Attestation GraphQL API
+
+Schema version: 2 (2026-07-29)
+
+Federation readiness (#976): core entity types carry @id-field annotations in
+comments, identifying the fields that would become @key directives if this
+schema is split across Apollo Federation subgraphs. See
+docs/adr/ADR-011-graphql-federation-schema-versioning.md.
 """
 
 enum Status {
@@ -7,6 +14,12 @@ enum Status {
   REVOKED
 }
 
+"""
+Core attestation entity.
+
+Federation key candidate: `id` (globally unique deterministic hash from the contract).
+In a future subgraph split, this type would carry `@key(fields: "id")`.
+"""
 type Attestation {
   id: String!
   issuer: String!
@@ -51,6 +64,12 @@ type MultisigProposal {
   updatedAt: String!
 }
 
+"""
+Issuer entity.
+
+Federation key candidate: `address` (unique Stellar address).
+In a future subgraph split, this type would carry `@key(fields: "address")`.
+"""
 type Issuer {
   address: String!
   name: String!
@@ -104,6 +123,12 @@ type HealthStatus {
   lastLedger: Int
   """ISO-8601 timestamp of this response"""
   timestamp: String!
+  """
+  Semantic version of the GraphQL schema (e.g. \"1.0.0\").
+  Clients can use this to detect schema-level breaking changes independently
+  of the process version. See ADR-011.
+  """
+  schemaVersion: String!
 }
 
 type Query {
@@ -146,11 +171,35 @@ type Query {
 }
 
 type Subscription {
-  """Subscribe to new attestation creation events, optionally filtered by subject"""
-  onAttestationCreated(subject: String): Attestation!
+  """
+  Subscribe to new attestation creation events.
+  All filter arguments are optional and applied with AND logic when combined.
+  """
+  onAttestationCreated(
+    """Only emit events for this subject address"""
+    subject: String
+    """Only emit events issued by this issuer address"""
+    issuer: String
+    """Only emit events for this claim type (e.g. \"KYC_PASSED\")"""
+    claimType: String
+    """Only emit events if 'created' is included in this topic allowlist"""
+    topics: [String!]
+  ): Attestation!
 
-  """Subscribe to attestation revocation events, optionally filtered by issuer"""
-  onAttestationRevoked(issuer: String): AttestationRevoked!
+  """
+  Subscribe to attestation revocation events.
+  All filter arguments are optional and applied with AND logic when combined.
+  """
+  onAttestationRevoked(
+    """Only emit events for this subject address"""
+    subject: String
+    """Only emit events issued by this issuer address"""
+    issuer: String
+    """Only emit events for this claim type (e.g. \"KYC_PASSED\")"""
+    claimType: String
+    """Only emit events if 'revoked' is included in this topic allowlist"""
+    topics: [String!]
+  ): AttestationRevoked!
 
   """Subscribe to issuer registration events"""
   onIssuerRegistered: IssuerRegistered!
@@ -159,6 +208,8 @@ type Subscription {
 type AttestationRevoked {
   id: String!
   issuer: String!
+  subject: String!
+  claimType: String!
   revokedAt: String!
 }
 

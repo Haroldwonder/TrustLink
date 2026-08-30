@@ -1,7 +1,7 @@
 use soroban_sdk::{Address, Env, String, Vec};
 
 use crate::attestation::maybe_trigger_expiration_hook;
-use crate::constants::SECS_PER_DAY;
+use crate::constants::{SECS_PER_DAY, MAX_EXPIRING_WINDOW_DAYS};
 use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::{
@@ -48,27 +48,20 @@ pub fn has_valid_claim(env: &Env, subject: Address, claim_type: String) -> bool 
 }
 
 pub fn has_valid_claim_from_issuer(env: &Env, subject: Address, claim_type: String, issuer: Address) -> bool {
-    let attestation_ids = Storage::get_subject_attestations(env, &subject);
+    let attestation_ids = Storage::get_valid_attestations(env, &subject);
     let current_time = env.ledger().timestamp();
     for attestation_id in attestation_ids.iter() {
         if let Ok(attestation) = Storage::get_attestation(env, &attestation_id) {
-            if attestation.deleted { continue; }
             if attestation.claim_type == claim_type && attestation.issuer == issuer {
-                match attestation.get_status(current_time) {
-                    AttestationStatus::Valid => {
-                        maybe_trigger_expiration_hook(
-                            env,
-                            &subject,
-                            &attestation_id,
-                            attestation.expiration.unwrap_or(u64::MAX),
-                            current_time,
-                        );
-                        return true;
-                    }
-                    AttestationStatus::Expired => {
-                        Events::attestation_expired(env, &attestation_id, &subject);
-                    }
-                    _ => {}
+                if attestation.get_status(current_time) == AttestationStatus::Valid {
+                    maybe_trigger_expiration_hook(
+                        env,
+                        &subject,
+                        &attestation_id,
+                        attestation.expiration.unwrap_or(u64::MAX),
+                        current_time,
+                    );
+                    return true;
                 }
             }
         }
@@ -80,13 +73,12 @@ pub fn has_any_claim(env: &Env, subject: Address, claim_types: Vec<String>) -> b
     if claim_types.is_empty() {
         return false;
     }
-    let attestation_ids = Storage::get_subject_attestations(env, &subject);
+    let attestation_ids = Storage::get_valid_attestations(env, &subject);
     let current_time = env.ledger().timestamp();
     for claim_type in claim_types.iter() {
         for attestation_id in attestation_ids.iter() {
             if let Ok(attestation) = Storage::get_attestation(env, &attestation_id) {
-                if !attestation.deleted
-                    && attestation.claim_type == claim_type
+                if attestation.claim_type == claim_type
                     && attestation.get_status(current_time) == AttestationStatus::Valid
                 {
                     maybe_trigger_expiration_hook(
@@ -106,13 +98,12 @@ pub fn has_any_claim(env: &Env, subject: Address, claim_types: Vec<String>) -> b
 
 pub fn has_all_claims(env: &Env, subject: Address, claim_types: Vec<String>) -> bool {
     if claim_types.is_empty() { return true; }
-    let attestation_ids = Storage::get_subject_attestations(env, &subject);
+    let attestation_ids = Storage::get_valid_attestations(env, &subject);
     let current_time = env.ledger().timestamp();
     'claims: for claim_type in claim_types.iter() {
         for attestation_id in attestation_ids.iter() {
             if let Ok(attestation) = Storage::get_attestation(env, &attestation_id) {
-                if !attestation.deleted
-                    && attestation.claim_type == claim_type
+                if attestation.claim_type == claim_type
                     && attestation.get_status(current_time) == AttestationStatus::Valid
                 {
                     continue 'claims;
@@ -253,7 +244,6 @@ pub fn get_attestations_in_range_after(
     if let Some(cursor_id) = after_attestation_id {
         let mut cursor_found = false;
         let mut cursor_timestamp: u64 = 0;
-        let mut cursor_id_ref = cursor_id.clone();
         if let Ok(cursor_attestation) = Storage::get_attestation(env, &cursor_id) {
             cursor_timestamp = cursor_attestation.timestamp;
             for i in 0..filtered.len() {
@@ -273,7 +263,7 @@ pub fn get_attestations_in_range_after(
             for i in 0..filtered.len() {
                 if let Some(attestation) = filtered.get(i) {
                     if attestation.timestamp > cursor_timestamp
-                        || (attestation.timestamp == cursor_timestamp && attestation.id > cursor_id_ref)
+                        || (attestation.timestamp == cursor_timestamp && attestation.id > cursor_id)
                     {
                         start_index = i;
                         cursor_found = true;
@@ -440,13 +430,19 @@ pub fn get_dispute(env: &Env, attestation_id: String) -> Option<DisputeRecord> {
 ///
 /// Excludes already-revoked, already-expired, and None-expiration attestations.
 /// Paginated via `start`/`limit`.
+///
+/// Returns an error if `within_days` exceeds `MAX_EXPIRING_WINDOW_DAYS`.
 pub fn get_expiring_attestations(
     env: &Env,
     subject: Address,
     within_days: u32,
     start: u32,
     limit: u32,
-) -> Vec<Attestation> {
+) -> Result<Vec<Attestation>, Error> {
+    if within_days > MAX_EXPIRING_WINDOW_DAYS {
+        return Err(Error::LimitExceeded);
+    }
+
     let current_time = env.ledger().timestamp();
     let window_end = current_time + (within_days as u64) * SECS_PER_DAY;
 
@@ -466,38 +462,54 @@ pub fn get_expiring_attestations(
         }
     }
 
-    // Sort by expiration ascending (simple bubble sort for small vectors)
+    // Sort by expiration ascending using insertion sort (O(n²) worst case, efficient in practice)
     let len = filtered.len();
-    for i in 0..len {
-        for j in 0..len - i - 1 {
-            let a = filtered.get(j).unwrap();
-            let b = filtered.get(j + 1).unwrap();
-            if a.expiration.unwrap_or(u64::MAX) > b.expiration.unwrap_or(u64::MAX) {
-                filtered.set(j, b);
-                filtered.set(j + 1, a);
+    for i in 1..len {
+        let key = filtered.get(i).unwrap();
+        let key_exp = key.expiration.unwrap_or(u64::MAX);
+        let mut j = i;
+        while j > 0 {
+            let prev = filtered.get(j - 1).unwrap();
+            let prev_exp = prev.expiration.unwrap_or(u64::MAX);
+            if prev_exp <= key_exp {
+                break;
+            }
+            filtered.set(j, prev);
+            j -= 1;
+        }
+        filtered.set(j, key);
+    }
+
+    let mut result = Vec::new(env);
+    let len = filtered.len();
+    if start < len {
+        let end = (start + limit).min(len);
+        for i in start..end {
+            if let Some(attestation) = filtered.get(i) {
+                result.push_back(attestation);
             }
         }
     }
-
-    let paginated = crate::storage::paginate(env, &filtered, start, limit);
-    let mut result = Vec::new(env);
-    for attestation in paginated.iter() {
-        result.push_back(attestation);
-    }
-    result
+    Ok(result)
 }
 
 /// Returns issuer's attestations expiring within `days_window` days, sorted by expiration ascending.
 ///
 /// Excludes already-revoked, already-expired, and None-expiration attestations.
 /// Paginated via `start`/`limit`.
+///
+/// Returns an error if `days_window` exceeds `MAX_EXPIRING_WINDOW_DAYS`.
 pub fn get_issuer_expiring_attestations(
     env: &Env,
     issuer: Address,
     days_window: u32,
     start: u32,
     limit: u32,
-) -> Vec<Attestation> {
+) -> Result<Vec<Attestation>, Error> {
+    if days_window > MAX_EXPIRING_WINDOW_DAYS {
+        return Err(Error::LimitExceeded);
+    }
+
     let current_time = env.ledger().timestamp();
     let window_end = current_time + (days_window as u64) * SECS_PER_DAY;
 
@@ -517,25 +529,35 @@ pub fn get_issuer_expiring_attestations(
         }
     }
 
-    // Sort by expiration ascending (simple bubble sort for small vectors)
+    // Sort by expiration ascending using insertion sort (O(n²) worst case, efficient in practice)
     let len = filtered.len();
-    for i in 0..len {
-        for j in 0..len - i - 1 {
-            let a = filtered.get(j).unwrap();
-            let b = filtered.get(j + 1).unwrap();
-            if a.expiration.unwrap_or(u64::MAX) > b.expiration.unwrap_or(u64::MAX) {
-                filtered.set(j, b);
-                filtered.set(j + 1, a);
+    for i in 1..len {
+        let key = filtered.get(i).unwrap();
+        let key_exp = key.expiration.unwrap_or(u64::MAX);
+        let mut j = i;
+        while j > 0 {
+            let prev = filtered.get(j - 1).unwrap();
+            let prev_exp = prev.expiration.unwrap_or(u64::MAX);
+            if prev_exp <= key_exp {
+                break;
+            }
+            filtered.set(j, prev);
+            j -= 1;
+        }
+        filtered.set(j, key);
+    }
+
+    let mut result = Vec::new(env);
+    let len = filtered.len();
+    if start < len {
+        let end = (start + limit).min(len);
+        for i in start..end {
+            if let Some(attestation) = filtered.get(i) {
+                result.push_back(attestation);
             }
         }
     }
-
-    let paginated = crate::storage::paginate(env, &filtered, start, limit);
-    let mut result = Vec::new(env);
-    for attestation in paginated.iter() {
-        result.push_back(attestation);
-    }
-    result
+    Ok(result)
 }
 
 /// Submit a dispute against an attestation. Only the subject of the
@@ -611,7 +633,7 @@ pub fn export_revocation_list(
     format: RevocationListFormat,
 ) -> Result<RevocationList, Error> {
     // Auth check: caller must be issuer or admin
-    env.auth();
+    issuer.require_auth();
     Validation::require_issuer(env, &issuer)?;
 
     let current_time = env.ledger().timestamp();
@@ -660,6 +682,7 @@ pub fn export_revocation_list(
         RevocationListFormat::SimpleList => None,
     };
 
+    let revoked_count = revoked_ids.len() as u64;
     let revocation_list = RevocationList {
         issuer,
         claim_type,
@@ -667,7 +690,7 @@ pub fn export_revocation_list(
         revoked_attestation_ids: revoked_ids,
         bitstring,
         total_attestation_count: total_count,
-        revoked_count: revoked_ids.len() as u64,
+        revoked_count,
     };
 
     Ok(revocation_list)

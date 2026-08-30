@@ -48,6 +48,14 @@ import {
   TrustLinkError,
 } from "./validation";
 
+import {
+  CircuitBreaker,
+  withRetry,
+  type RetryOptions,
+  type CircuitBreakerOptions,
+  type ResilienceConfig,
+} from "./resilience";
+
 export type { Attestation, AttestationStatus, AuditEntry, ClaimTypeInfo,
   ContractConfig, ContractMetadata, Delegation, Endorsement, FeeConfig, GlobalStats,
   HealthStatus, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal,
@@ -62,6 +70,12 @@ export interface TrustLinkClientOptions {
   rpcUrl: string;
   /** Network passphrase. Defaults to testnet. */
   networkPassphrase?: string;
+  /** Fine-grained retry configuration for transient RPC failures. */
+  retry?: RetryOptions;
+  /** Fine-grained circuit breaker configuration. */
+  circuitBreaker?: CircuitBreakerOptions;
+  /** Simplified resilience configuration (used if `retry`/`circuitBreaker` are not given). */
+  resilience?: ResilienceConfig;
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
@@ -118,35 +132,53 @@ export class TrustLinkClient {
   private readonly server: rpc.Server;
   private readonly networkPassphrase: string;
   private readonly contractId: string;
+  private readonly retryOptions: RetryOptions;
+  private readonly breaker: CircuitBreaker;
 
   constructor(opts: TrustLinkClientOptions) {
     this.contractId = opts.contractId;
     this.contract = new Contract(opts.contractId);
     this.server = new rpc.Server(opts.rpcUrl, { allowHttp: opts.rpcUrl.startsWith("http://") });
     this.networkPassphrase = opts.networkPassphrase ?? Networks.TESTNET;
+
+    const res = opts.resilience ?? {};
+    this.retryOptions = opts.retry ?? {
+      maxAttempts: res.maxRetries,
+      initialDelayMs: res.backoffMs,
+    };
+    this.breaker = new CircuitBreaker(opts.circuitBreaker ?? {
+      failureThreshold: res.circuitBreakerThreshold,
+    });
+  }
+
+  /** Run an RPC call with exponential backoff retry and circuit breaker protection. */
+  private rpcRetry<T>(fn: () => Promise<T>): Promise<T> {
+    return withRetry(fn, this.retryOptions, this.breaker);
   }
 
   // ─── Low-level helpers ──────────────────────────────────────────────────────
 
   /** Simulate a read-only call and return the decoded native value. */
   private async simulate(method: string, args: xdr.ScVal[]): Promise<unknown> {
-    const op = this.contract.call(method, ...args);
-    const account = new Account("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN", "0");
-    const tx = new TransactionBuilder(account, {
-      fee: BASE_FEE,
-      networkPassphrase: this.networkPassphrase,
-    })
-      .addOperation(op)
-      .setTimeout(30)
-      .build();
+    return this.rpcRetry(async () => {
+      const op = this.contract.call(method, ...args);
+      const account = new Account("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN", "0");
+      const tx = new TransactionBuilder(account, {
+        fee: BASE_FEE,
+        networkPassphrase: this.networkPassphrase,
+      })
+        .addOperation(op)
+        .setTimeout(30)
+        .build();
 
-    const result = await this.server.simulateTransaction(tx);
-    if (rpc.Api.isSimulationError(result)) {
-      throw new Error(parseError(result));
-    }
-    const simSuccess = result as rpc.Api.SimulateTransactionSuccessResponse;
-    if (!simSuccess.result) throw new Error("No result returned from simulation");
-    return scValToNative(simSuccess.result.retval);
+      const result = await this.server.simulateTransaction(tx);
+      if (rpc.Api.isSimulationError(result)) {
+        throw new Error(parseError(result));
+      }
+      const simSuccess = result as rpc.Api.SimulateTransactionSuccessResponse;
+      if (!simSuccess.result) throw new Error("No result returned from simulation");
+      return scValToNative(simSuccess.result.retval);
+    });
   }
 
   /**
@@ -158,7 +190,7 @@ export class TrustLinkClient {
     args: xdr.ScVal[],
     signer: Keypair,
   ): Promise<string> {
-    const account = await this.server.getAccount(signer.publicKey());
+    const account = await this.rpcRetry(() => this.server.getAccount(signer.publicKey()));
     const op = this.contract.call(method, ...args);
     const tx = new TransactionBuilder(account, {
       fee: BASE_FEE,
@@ -168,7 +200,7 @@ export class TrustLinkClient {
       .setTimeout(30)
       .build();
 
-    const simResult = await this.server.simulateTransaction(tx);
+    const simResult = await this.rpcRetry(() => this.server.simulateTransaction(tx));
     if (rpc.Api.isSimulationError(simResult)) {
       throw new Error(parseError(simResult));
     }
@@ -176,15 +208,17 @@ export class TrustLinkClient {
     const prepared = rpc.assembleTransaction(tx, simResult).build() as Transaction;
     prepared.sign(signer);
 
-    const sendResult = await this.server.sendTransaction(prepared);
+    // Retries only cover transport-level failures reaching the RPC node — an
+    // "ERROR" response (an on-chain rejection) is surfaced immediately, not retried.
+    const sendResult = await this.rpcRetry(() => this.server.sendTransaction(prepared));
     if (sendResult.status === "ERROR") {
       throw new Error(`Transaction failed: ${JSON.stringify(sendResult.errorResult)}`);
     }
 
-    let getResult = await this.server.getTransaction(sendResult.hash);
+    let getResult = await this.rpcRetry(() => this.server.getTransaction(sendResult.hash));
     for (let i = 0; i < 20 && getResult.status === "NOT_FOUND"; i++) {
       await new Promise((r) => setTimeout(r, 1500));
-      getResult = await this.server.getTransaction(sendResult.hash);
+      getResult = await this.rpcRetry(() => this.server.getTransaction(sendResult.hash));
     }
 
     if (getResult.status !== "SUCCESS") {

@@ -20,6 +20,11 @@ contractId: ""
 # First ledger to index (contract deployment ledger)
 genesisLedger: "0"
 
+# Redis connection URL for the shared PubSub bus (maps to REDIS_URL)
+# All replicas must point to the same Redis instance so subscription events
+# are broadcast across the entire fleet.
+redisUrl: "redis://localhost:6379"
+
 service:
   type: ClusterIP
   port: 3000

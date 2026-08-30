@@ -1,0 +1,49 @@
+# .github/repository.yml
+#
+# Canonical record of the GitHub repository description and topics for TrustLink.
+#
+# HOW TO APPLY
+# ────────────
+# The accompanying workflow (.github/workflows/sync-repo-metadata.yml) applies
+# these values automatically on every push to main, provided the REPO_ADMIN_TOKEN
+# secret (a PAT with `repo` scope) is configured in repository settings.
+#
+# To apply manually:
+#
+#   gh repo edit Haroldwonder/TrustLink \
+#     --description "On-chain attestation & identity verification for the Stellar blockchain — KYC, AML, multi-sig credentials, TypeScript/Python SDKs" \
+#     --add-topic stellar \
+#     --add-topic soroban \
+#     --add-topic smart-contract \
+#     --add-topic attestation \
+#     --add-topic identity-verification \
+#     --add-topic kyc \
+#     --add-topic compliance \
+#     --add-topic typescript \
+#     --add-topic python \
+#     --add-topic rust \
+#     --add-topic web3 \
+#     --add-topic decentralized-identity \
+#     --add-topic blockchain
+#
+# GitHub imposes a maximum of 20 topics per repository, each ≤ 50 characters,
+# lowercase, letters/numbers/hyphens only.
+
+description: >
+  On-chain attestation & identity verification for the Stellar blockchain —
+  KYC, AML, multi-sig credentials, TypeScript/Python SDKs
+
+topics:
+  - stellar
+  - soroban
+  - smart-contract
+  - attestation
+  - identity-verification
+  - kyc
+  - compliance
+  - typescript
+  - python
+  - rust
+  - web3
+  - decentralized-identity
+  - blockchain

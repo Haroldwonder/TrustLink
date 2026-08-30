@@ -19,6 +19,18 @@ class Attestation(TypedDict):
     bridged: bool
     source_chain: Optional[str]
     source_tx: Optional[str]
+    bundle_id: Optional[str]
+
+
+class AttestationBundle(TypedDict):
+    """Bundle of attestations issued atomically."""
+    id: str
+    issuer: str
+    subject: str
+    claim_types: List[str]
+    timestamp: int
+    attestation_ids: List[str]
+    all_valid: bool
 
 
 class ClaimTypeInfo(TypedDict):
@@ -100,19 +112,32 @@ class ContractError(TrustLinkError):
         super().__init__(f"Contract error #{code}: {message}")
 
 
-# Contract error codes
-CONTRACT_ERRORS = {
-    0: "AlreadyInitialized",
-    1: "NotInitialized",
-    2: "Unauthorized",
-    3: "NotFound",
-    4: "DuplicateAttestation",
-    5: "AlreadyRevoked",
-    6: "Expired",
-    7: "LimitExceeded",
-    8: "InvalidThreshold",
-    9: "NotRequiredSigner",
-    10: "AlreadySigned",
-    11: "ProposalFinalized",
-    12: "ProposalExpired",
-}
+# Contract error codes are generated from src/errors.rs — do not hand-edit.
+# Run `node scripts/generate-error-codes.mjs` (or `make generate`) to regenerate.
+from trustlink.generated_error_codes import CONTRACT_ERRORS  # noqa: E402, F401
+
+
+def decode_contract_error(error_message: str):
+    """Decode a contract simulation error string into a ContractError.
+
+    Looks for ``Error(Contract, #<code>)`` patterns (Soroban RPC style) and
+    maps the numeric code via ``CONTRACT_ERRORS``. Returns ``None`` if the
+    message does not match a known contract error.
+    """
+    import re
+
+    match = re.search(r"Error\(Contract,\s*#(\d+)\)", error_message)
+    if match:
+        code = int(match.group(1))
+        name = CONTRACT_ERRORS.get(code)
+        if name is not None:
+            return ContractError(code, name)
+    for code, name in CONTRACT_ERRORS.items():
+        if name in error_message:
+            return ContractError(code, name)
+    return None
+
+
+def classify_error_code(code: int):
+    """Return the canonical error name for a numeric code, or None if unknown."""
+    return CONTRACT_ERRORS.get(code)
