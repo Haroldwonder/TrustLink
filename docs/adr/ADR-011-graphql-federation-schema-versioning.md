@@ -2,7 +2,7 @@
 
 **Status:** Accepted  
 **Date:** 2026-07-29  
-**Issue:** [#976](https://github.com/afurious/TrustLink/issues/976)
+**Issue:** [#976](https://github.com/Idaonoli/TrustLink/issues/976)
 
 ---
 
