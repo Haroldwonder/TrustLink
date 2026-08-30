@@ -51,7 +51,7 @@ This means one deployed TrustLink instance can serve as the trust backbone for a
 ## 2. Clone and Build
 
 ```bash
-git clone https://github.com/unixfundz/TrustLink.git
+git clone https://github.com/Haroldwonder/TrustLink.git
 cd TrustLink
 
 # Confirm tests pass
@@ -159,7 +159,7 @@ Add TrustLink as a dependency in your contract's `Cargo.toml`:
 ```toml
 [dependencies]
 soroban-sdk = "21.0.0"
-trustlink = { git = "https://github.com/unixfundz/TrustLink.git", tag = "v0.1.0" }
+trustlink = { git = "https://github.com/Haroldwonder/TrustLink.git", tag = "v0.1.0" }
 ```
 
 Import the generated client and gate your function:
@@ -408,4 +408,4 @@ assert!(contract.has_valid_claim(
 - [README](../README.md) — full API reference
 - [Integration Guide](./integration-guide.md) — deeper patterns, pagination, testnet CLI examples
 - [Storage Layout](./storage-layout.md) — on-chain key reference for indexer developers
-- [GitHub Issues](https://github.com/Idaonoli/TrustLink/issues) — bug reports and feature requests
+- [GitHub Issues](https://github.com/Haroldwonder/TrustLink/issues) — bug reports and feature requests

@@ -345,8 +345,8 @@ Researchers are encouraged to focus on these trust boundaries for maximum impact
 | --------------------- | ------------------------------------------------------- |
 | **Security Reports**  | security@trustlink.io                                   |
 | **General Inquiries** | hello@trustlink.io                                      |
-| **GitHub Issues**     | https://github.com/afurious/TrustLink/issues            |
-| **Documentation**     | https://github.com/afurious/TrustLink/tree/main/docs    |
+| **GitHub Issues**     | https://github.com/Haroldwonder/TrustLink/issues            |
+| **Documentation**     | https://github.com/Haroldwonder/TrustLink/tree/main/docs    |
 | **Testnet Contract**  | CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB5C |
 
 ---
