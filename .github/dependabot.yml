@@ -49,6 +49,13 @@ updates:
     labels:
       - "dependencies"
 
+  - package-ecosystem: "npm"
+    directory: "/examples/freelance-reputation"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
