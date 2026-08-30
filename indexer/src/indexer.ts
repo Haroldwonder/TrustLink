@@ -14,6 +14,7 @@ import {
   setIssuerRateLimitRatio,
   issuersTotal,
   EventTypes,
+  type EventType,
 } from "./metrics";
 import { dispatchWebhooks } from "./webhooks";
 import { scheduleArchivalJob } from "./archival";
@@ -27,6 +28,9 @@ const RPC_URL = process.env.RPC_URL ?? "https://soroban-testnet.stellar.org";
 const START_LEDGER = process.env.START_LEDGER
   ? parseInt(process.env.START_LEDGER, 10)
   : undefined;
+const GENESIS_LEDGER = process.env.GENESIS_LEDGER
+  ? parseInt(process.env.GENESIS_LEDGER, 10)
+  : 0;
 const PAGE_LIMIT = 200;
 const POLL_MS = 5_000;
 // Maximum number of events processed concurrently within a single page batch.
@@ -108,7 +112,7 @@ export async function startIndexer(db: PrismaClient, redis: Redis | null = null)
 
 // ── Core processing ──────────────────────────────────────────────────────────
 
-async function processRange(
+export async function processRange(
   db: PrismaClient,
   rpc: SorobanRpc.Server,
   from: number,
@@ -197,7 +201,6 @@ async function processRange(
 // ── Event handler ─────────────────────────────────────────────────────────────
 
 /** Exported for unit tests that exercise real event-handler code paths. */
-export /** Exported for unit tests that exercise real event-handler code paths. */
 export async function handleEvent(
   db: PrismaClient,
   ev: SorobanRpc.Api.EventResponse,
@@ -553,8 +556,8 @@ async function routeToDeadLetter(
 }
 
 // Map raw event topics to normalized event type labels
-function normalizeEventType(topic: string): string | null {
-  const mapping: Record<string, string> = {
+function normalizeEventType(topic: string): EventType | null {
+  const mapping: Record<string, EventType> = {
     created: EventTypes.CREATED,
     imported: EventTypes.IMPORTED,
     bridged: EventTypes.BRIDGED,

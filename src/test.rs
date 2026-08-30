@@ -916,6 +916,57 @@ fn test_claim_type_registry_round_trip() {
 }
 
 #[test]
+fn test_claim_type_constraints_set_and_get() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let constraints = crate::types::ClaimTypeConstraints {
+        min_metadata_len: Some(4),
+        max_metadata_len: Some(256),
+        require_metadata: true,
+    };
+
+    client.set_claim_type_constraints(&admin, &claim_type, &constraints);
+
+    assert_eq!(
+        client.get_claim_type_constraints(&claim_type),
+        Some(constraints)
+    );
+}
+
+#[test]
+fn test_get_claim_type_constraints_unset_returns_none() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, _, client) = setup(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    assert_eq!(client.get_claim_type_constraints(&claim_type), None);
+}
+
+#[test]
+fn test_set_claim_type_constraints_non_admin_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, _, client) = setup(&env);
+    let non_admin = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let constraints = crate::types::ClaimTypeConstraints {
+        min_metadata_len: None,
+        max_metadata_len: None,
+        require_metadata: false,
+    };
+
+    let result = client.try_set_claim_type_constraints(&non_admin, &claim_type, &constraints);
+    assert!(result.is_err());
+    assert_eq!(client.get_claim_type_constraints(&claim_type), None);
+}
+
+#[test]
 fn test_set_and_get_issuer_metadata() {
     let env = Env::default();
     env.mock_all_auths();
