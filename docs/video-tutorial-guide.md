@@ -1,7 +1,7 @@
 # TrustLink Video Tutorial — Companion Guide
 
-This guide accompanies the [TrustLink video tutorial](https://www.youtube.com/watch?v=TODO_REPLACE_WITH_VIDEO_ID).  
-It covers the same material in written form so you can follow along at your own pace, copy-paste commands, and refer back without scrubbing through video.
+This guide is a written reference companion to the TrustLink video tutorial (coming soon).  
+It covers the same material so you can follow along at your own pace, copy-paste commands, and refer back without scrubbing through video.
 
 ---
 
