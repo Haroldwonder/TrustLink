@@ -165,24 +165,16 @@ jobs:
           script: |
             const status = '${{ job.status }}';
             const version = '${{ github.event.inputs.version }}';
-            
-            github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: `
-              Canary Deployment Report
-              ========================
-              
-              Version: ${version}
-              Traffic: ${{ github.event.inputs.traffic_weight }}%
-              Status: ${status === 'success' ? '✅ Healthy' : '❌ Issues Detected'}
-              
-              Next Steps:
-              - If healthy, run promotion workflow to increase traffic
-              - If issues, investigate logs and rollback if necessary
-              `
-            })
+
+            await core.summary
+              .addHeading('Canary Deployment Report')
+              .addRaw(`Version: ${version}<br>`)
+              .addRaw(`Traffic: ${{ github.event.inputs.traffic_weight }}%<br>`)
+              .addRaw(`Status: ${status === 'success' ? '✅ Healthy' : '❌ Issues Detected'}<br><br>`)
+              .addRaw('Next Steps:<br>')
+              .addRaw('- If healthy, run promotion workflow to increase traffic<br>')
+              .addRaw('- If issues, investigate logs and rollback if necessary')
+              .write()
 
   # Optional: Automated promotion if metrics are good
   promote-canary:
