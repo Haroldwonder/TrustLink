@@ -1,5 +1,5 @@
 {
-  "generated": "2026-07-28T23:13:05.000Z",
+  "generated": "2026-08-31T09:56:47.000Z",
   "source": "src/errors.rs",
   "errors": [
     {
@@ -153,9 +153,89 @@
       "description": "The proposal has been cancelled by the proposer."
     },
     {
+      "code": 31,
+      "name": "AlreadyDisputed",
+      "description": "Dispute has already been raised for this attestation."
+    },
+    {
+      "code": 32,
+      "name": "InvalidMetadata",
+      "description": "Metadata does not match required format or constraints."
+    },
+    {
+      "code": 33,
+      "name": "ConstraintViolation",
+      "description": "Constraint violation for claim type."
+    },
+    {
+      "code": 34,
+      "name": "RequestAlreadyProcessed",
+      "description": "Request has already been processed."
+    },
+    {
+      "code": 35,
+      "name": "RequestExpired",
+      "description": "Request has expired."
+    },
+    {
+      "code": 36,
+      "name": "DuplicateRequest",
+      "description": "Duplicate request."
+    },
+    {
+      "code": 37,
+      "name": "CouncilProposalExecuted",
+      "description": "Council proposal has already been executed."
+    },
+    {
+      "code": 38,
+      "name": "TimelockNotReady",
+      "description": "Timelock period has not elapsed yet."
+    },
+    {
+      "code": 39,
+      "name": "NotDisputed",
+      "description": "Attestation is not disputed."
+    },
+    {
+      "code": 40,
+      "name": "LastAdminCannotBeRemoved",
+      "description": "Cannot remove the last admin."
+    },
+    {
+      "code": 41,
+      "name": "InvalidFeeToken",
+      "description": "Invalid fee token."
+    },
+    {
+      "code": 42,
+      "name": "CannotDelegateToSelf",
+      "description": "Cannot delegate to self."
+    },
+    {
+      "code": 43,
+      "name": "AlreadyApproved",
+      "description": "Already approved."
+    },
+    {
       "code": 44,
       "name": "InvalidSourceReference",
       "description": "Source reference string is missing or empty."
+    },
+    {
+      "code": 45,
+      "name": "InvalidChunkSize",
+      "description": "`chunk_size` passed to `set_chunk_size` is 0 or otherwise out of range."
+    },
+    {
+      "code": 46,
+      "name": "NotRegisteredClaimType",
+      "description": "Claim type is not in the registry when registration is required."
+    },
+    {
+      "code": 47,
+      "name": "VersionMismatch",
+      "description": "The caller's `expected_version` argument does not match the contract's currently deployed version, as returned by `get_version()`. Returned by state-changing entry points that opt into the version-guard pattern documented on [`crate::validation::Validation::require_version_match`]."
     }
   ]
 }

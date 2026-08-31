@@ -15,6 +15,7 @@ jobs:
   audit:
     name: Security Audit
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -28,6 +29,7 @@ jobs:
   lint:
     name: Clippy Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -52,6 +54,7 @@ jobs:
   build-and-test:
     name: Build, Test & WASM
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: lint
     steps:
       - name: Checkout repository
@@ -95,6 +98,7 @@ jobs:
   wasm-size:
     name: WASM Size Check
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: build-and-test
     steps:
       - name: Checkout repository
@@ -155,6 +159,7 @@ jobs:
   bindings:
     name: TypeScript Bindings
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: build-and-test
     steps:
       - name: Checkout repository
@@ -194,6 +199,7 @@ jobs:
   notify-failure:
     name: Notify on Failure
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: [audit, lint, build-and-test, wasm-size, bindings]
     if: failure()
     steps:

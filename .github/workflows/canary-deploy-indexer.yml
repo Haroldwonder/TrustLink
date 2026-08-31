@@ -25,6 +25,7 @@ jobs:
   validate-version:
     name: Validate version and prepare
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -46,6 +47,7 @@ jobs:
   deploy-canary:
     name: Deploy canary ({{ inputs.traffic_weight }}% traffic)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: validate-version
     environment: production
     steps:
@@ -103,6 +105,7 @@ jobs:
   monitor-canary:
     name: Monitor canary health
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: deploy-canary
     steps:
       - name: Checkout
@@ -185,6 +188,7 @@ jobs:
   promote-canary:
     name: Promote canary (if healthy)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [deploy-canary, monitor-canary]
     if: success() && github.event_name == 'workflow_dispatch'
     environment: production
