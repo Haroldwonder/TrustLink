@@ -9,26 +9,26 @@ WASM_PATH="${WASM_PATH:-target/wasm32-unknown-unknown/release/trustlink.wasm}"
 TTL_DAYS="${TTL_DAYS:-30}"
 CONTRACT_ID_FILE="${CONTRACT_ID_FILE:-.local.contract-id}"
 
-if ! command -v soroban >/dev/null 2>&1; then
-  echo "soroban CLI not found. Install it with: cargo install --locked soroban-cli"
+if ! command -v stellar >/dev/null 2>&1; then
+  echo "stellar CLI not found. Install it with: cargo install --locked stellar-cli --features opt"
   exit 1
 fi
 
 echo "Ensuring local network config '${NETWORK_NAME}' exists..."
-if ! soroban network ls | grep -q "^${NETWORK_NAME}$"; then
-  soroban network add \
+if ! stellar network ls | grep -q "^${NETWORK_NAME}$"; then
+  stellar network add \
     --global "${NETWORK_NAME}" \
     --rpc-url "${RPC_URL}" \
     --network-passphrase "${NETWORK_PASSPHRASE}"
 fi
 
 echo "Ensuring identity '${ADMIN_IDENTITY}' exists..."
-if ! soroban config identity ls | grep -q "^${ADMIN_IDENTITY}$"; then
-  soroban config identity generate "${ADMIN_IDENTITY}"
+if ! stellar keys ls | grep -q "^${ADMIN_IDENTITY}$"; then
+  stellar keys generate "${ADMIN_IDENTITY}"
 fi
 
 echo "Funding identity on local friendbot..."
-soroban config identity fund "${ADMIN_IDENTITY}" \
+stellar keys fund "${ADMIN_IDENTITY}" \
   --network "${NETWORK_NAME}" >/dev/null
 
 if [ ! -f "${WASM_PATH}" ]; then
@@ -37,16 +37,16 @@ if [ ! -f "${WASM_PATH}" ]; then
 fi
 
 echo "Deploying contract to local network..."
-CONTRACT_ID="$(soroban contract deploy \
+CONTRACT_ID="$(stellar contract deploy \
   --wasm "${WASM_PATH}" \
   --source "${ADMIN_IDENTITY}" \
   --network "${NETWORK_NAME}")"
 
 echo "Resolving admin address..."
-ADMIN_ADDRESS="$(soroban config identity address "${ADMIN_IDENTITY}")"
+ADMIN_ADDRESS="$(stellar keys address "${ADMIN_IDENTITY}")"
 
 echo "Initializing contract ${CONTRACT_ID}..."
-soroban contract invoke \
+stellar contract invoke \
   --id "${CONTRACT_ID}" \
   --source "${ADMIN_IDENTITY}" \
   --network "${NETWORK_NAME}" \
