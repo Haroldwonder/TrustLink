@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { createHmac } from "crypto";
+import { webhookDeliveriesSuccessTotal, webhookDeliveriesFailureTotal } from "./metrics";
 
 export const MAX_ATTEMPTS = 5;
 
@@ -52,7 +53,10 @@ export async function deliverWithRetry(
         signal: AbortSignal.timeout(10_000),
       });
 
-      if (res.ok) return;
+      if (res.ok) {
+        webhookDeliveriesSuccessTotal.inc();
+        return;
+      }
 
       lastStatusCode = res.status;
       lastError = `HTTP ${res.status}`;
@@ -60,6 +64,7 @@ export async function deliverWithRetry(
       // 4xx errors are not retried (client misconfiguration)
       if (res.status >= 400 && res.status < 500) {
         console.warn(`Webhook ${url} returned ${res.status} — not retrying`);
+        webhookDeliveriesFailureTotal.inc();
         await persistFailure(db, webhookId, url, eventType, body, res.status, lastError, attempt);
         return;
       }
@@ -69,6 +74,7 @@ export async function deliverWithRetry(
       lastError = err instanceof Error ? err.message : String(err);
       if (attempt === MAX_ATTEMPTS) {
         console.error(`Webhook delivery to ${url} failed after ${MAX_ATTEMPTS} attempts:`, err);
+        webhookDeliveriesFailureTotal.inc();
         await persistFailure(db, webhookId, url, eventType, body, lastStatusCode, lastError, MAX_ATTEMPTS);
         return;
       }
