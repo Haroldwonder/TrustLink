@@ -115,3 +115,19 @@ groups:
             threshold of 10. This may indicate a compromised issuer key, a
             bulk compliance sweep, or an automation bug. Follow the runbook in
             docs/monitoring.md §8 to determine the root cause.
+
+      # Fires when reconciliation detects sustained drift between the indexer's
+      # view of state and the chain (#1207).
+      - alert: TrustLinkReconciliationDrift
+        expr: increase(trustlink_reconciliation_drift_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: high
+        annotations:
+          summary: "TrustLink indexer reconciliation drift detected"
+          description: >
+            The indexer's reconciliation job has recorded
+            {{ $value | printf "%.0f" }} drift(s) in the last 15 minutes,
+            meaning the indexer's view of state has diverged from the chain.
+            Investigate the indexer's event processing pipeline for missed
+            or misapplied events.
