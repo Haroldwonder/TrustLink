@@ -140,6 +140,33 @@ jobs:
       - name: Differential fuzz (Python ↔ TypeScript)
         run: scripts/diff-fuzz-error-decode.sh
 
+  sdk-react:
+    name: SDK React
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: sdk/react/package-lock.json
+
+      - name: Install sdk/react deps
+        working-directory: sdk/react
+        run: npm ci
+
+      - name: Build sdk/react
+        working-directory: sdk/react
+        run: npm run build
+
+      - name: Test sdk/react
+        working-directory: sdk/react
+        run: npm test
+
   indexer-migration-compat:
     name: Indexer migration compat
     if: github.event_name != 'schedule'
@@ -513,6 +540,29 @@ jobs:
             echo "Run 'make bindings' locally and commit the updated bindings/typescript/ directory."
             exit 1
           )
+
+  bindings-typescript-test:
+    name: TypeScript Bindings Tests
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: bindings/typescript/package-lock.json
+
+      - name: Install bindings/typescript deps
+        working-directory: bindings/typescript
+        run: npm install
+
+      - name: Run bindings/typescript tests
+        working-directory: bindings/typescript
+        run: npm test
 
   error-codes:
     name: Error Code Single Source of Truth

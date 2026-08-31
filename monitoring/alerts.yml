@@ -1,39 +1,40 @@
 groups:
   - name: trustlink
     rules:
-      # Fires immediately when any admin council member is added (adm_add event).
-      # An unexpected admin addition could indicate a compromised admin key.
-      - alert: TrustLinkAdminAdded
-        expr: increase(trustlink_admin_added_total[5m]) > 0
+      # Fires immediately when the admin is initialized (adm_init event).
+      # An unexpected initialization could indicate a compromised admin key.
+      - alert: TrustLinkAdminInitialized
+        expr: increase(trustlink_events_processed_by_type_total{type="adm_init"}[5m]) > 0
         for: 0m
         labels:
           severity: critical
         annotations:
-          summary: "TrustLink admin council member added"
+          summary: "TrustLink admin initialized"
           description: >
-            A new admin has been added to the TrustLink admin council
-            (actor: {{ $labels.actor }}, timestamp: {{ $labels.timestamp }}).
-            Verify this change was intentional and authorized. If unexpected,
-            treat as a security incident and rotate admin keys immediately.
+            The TrustLink contract admin has been initialized. Verify this
+            change was intentional and authorized. If unexpected, treat as a
+            security incident and rotate admin keys immediately.
 
-      # Fires immediately when any admin council member is removed (adm_rem event).
-      # An unexpected removal could indicate an attacker locking out legitimate admins.
-      - alert: TrustLinkAdminRemoved
-        expr: increase(trustlink_admin_removed_total[5m]) > 0
+      # Fires immediately when the admin is transferred (adm_xfer event).
+      # An unexpected transfer could indicate an attacker taking over admin control.
+      - alert: TrustLinkAdminTransferred
+        expr: increase(trustlink_events_processed_by_type_total{type="adm_xfer"}[5m]) > 0
         for: 0m
         labels:
           severity: critical
         annotations:
-          summary: "TrustLink admin council member removed"
+          summary: "TrustLink admin transferred"
           description: >
-            An admin has been removed from the TrustLink admin council
-            (actor: {{ $labels.actor }}, timestamp: {{ $labels.timestamp }}).
-            Verify this removal was intentional. If the last admin is removed
-            the contract becomes unmanageable. Confirm remaining admins are
-            operational before acknowledging this alert.
+            The TrustLink contract admin has been transferred to a new address.
+            Verify this transfer was intentional. If unexpected, treat as a
+            security incident and investigate immediately.
 
       # Fires when the contract is paused via the admin pause() function.
       # All attestation write operations are halted while this is active.
+      # NOTE: no trustlink_contract_paused metric is currently emitted by the
+      # indexer, so this alert can never fire until that metric is added
+      # (indexer/src/metrics.ts) — this is a rename-incompatible gap, not a
+      # simple metric-name fix.
       - alert: TrustLinkContractPaused
         expr: trustlink_contract_paused == 1
         for: 0m
@@ -50,7 +51,7 @@ groups:
       # Existing attestations from the removed issuer remain valid but no new
       # ones can be created, and the issuer can no longer revoke their own attestations.
       - alert: TrustLinkIssuerRemoved
-        expr: increase(trustlink_issuer_removed_total[5m]) > 0
+        expr: increase(trustlink_events_processed_by_type_total{type="iss_rem"}[5m]) > 0
         for: 0m
         labels:
           severity: critical
@@ -65,7 +66,7 @@ groups:
       # This may indicate a compromised issuer key, a bulk compliance action,
       # or a bug in issuer automation.
       - alert: TrustLinkHighRevocationRate
-        expr: increase(trustlink_attestation_revoked_total[5m]) > 10
+        expr: increase(trustlink_revocations_total[5m]) > 10
         for: 0m
         labels:
           severity: high
@@ -81,7 +82,7 @@ groups:
       # Threshold source: SLO-2 in docs/monitoring.md §11.
       # Fires when the indexer has violated the SLO lag budget for 2 consecutive minutes.
       - alert: TrustLinkIndexerLag
-        expr: (trustlink_latest_ledger - trustlink_indexer_last_processed_ledger) > 100
+        expr: trustlink_indexer_lag_ledgers > 100
         for: 2m
         labels:
           severity: high
