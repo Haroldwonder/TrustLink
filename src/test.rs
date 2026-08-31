@@ -4509,6 +4509,26 @@ fn test_whitelist_disabled_by_default() {
 }
 
 #[test]
+#[should_panic]
+fn test_enable_whitelist_mode_rejects_non_whitelisted_subject() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    // previously-unrestricted call succeeds
+    let id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+    assert!(!id.is_empty());
+
+    client.enable_whitelist_mode(&issuer);
+    assert!(client.is_whitelist_enabled(&issuer));
+
+    // subject not on the whitelist — should now panic with SubjectNotWhitelisted
+    client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+}
+
+#[test]
 fn test_attestation_succeeds_without_whitelist() {
     let env = Env::default();
     env.mock_all_auths();

@@ -20,6 +20,7 @@ jobs:
   smoke-test:
     name: Test SDK and Indexer Compatibility
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     
     services:
       postgres:

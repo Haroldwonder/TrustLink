@@ -22,6 +22,7 @@ jobs:
   sync-metadata:
     name: Apply description and topics
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
 

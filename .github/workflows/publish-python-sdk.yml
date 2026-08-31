@@ -13,6 +13,7 @@ jobs:
   build-and-publish:
     name: Build and publish trustlink-sdk
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment: pypi
 
     steps:
