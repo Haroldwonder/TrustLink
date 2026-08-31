@@ -120,34 +120,24 @@ jobs:
           
           ERROR_RATE=$(curl -s \
             'http://prometheus:9090/api/v1/query' \
-            --data-urlencode 'query=rate(indexer_errors_total{deployment_type="canary"}[1m])' \
+            --data-urlencode 'query=rate(trustlink_events_failed_total{deployment_type="canary"}[1m])' \
             | jq '.data.result[0].value[1] // "0"' | tr -d '"')
-          
-          LATENCY_P99=$(curl -s \
-            'http://prometheus:9090/api/v1/query' \
-            --data-urlencode 'query=histogram_quantile(0.99, rate(indexer_request_duration_seconds_bucket{deployment_type="canary"}[1m]))' \
-            | jq '.data.result[0].value[1] // "0"' | tr -d '"')
-          
+
           LEDGER_LAG=$(curl -s \
             'http://prometheus:9090/api/v1/query' \
-            --data-urlencode 'query=max(indexer_ledger_lag_blocks{deployment_type="canary"})' \
+            --data-urlencode 'query=max(trustlink_indexer_lag_ledgers{deployment_type="canary"})' \
             | jq '.data.result[0].value[1] // "0"' | tr -d '"')
-          
+
           echo "Canary Metrics:"
           echo "  Error Rate: $ERROR_RATE (threshold: 0.01)"
-          echo "  Latency P99: ${LATENCY_P99}s (threshold: 0.5s)"
           echo "  Ledger Lag: ${LEDGER_LAG} blocks (threshold: 100)"
-          
+
           # Check thresholds
           if (( $(echo "$ERROR_RATE > 0.01" | bc -l) )); then
             echo "❌ Error rate too high!"
             exit 1
           fi
-          
-          if (( $(echo "$LATENCY_P99 > 0.5" | bc -l) )); then
-            echo "⚠️  Latency elevated (warning, not critical)"
-          fi
-          
+
           if (( $(echo "$LEDGER_LAG > 100" | bc -l) )); then
             echo "❌ Ledger lag too high!"
             exit 1

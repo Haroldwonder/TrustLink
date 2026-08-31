@@ -109,11 +109,21 @@ Emitted when an attestation's issuer is changed by the admin.
 - **Topics in Event:** `(xfer, old_issuer)`
 - **Data:** `(attestation_id, new_issuer)`
 
-### `att_xfer`
-Alternate transfer topic (see `xfer` for details).
+### `bundle`
+Emitted when a bundle of attestations is created.
 
-- **Topic:** `att_xfer`
+- **Topic:** `bundle`
 - **Indexed:** No
+- **Topics in Event:** `(bundle, subject)`
+- **Data:** `(id, issuer, claim_types, timestamp, attestation_ids)`
+
+### `mx_subj`
+Emitted when the admin sets the max attestations per subject limit.
+
+- **Topic:** `mx_subj`
+- **Indexed:** No
+- **Topics in Event:** `(mx_subj, admin)`
+- **Data:** `("max_per_subject", limit)`
 
 ---
 
