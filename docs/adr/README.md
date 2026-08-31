@@ -13,10 +13,14 @@ the trade-offs accepted as a result.
 | [ADR-003](ADR-003-immutable-history.md) | Immutable attestation history (no delete) | Accepted |
 | [ADR-004](ADR-004-dual-indexes.md) | Separate issuer and subject indexes | Accepted |
 | [ADR-005](ADR-005-attestation-origin-enum.md) | Replace `imported`/`bridged` Booleans with `AttestationOrigin` Enum | Accepted |
+| [ADR-006](ADR-006-multi-issuer-or-logic.md) | OR-logic across issuers in `has_valid_claim` | Accepted |
+| [ADR-006](ADR-006-multisig-attestations.md) | Multi-Sig Attestation Design | Accepted |
 | [ADR-007](ADR-007-attestation-requests.md) | Pull-based attestation request workflow (subject-initiated, 7-day TTL, optional rejection reason) | Accepted |
 | [ADR-008](ADR-008-rate-limiting.md) | Rate limiting design — per-issuer last-issuance timestamp, known limitations | Accepted |
 | [ADR-009](ADR-009-delegation-model.md) | Delegation model and trust chain implications | Accepted |
 | [ADR-010](ADR-010-custom-validation-hooks.md) | Issuer-defined custom validation hooks for attestation creation (cross-contract) | Accepted |
+| [ADR-011](ADR-011-graphql-federation-schema-versioning.md) | GraphQL Schema Versioning and Federation Strategy | Accepted |
+| [ADR-011](ADR-011-schema-federation-versioning.md) | GraphQL Schema Federation and Versioning Strategy | Accepted |
 | [ADR-012](ADR-012-prevent-admin-fee-collection.md) | Prevent Admin from Setting Themselves as Fee Collector | Accepted |
 
 ## Template

@@ -120,15 +120,35 @@ Returns all attestations for a subject address.
 curl http://localhost:3000/attestations/GABC...XYZ
 ```
 
-### `GET /attestations/issuer/:issuer`
+### `GET /issuers/:address/attestations`
 
 Returns all attestations issued by a specific issuer.
 
 ```bash
-curl http://localhost:3000/attestations/issuer/GDEF...UVW
+curl http://localhost:3000/issuers/GDEF...UVW/attestations
 ```
 
 Both endpoints return an array of `Attestation` objects ordered by `timestamp` descending.
+
+### `GET /subjects/:address/claims/:claim_type/valid`
+
+Returns whether a subject has a valid (non-revoked) attestation for a given claim type.
+
+```bash
+curl http://localhost:3000/subjects/GABC...XYZ/claims/KYC_PASSED/valid
+```
+
+Response: `{ "valid": true }`
+
+### `GET /stats`
+
+Returns aggregate indexer statistics.
+
+```bash
+curl http://localhost:3000/stats
+```
+
+Response: `{ "total_attestations": 100, "total_revocations": 5, "total_issuers": 12 }`
 
 ### `GET /health`
 
@@ -158,6 +178,58 @@ Response (503 if database unreachable):
 }
 ```
 
+### `GET /ready`
+
+Readiness probe. Returns `{ "status": 200 }` when the indexer's checkpoint is within 10 ledgers of the chain tip, otherwise `{ "status": 503 }`.
+
+```bash
+curl http://localhost:3000/ready
+```
+
+### `GET /metrics`
+
+Returns Prometheus-formatted indexer metrics.
+
+```bash
+curl http://localhost:3000/metrics
+```
+
+### `GET /export/attestations`
+
+Streams attestations as CSV or JSON. Requires the `x-api-key` header (see [GraphQL API Key Authentication](#graphql-api-key-authentication); the same keys gate this endpoint).
+
+Query params: `format` (`csv` or `json`, required), `issuer`, `subject`, `claim_type`, `from`, `to` (all optional filters).
+
+```bash
+curl -H "x-api-key: mysecretkey" "http://localhost:3000/export/attestations?format=csv"
+```
+
+### `GET /webhooks`
+
+Lists registered webhooks.
+
+```bash
+curl http://localhost:3000/webhooks
+```
+
+### `POST /webhooks`
+
+Registers a new webhook. Body: `{ "url": "https://example.com/hook", "secret": "..." }`.
+
+```bash
+curl -X POST http://localhost:3000/webhooks \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com/hook","secret":"mysecret"}'
+```
+
+### `DELETE /webhooks/:id`
+
+Removes a registered webhook.
+
+```bash
+curl -X DELETE http://localhost:3000/webhooks/<id>
+```
+
 ### `POST /admin/reindex?from=LEDGER`
 
 Triggers a historical backfill from a specific ledger. If `from` is not provided, starts from the last checkpoint.
@@ -171,6 +243,22 @@ curl -X POST "http://localhost:3000/admin/reindex"
 ```
 
 This is useful for reprocessing events after a crash or for catching up missed events.
+
+### `GET /admin/webhook-failures`
+
+Lists failed webhook deliveries. Query params: `status` (`FAILED`, `RETRYING`, or `RECOVERED`), `eventType`, `limit` (default 50, max 200), `offset`, `sort` (`asc` or `desc`, default `desc`).
+
+```bash
+curl "http://localhost:3000/admin/webhook-failures?status=FAILED&limit=20"
+```
+
+### `POST /admin/retry-webhook/:id`
+
+Retries a single failed webhook delivery by its failure record ID.
+
+```bash
+curl -X POST http://localhost:3000/admin/retry-webhook/<id>
+```
 
 ## Event Archival & Cold Storage
 
