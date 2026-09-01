@@ -13,7 +13,28 @@ The following versions of TrustLink currently receive security updates:
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-TrustLink supports GitHub's [private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing/privately-reporting-a-security-vulnerability). Use the **"Report a vulnerability"** button on the [Security Advisories](../../security/advisories/new) page of this repository, or email **security@trustlink.io**.
+> **Note (updated 2026-09-01):** Two previously listed channels are currently
+> non-functional. GitHub's private vulnerability reporting ("Report a
+> vulnerability" / Security Advisories) is **not yet enabled** for this
+> repository — the advisories page returns a 404. The email address
+> **security@trustlink.io** is also **not operational** (mailbox not found).
+> Until these are restored, use the fallback path described below. We
+> apologise for the inconvenience and are working to restore both channels.
+
+### Preferred channel (temporarily unavailable — see fallback below)
+
+TrustLink intends to support GitHub's [private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing/privately-reporting-a-security-vulnerability). Once enabled, use the **"Report a vulnerability"** button on the [Security Advisories](../../security/advisories/new) page, or email **security@trustlink.io**.
+
+### Fallback channel (use this now)
+
+Open a **new GitHub Discussion** in the
+[Security category](https://github.com/Haroldwonder/TrustLink/discussions/new?category=security)
+with the subject line `[SECURITY] <brief one-line summary>` and **do not
+include vulnerability details in the body**. A maintainer will respond within
+48 hours with a private channel (direct message or encrypted email) to receive
+the full report. If no Security discussion category exists, open a regular
+Discussion and mark it with the `security` label — the maintainers monitor
+those.
 
 ### What to include
 
@@ -25,7 +46,7 @@ TrustLink supports GitHub's [private vulnerability reporting](https://docs.githu
 
 ### Disclosure process
 
-1. **Submit** your report via private advisory or email.
+1. **Submit** your report via private advisory, email, or (currently) the fallback Discussion channel described above.
 2. **Acknowledgement** — you will receive a confirmation within **48 hours**.
 3. **Triage** — the team evaluates severity using the CVSS scoring framework within **5 business days**.
 4. **Remediation** — patches for `HIGH` and `CRITICAL` severity findings are targeted for release within **30 days** of confirmation. Lower-severity issues are addressed in the next scheduled release.
@@ -60,7 +81,8 @@ The following are **out of scope**:
 
 ## Contact
 
-- **Email:** security@trustlink.io
-- **GitHub Private Advisory:** [Submit here](../../security/advisories/new)
+- **Email:** security@trustlink.io *(currently non-operational — use the fallback channel above)*
+- **GitHub Private Advisory:** [Submit here](../../security/advisories/new) *(not yet enabled — use the fallback channel above)*
+- **Fallback:** [Open a Security Discussion](https://github.com/Haroldwonder/TrustLink/discussions/new?category=security) — a maintainer will provide a private channel within 48 hours
 
 For general questions that are not security-sensitive, open a [GitHub Discussion](../../discussions) or a regular issue.

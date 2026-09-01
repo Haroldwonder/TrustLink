@@ -22,6 +22,7 @@ the trade-offs accepted as a result.
 | [ADR-011](ADR-011-graphql-federation-schema-versioning.md) | GraphQL Schema Versioning and Federation Strategy | Accepted |
 | [ADR-011](ADR-011-schema-federation-versioning.md) | GraphQL Schema Federation and Versioning Strategy | Accepted |
 | [ADR-012](ADR-012-prevent-admin-fee-collection.md) | Prevent Admin from Setting Themselves as Fee Collector | Accepted |
+| [ADR-013](ADR-013-main-branch-build-breakage-postmortem.md) | Postmortem — Main-Branch Build-Breakage Incident | Accepted |
 
 ## Template
 
