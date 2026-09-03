@@ -469,3 +469,233 @@ fn benchmark_paginate_10000_issuer_attestations() {
         cu_first, cu_mid, cu_last
     );
 }
+
+// ── Attestation-bundle benchmarks (Issue #1200) ───────────────────────────────
+
+/// Baseline cost for creating a single-claim attestation bundle.
+#[test]
+fn benchmark_create_attestation_bundle_single_claim() {
+    let e = Env::default();
+    let (client, _, issuer, subject) = setup_contract(&e);
+
+    let claim_types = soroban_sdk::vec![&e, String::from_str(&e, "KYC_PASSED")];
+
+    let cu = measure_cu(&e, || {
+        client
+            .create_attestation_bundle(&issuer, &subject, &claim_types, &None, &None, &None)
+            .expect("bundle creation failed");
+    });
+
+    println!("create_attestation_bundle (1 claim): {} CU", cu);
+}
+
+/// Scaling cost for bundles with 1, 3, 5, and 10 claim types.
+/// Lets reviewers verify that CU grows roughly linearly with bundle size.
+#[test]
+fn benchmark_create_attestation_bundle_scaling() {
+    for &n in &[1u32, 3, 5, 10] {
+        let e = Env::default();
+        let (client, _, issuer, subject) = setup_contract(&e);
+
+        let mut claim_types: soroban_sdk::Vec<String> = soroban_sdk::Vec::new(&e);
+        for i in 0..n {
+            claim_types.push_back(String::from_str(&e, &format!("CLAIM_{}", i)));
+        }
+
+        // Ensure subject limit is high enough for the whole bundle.
+        // setup_contract uses the contract default, which is 100 per subject;
+        // that is sufficient for n ≤ 10 without adjustment.
+
+        let cu = measure_cu(&e, || {
+            client
+                .create_attestation_bundle(&issuer, &subject, &claim_types, &None, &None, &None)
+                .expect("bundle creation failed");
+        });
+
+        println!(
+            "create_attestation_bundle ({:>2} claims): {:>12} CU  (~{} CU/claim)",
+            n,
+            cu,
+            cu / u64::from(n)
+        );
+    }
+}
+
+// ── Attestation-template benchmarks (Issue #1200) ─────────────────────────────
+
+/// Baseline cost to register an attestation template.
+#[test]
+fn benchmark_create_template() {
+    let e = Env::default();
+    let (client, _, issuer, _) = setup_contract(&e);
+
+    let template = trustlink::types::AttestationTemplate {
+        claim_type: String::from_str(&e, "KYC_PASSED"),
+        metadata_template: Some(String::from_str(&e, "{\"schema\":\"v1\"}")),
+        default_expiration_days: Some(30),
+    };
+    let template_id = String::from_str(&e, "kyc_tmpl_v1");
+
+    let cu = measure_cu(&e, || {
+        client
+            .create_template(&issuer, &template_id, &template)
+            .expect("template creation failed");
+    });
+
+    println!("create_template (with metadata + expiry): {} CU", cu);
+}
+
+/// Cost difference between creating a template and using it to issue an
+/// attestation (create_attestation_from_template).  Establishes a baseline
+/// for the extra overhead the template lookup adds versus a direct
+/// create_attestation call.
+#[test]
+fn benchmark_create_attestation_from_template() {
+    let e = Env::default();
+    let (client, _, issuer, subject) = setup_contract(&e);
+
+    let template = trustlink::types::AttestationTemplate {
+        claim_type: String::from_str(&e, "KYC_PASSED"),
+        metadata_template: Some(String::from_str(&e, "{\"schema\":\"v1\"}")),
+        default_expiration_days: Some(365),
+    };
+    let template_id = String::from_str(&e, "kyc_tmpl");
+    client
+        .create_template(&issuer, &template_id, &template)
+        .expect("setup: template creation failed");
+
+    let cu = measure_cu(&e, || {
+        client
+            .create_attestation_from_template(&issuer, &template_id, &subject, &None, &None)
+            .expect("attestation from template failed");
+    });
+
+    println!("create_attestation_from_template (with metadata + expiry): {} CU", cu);
+}
+
+// ── Council-proposal benchmarks (Issue #1200) ─────────────────────────────────
+
+/// Baseline cost to create a council proposal.  Requires a two-member council
+/// (admin1 + admin2) which is the minimum to reach simple-majority quorum.
+#[test]
+fn benchmark_create_council_proposal() {
+    let e = Env::default();
+    let (client, admin, issuer, _) = setup_contract(&e);
+
+    // A second admin is needed so that quorum (⌈2/2⌉+1 = 2) is reachable.
+    let admin2 = soroban_sdk::Address::generate(&e);
+    client.add_admin(&admin, &admin2);
+
+    let operation = trustlink::types::CouncilOperation::RemoveIssuer(issuer.clone());
+
+    let cu = measure_cu(&e, || {
+        client
+            .create_council_proposal(&admin, &operation)
+            .expect("proposal creation failed");
+    });
+
+    println!("create_council_proposal (RemoveIssuer): {} CU", cu);
+}
+
+/// Cost to approve a council proposal (second admin's signature), which is
+/// where the quorum check and timelock-start logic runs.
+#[test]
+fn benchmark_approve_council_proposal() {
+    let e = Env::default();
+    let (client, admin, issuer, _) = setup_contract(&e);
+
+    let admin2 = soroban_sdk::Address::generate(&e);
+    client.add_admin(&admin, &admin2);
+
+    let proposal_id = client
+        .create_council_proposal(&admin, &trustlink::types::CouncilOperation::RemoveIssuer(issuer))
+        .expect("setup: proposal creation failed");
+
+    let cu = measure_cu(&e, || {
+        client
+            .approve_council_proposal(&admin2, &proposal_id)
+            .expect("proposal approval failed");
+    });
+
+    println!("approve_council_proposal (quorum reached, timelock started): {} CU", cu);
+}
+
+/// End-to-end council action: create → approve → execute.
+/// Zero timelock (default) so execute runs immediately after approval.
+#[test]
+fn benchmark_execute_council_action() {
+    let e = Env::default();
+    let (client, admin, issuer, _) = setup_contract(&e);
+
+    let admin2 = soroban_sdk::Address::generate(&e);
+    client.add_admin(&admin, &admin2);
+
+    let proposal_id = client
+        .create_council_proposal(&admin, &trustlink::types::CouncilOperation::RemoveIssuer(issuer))
+        .expect("setup: proposal creation failed");
+    client
+        .approve_council_proposal(&admin2, &proposal_id)
+        .expect("setup: proposal approval failed");
+
+    let cu = measure_cu(&e, || {
+        client
+            .execute_council_action(&admin, &proposal_id)
+            .expect("execute council action failed");
+    });
+
+    println!("execute_council_action (RemoveIssuer, zero timelock): {} CU", cu);
+}
+
+// ── Confidence-score benchmarks (Issue #1200) ─────────────────────────────────
+
+/// Baseline read cost for get_confidence_score with a Basic-tier issuer (no
+/// decay config, no endorsements).  This is the cheapest realistic path and
+/// sets the floor for regression comparisons.
+#[test]
+fn benchmark_get_confidence_score_basic() {
+    let e = Env::default();
+    let (client, _, issuer, subject) = setup_contract(&e);
+
+    let claim = String::from_str(&e, "KYC_PASSED");
+    let attestation_id =
+        client.create_attestation(&issuer, &subject, &claim, &None, &None, &None);
+
+    let cu = measure_cu(&e, || {
+        let score = client.get_confidence_score(&attestation_id);
+        assert!(score.is_some(), "expected Some(score)");
+    });
+
+    println!("get_confidence_score (basic tier, no decay, no endorsements): {} CU", cu);
+}
+
+/// Cost of get_confidence_score when the issuer has a non-zero revocation ratio,
+/// which exercises the reputation-factor branch of the decay calculation.
+#[test]
+fn benchmark_get_confidence_score_with_revocations() {
+    let e = Env::default();
+    let (client, admin, issuer, subject) = setup_contract(&e);
+
+    // Allow enough attestations per issuer/subject for the revocation seeding.
+    client.set_limits(&admin, &20_000u32, &200u32);
+
+    // Create and immediately revoke several attestations to build a revocation
+    // ratio, which activates the reputation-factor decay path.
+    for i in 0..10u32 {
+        let noise = String::from_str(&e, &format!("NOISE_{}", i));
+        let noise_subject = soroban_sdk::Address::generate(&e);
+        let noise_id =
+            client.create_attestation(&issuer, &noise_subject, &noise, &None, &None, &None);
+        client.revoke_attestation(&issuer, &noise_id, &None);
+    }
+
+    let claim = String::from_str(&e, "KYC_PASSED");
+    let attestation_id =
+        client.create_attestation(&issuer, &subject, &claim, &None, &None, &None);
+
+    let cu = measure_cu(&e, || {
+        let score = client.get_confidence_score(&attestation_id);
+        assert!(score.is_some(), "expected Some(score)");
+    });
+
+    println!("get_confidence_score (10 revocations, reputation-decay active): {} CU", cu);
+}
