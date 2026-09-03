@@ -203,7 +203,7 @@ rollback:
 		fi; \
 	fi; \
 	@echo "Rolling back with artifact: $$WASM_FILE"; \
-	soroban contract deploy --wasm "$$WASM_FILE" --network $(NETWORK)
+	stellar contract deploy --wasm "$$WASM_FILE" --network $(NETWORK)
 
 ## Clean build artifacts and compiled outputs
 clean:
