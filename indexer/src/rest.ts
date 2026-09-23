@@ -256,7 +256,7 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
         reply.code(400);
         return { error: "Missing failure id" };
       }
-      const { replayFailure } = await import("./webhooks");
+      const { replayFailure } = await import("./webhooks.js");
       const result = await replayFailure(db, id);
       if (result.error === "Not found") {
         reply.code(404);
