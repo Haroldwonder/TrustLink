@@ -30,6 +30,16 @@ describe("validateAddress", () => {
   it("rejects a malformed address", () => {
     expect(() => validateAddress("not-an-address")).toThrow(InvalidAddressError);
   });
+
+  it("rejects lowercase addresses", () => {
+    const lower = "g" + "A".repeat(55);
+    expect(() => validateAddress(lower)).toThrow(InvalidAddressError);
+  });
+
+  it("rejects invalid base32 characters", () => {
+    const invalid = "G" + "0".repeat(55);
+    expect(() => validateAddress(invalid)).toThrow(InvalidAddressError);
+  });
 });
 
 describe("validateClaimType", () => {
