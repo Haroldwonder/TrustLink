@@ -554,10 +554,11 @@ how to safely evolve the TrustLink storage schema.
 
 ### How Soroban handles storage across upgrades
 
-When the admin calls `upgrade(new_wasm_hash)`, Soroban replaces the contract's
-executable code atomically. **All storage is preserved exactly as-is** — no
-keys are touched, no values are rewritten. The new WASM starts reading the same
-raw XDR bytes that the old WASM wrote.
+When a new WASM is uploaded and installed via `stellar contract upload` followed
+by `stellar contract upgrade`, Soroban replaces the contract's executable code
+atomically. **All storage is preserved exactly as-is** — no keys are touched,
+no values are rewritten. The new WASM starts reading the same raw XDR bytes
+that the old WASM wrote.
 
 This means:
 
@@ -568,8 +569,9 @@ This means:
   new WASM tries to deserialize a stored `ScVal` into a struct with a different
   field layout, deserialization will fail at runtime.
 
-A `migrate` function (called once by the admin immediately after `upgrade`) is
-the standard pattern for rewriting stored values into the new format.
+A dedicated admin-only migration function (called once by the admin immediately
+after the upgrade) is the standard pattern for rewriting stored values into the
+new format.
 
 ---
 
@@ -667,15 +669,23 @@ pub fn migrate(env: Env, admin: Address) {
 }
 ```
 
-Call `migrate` immediately after `upgrade` in the same deployment window:
+Call the migration function immediately after the upgrade in the same deployment window:
 
 ```bash
-# 1. Upgrade the executable
-stellar contract invoke --id "$CONTRACT_ID" --source "$ADMIN_SECRET" \
-  --network mainnet -- upgrade \
-  --admin "$ADMIN_PUBLIC" --new_wasm_hash <NEW_HASH>
+# 1. Upload the new WASM and capture the hash
+NEW_HASH=$(stellar contract upload \
+  --source "$ADMIN_SECRET" \
+  --network mainnet \
+  --wasm target/wasm32-unknown-unknown/release/trustlink.wasm)
 
-# 2. Run migration (admin only, call once)
+# 2. Upgrade the contract executable
+stellar contract upgrade \
+  --id "$CONTRACT_ID" \
+  --source "$ADMIN_SECRET" \
+  --network mainnet \
+  --wasm-hash "$NEW_HASH"
+
+# 3. Run migration (admin only, call once)
 stellar contract invoke --id "$CONTRACT_ID" --source "$ADMIN_SECRET" \
   --network mainnet -- migrate \
   --admin "$ADMIN_PUBLIC"

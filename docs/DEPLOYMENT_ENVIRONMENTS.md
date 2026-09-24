@@ -215,10 +215,10 @@ wasm-opt -Oz --enable-bulk-memory --strip-debug \
 
 ### Health Checks
 ```bash
-# Verify contract is callable
+# Verify contract is initialized and callable (returns version string; errors if not initialized)
 soroban contract invoke \
   --id <contract-id> \
-  --function is_initialized \
+  --function get_version \
   --network <network>
 
 # Check admin address
