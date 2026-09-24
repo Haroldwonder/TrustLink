@@ -96,26 +96,6 @@ pub enum StorageKey {
     IssuerRevocations(Address),
 }
 
-// TODO: Issue #918 - The following StorageKey variants need to be added:
-// These require refactoring due to soroban contracttype macro variant limit (~52 variants max):
-// - BridgeList
-// - ValidAttestations(Address)
-// - PendingAdminTransfer
-// - CouncilProposal(u32)
-// - Dispute(String)
-// - Delegation(Address, Address, String)
-// - DelegatorIndex(Address)
-// - AttestationTemplate(Address, String)
-// - AttestationTemplateList(Address)
-// - DecayConfig
-// - CouncilTimelockDelay
-// - EndorserIndex(Address)
-// - ClaimTypeCount(String)
-// - IssuerRevocations(Address)
-// - ClaimTypeRateLimit(String)
-// - ProposalCounter
-// Potential solutions: composite key approach like ClaimTypeIssuanceKey, or splitting into multiple enums
-
 /// Composite key for per-issuer-per-claim-type last issuance timestamps.
 /// Stored as a separate `contracttype` struct so it doesn't count against
 /// the `StorageKey` enum variant limit.
@@ -529,18 +509,6 @@ impl Storage {
 
     pub fn remove_from_whitelist(env: &Env, issuer: &Address, subject: &Address) {
         env.storage().persistent().remove(&StorageKey::IssuerWhitelist(issuer.clone(), subject.clone()));
-    }
-
-    pub fn is_subject_whitelisted(env: &Env, issuer: &Address, subject: &Address) -> bool {
-        Self::is_whitelisted(env, issuer, subject)
-    }
-
-    pub fn add_subject_to_whitelist(env: &Env, issuer: &Address, subject: &Address) {
-        Self::add_to_whitelist(env, issuer, subject);
-    }
-
-    pub fn remove_subject_from_whitelist(env: &Env, issuer: &Address, subject: &Address) {
-        Self::remove_from_whitelist(env, issuer, subject);
     }
 
     pub fn set_paused(env: &Env, paused: bool) {

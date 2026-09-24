@@ -131,6 +131,7 @@ pub fn register_issuer(env: &Env, admin: Address, issuer: Address) -> Result<(),
 pub fn remove_issuer(env: &Env, admin: Address, issuer: Address) -> Result<(), Error> {
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
+    Validation::require_not_paused(env)?;
     Storage::remove_issuer(env, &issuer);
     Storage::decrement_total_issuers(env);
     Events::issuer_removed(env, &issuer, &admin, env.ledger().timestamp());
@@ -845,6 +846,8 @@ pub fn resolve_dispute(env: &Env, resolver: Address, attestation_id: String) -> 
     if Storage::get_dispute(env, &attestation_id).is_none() {
         return Err(Error::NotDisputed);
     }
+
+    Validation::require_not_paused(env)?;
 
     Storage::remove_dispute(env, &attestation_id);
     Events::dispute_resolved(env, &attestation_id, &resolver, env.ledger().timestamp());

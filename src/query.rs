@@ -592,6 +592,8 @@ pub fn dispute_attestation(
         return Err(E::MetadataTooLong);
     }
 
+    Validation::require_not_paused(env)?;
+
     let timestamp = env.ledger().timestamp();
     let record = DisputeRecord {
         attestation_id: attestation_id.clone(),
