@@ -154,7 +154,7 @@ See [docs/monitoring.md](./monitoring.md) for full monitoring setup.
 1. Test the provider's `/soroban/rpc` endpoint with `getLatestLedger`
 2. Verify it can deploy and invoke contracts (use testnet first)
 3. Add to this list in the appropriate section (Priority 1, 2, or Deprecated)
-4. Update environment variable documentation in `docs/deployment.md`
+4. Update environment variable documentation in `DEPLOYMENT.md`
 5. Run health check script to confirm availability
 6. Update monitoring system (Prometheus scrape config)
 

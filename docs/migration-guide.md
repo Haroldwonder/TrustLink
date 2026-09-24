@@ -8,9 +8,9 @@ For a full list of changes see the [CHANGELOG](../CHANGELOG.md). For storage int
 
 ## How Soroban contract upgrades work
 
-When the TrustLink admin calls `upgrade(new_wasm_hash)`, the contract's executable code is replaced atomically. **All on-chain storage is preserved** — no keys are deleted or rewritten. The new WASM begins reading the same raw XDR bytes the old WASM wrote.
+When a new WASM is uploaded and installed via `stellar contract upload` followed by `stellar contract upgrade`, the contract's executable code is replaced atomically. **All on-chain storage is preserved** — no keys are deleted or rewritten. The new WASM begins reading the same raw XDR bytes the old WASM wrote.
 
-Adding a new storage key is always safe. Changing the shape of an existing stored struct is a breaking change that requires a `migrate` function to be called once by the admin immediately after `upgrade`.
+Adding a new storage key is always safe. Changing the shape of an existing stored struct is a breaking change that requires a dedicated admin-only migration function to be called once by the admin immediately after the upgrade.
 
 ---
 
@@ -343,16 +343,14 @@ NEW_HASH=$(stellar contract upload \
   --network mainnet \
   --wasm target/wasm32-unknown-unknown/release/trustlink.wasm)
 
-# 3. Upgrade the contract (pauses execution while WASM is swapped)
-stellar contract invoke \
+# 3. Upgrade the contract executable
+stellar contract upgrade \
   --id "$CONTRACT_ID" \
   --source "$ADMIN_SECRET" \
   --network mainnet \
-  -- upgrade \
-  --admin "$ADMIN_PUBLIC" \
-  --new_wasm_hash "$NEW_HASH"
+  --wasm-hash "$NEW_HASH"
 
-# 4. If a migrate function exists, call it immediately after upgrade
+# 4. If a migration function exists, call it immediately after upgrade
 stellar contract invoke \
   --id "$CONTRACT_ID" \
   --source "$ADMIN_SECRET" \
