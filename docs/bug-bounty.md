@@ -25,7 +25,7 @@ Vulnerabilities affecting the following are eligible for rewards:
 - **Repository:** TrustLink core contract (`src/`)
 - **Language:** Rust (Soroban SDK v21.0.0)
 - **Mainnet Contract ID:** (Published on launch)
-- **Testnet Contract ID:** CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB5C
+- **Testnet Contract ID:** CAK7PYYSWWQH6ML3ZPO4OB2EIONODOEESE3MIV3YGFDMHEU4EUOBUJQN
 
 **Components:**
 
@@ -130,7 +130,7 @@ Rewards may be adjusted based on:
 
 Our security team will:
 
-1. **Acknowledge receipt** — within 24 hours
+1. **Acknowledge receipt** — within 48 hours
 2. **Assess validity** — confirm the vulnerability and reproducibility
 3. **Determine severity** — assign CVSS score and impact tier
 4. **Propose reward** — based on severity and scope
@@ -347,7 +347,7 @@ Researchers are encouraged to focus on these trust boundaries for maximum impact
 | **General Inquiries** | hello@trustlink.io                                      |
 | **GitHub Issues**     | https://github.com/Haroldwonder/TrustLink/issues            |
 | **Documentation**     | https://github.com/Haroldwonder/TrustLink/tree/main/docs    |
-| **Testnet Contract**  | CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB5C |
+| **Testnet Contract**  | CAK7PYYSWWQH6ML3ZPO4OB2EIONODOEESE3MIV3YGFDMHEU4EUOBUJQN |
 
 ---
 
