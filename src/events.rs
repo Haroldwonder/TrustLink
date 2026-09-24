@@ -96,18 +96,6 @@ impl Events {
         );
     }
 
-    pub fn attestation_revoked_with_reason(
-        env: &Env,
-        attestation_id: &String,
-        issuer: &Address,
-        reason: &Option<String>,
-    ) {
-        env.events().publish(
-            (TOPIC_REVOKED, issuer.clone()),
-            (attestation_id.clone(), reason.clone()),
-        );
-    }
-
     pub fn attestation_renewed(
         env: &Env,
         attestation_id: &String,

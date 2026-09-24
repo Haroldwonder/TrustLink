@@ -502,7 +502,7 @@ pub fn get_max_attestations_per_subject(env: &Env) -> Option<u32> {
 ///
 /// # Errors
 /// - [`Error::Unauthorized`] — caller is not a registered admin.
-/// - [`Error::InvalidInput`] — `chunk_size` is 0.
+/// - [`Error::InvalidChunkSize`] — `chunk_size` is 0.
 pub fn set_chunk_size(env: &Env, admin: Address, chunk_size: u32) -> Result<(), Error> {
     admin.require_auth();
     Validation::require_admin(env, &admin)?;

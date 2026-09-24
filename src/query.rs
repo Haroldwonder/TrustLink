@@ -612,7 +612,7 @@ pub fn dispute_attestation(
 /// to check revocation status for many attestations at once without individually
 /// querying each one. Supports two formats:
 /// - `RevocationListFormat::SimpleList`: Simple list of revoked attestation IDs
-/// - `RevocationListFormat::Bitstring`: Compact bitstring encoding (Status List 2021 compatible)
+/// - `RevocationListFormat::Bitstring`: Reserved for bitstring encoding (returns `None` for now)
 ///
 /// # Parameters
 /// - `issuer` — the issuer address whose revocations to export
@@ -675,15 +675,8 @@ pub fn export_revocation_list(
     // Generate bitstring if requested
     let bitstring = match format {
         RevocationListFormat::Bitstring => {
-            // Create bitstring: sort IDs lexicographically for deterministic encoding
-            let mut sorted_ids: Vec<String> = Vec::new(env);
-            for id in revoked_ids.iter() {
-                sorted_ids.push_back(id.clone());
-            }
-
-            // Simple approach: return sorted IDs list (bitstring compression can be added later)
-            // For a true bitstring, we'd need to map positions to IDs
-            None // Simple implementation - bitstring can be added as optimization
+            // Bitstring encoding not yet implemented
+            return Err(Error::NotImplemented);
         }
         RevocationListFormat::SimpleList => None,
     };

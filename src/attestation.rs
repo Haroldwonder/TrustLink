@@ -676,6 +676,17 @@ pub fn revoke_attestation(
     });
     Storage::increment_total_revocations(env, 1);
     Storage::increment_issuer_revocations(env, &issuer, 1);
+
+    // Update bundle validity if this attestation belongs to a bundle
+    if let Some(bundle_id) = attestation.bundle_id {
+        if let Some(mut bundle) = Storage::get_bundle(env, &bundle_id) {
+            if bundle.all_valid {
+                bundle.all_valid = false;
+                Storage::set_bundle(env, &bundle);
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -760,7 +771,7 @@ pub fn revoke_attestations_batch(
         Storage::remove_issuer_attestation(env, &issuer, &attestation.id);
         crate::storage::ChunkedIndex::remove_subject(env, &attestation.subject, &attestation.id);
         crate::storage::ChunkedIndex::remove_issuer(env, &issuer, &attestation.id);
-        Events::attestation_revoked_with_reason(env, &attestation.id, &issuer, &reason);
+        Events::attestation_revoked(env, &attestation.id, &issuer, &reason);
         Storage::append_audit_entry(
             env,
             &attestation.id,
@@ -771,6 +782,17 @@ pub fn revoke_attestations_batch(
                 details: reason.clone(),
             },
         );
+
+        // Update bundle validity if this attestation belongs to a bundle
+        if let Some(bundle_id) = attestation.bundle_id {
+            if let Some(mut bundle) = Storage::get_bundle(env, &bundle_id) {
+                if bundle.all_valid {
+                    bundle.all_valid = false;
+                    Storage::set_bundle(env, &bundle);
+                }
+            }
+        }
+
         count += 1;
     }
 

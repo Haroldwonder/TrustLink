@@ -90,4 +90,6 @@ pub enum Error {
     /// by state-changing entry points that opt into the version-guard
     /// pattern documented on [`crate::validation::Validation::require_version_match`].
     VersionMismatch = 47,
+    /// Feature not yet implemented.
+    NotImplemented = 48,
 }

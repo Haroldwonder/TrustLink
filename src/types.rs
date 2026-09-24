@@ -105,7 +105,8 @@ pub struct IssuerStats {
 pub enum RevocationListFormat {
     /// Plain list of revoked attestation IDs.
     SimpleList,
-    /// Compact bitstring encoding (Status List 2021 compatible).
+    /// Reserved for compact bitstring encoding (Status List 2021 compatible).
+    /// Currently returns `None` for the bitstring field.
     Bitstring,
 }
 
