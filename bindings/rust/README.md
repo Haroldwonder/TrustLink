@@ -1,6 +1,6 @@
 # trustlink-client
 
-Rust RPC client for the [TrustLink](https://github.com/afurious/TrustLink) on-chain attestation contract on Stellar/Soroban.
+Rust RPC client for the [TrustLink](https://github.com/Haroldwonder/TrustLink) on-chain attestation contract on Stellar/Soroban.
 
 This crate is a **thin async HTTP client** that talks to a Soroban RPC node. It is distinct from the on-chain contract crate (`trustlink`) — no Soroban SDK or WASM target is required. It lets Rust backend services, CLIs, and Rust-based indexers query TrustLink without going through a TypeScript or Python SDK.
 

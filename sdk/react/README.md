@@ -1,55 +1,72 @@
 # @trustlink/react
 
-React hooks for the [TrustLink](https://github.com/afurious/TrustLink) on-chain attestation contract on Stellar.
+React hooks for the [TrustLink](https://github.com/Haroldwonder/TrustLink) on-chain attestation contract on Stellar.
 
 ## Installation
 
 ```bash
-npm install @trustlink/react @trustlink/sdk
+npm install @trustlink/react
 ```
 
 ## Usage
 
 ```tsx
-import { useTrustLink, useHasValidClaim, useSubjectAttestations } from "@trustlink/react";
+import { useGlobalStats, useIssuerStats } from "@trustlink/react";
 
-const CONTRACT_ID = "C...";
+function StatsPanel({ fetchGlobalStats, fetchIssuerStats, issuer }: {
+  fetchGlobalStats: () => Promise<{ total_attestations: number; total_revocations: number; total_issuers: number }>;
+  fetchIssuerStats: (issuer: string) => Promise<{ total_issued: number; active: number; revoked: number; expired: number }>;
+  issuer: string;
+}) {
+  const { data: global, loading: globalLoading, error: globalError } = useGlobalStats(fetchGlobalStats);
+  const { data: stats, loading, error } = useIssuerStats(issuer, fetchIssuerStats);
 
-function KycGate({ subject }: { subject: string }) {
-  const client = useTrustLink({ contractId: CONTRACT_ID, network: "testnet" });
-  const { data: valid, loading, error } = useHasValidClaim(client, subject, "kyc_passed");
+  if (globalLoading || loading) return <p>Loading…</p>;
+  if (globalError) return <p>Error: {globalError.message}</p>;
+  if (error) return <p>Error: {error.message}</p>;
 
-  if (loading) return <p>Checking…</p>;
-  if (error)   return <p>Error: {error.message}</p>;
-  return <p>KYC: {valid ? "✅ passed" : "❌ not passed"}</p>;
-}
-
-function AttestationList({ subject }: { subject: string }) {
-  const client = useTrustLink({ contractId: CONTRACT_ID, network: "testnet" });
-  const { data: attestations, loading } = useSubjectAttestations(client, subject);
-
-  if (loading) return <p>Loading…</p>;
   return (
-    <ul>
-      {attestations?.map((a) => (
-        <li key={a.id}>{a.claim_type} — {a.revoked ? "revoked" : "active"}</li>
-      ))}
-    </ul>
+    <div>
+      <p>Total attestations: {global?.total_attestations}</p>
+      <p>Issuer active: {stats?.active}</p>
+    </div>
   );
 }
 ```
 
+Pass a bound or arrow function that calls your RPC client (e.g. `() => trustlinkClient.getGlobalStats()`). Memoise the fetcher with `useCallback` if the parent re-renders often, since the hooks re-fetch when the fetcher reference changes.
+
 ## API
 
-### `useTrustLink(options: TrustLinkClientOptions): TrustLinkClient`
+### `useGlobalStats(fetchStats: () => Promise<GlobalStats>)`
 
-Creates (and memoises) a `TrustLinkClient`. Pass the result to the other hooks.
+Fetches contract-wide global statistics. Mirrors the `get_global_stats` contract function.
 
-### `useHasValidClaim(client, subject, claimType)`
+Returns `{ data: GlobalStats | null, loading, error }`.
 
-Returns `{ data: boolean | null, loading, error, refetch }`.
+`GlobalStats`:
 
-### `useSubjectAttestations(client, subject, { start?, limit? })`
+```ts
+interface GlobalStats {
+  total_attestations: number;
+  total_revocations: number;
+  total_issuers: number;
+}
+```
 
-Returns `{ data: Attestation[] | null, loading, error, refetch }`.  
-Defaults: `start = 0`, `limit = 50`.
+### `useIssuerStats(issuer: string, fetchStats: (issuer: string) => Promise<IssuerStats>)`
+
+Fetches statistics for the given issuer address. Re-fetches when `issuer` or the `fetchStats` reference changes.
+
+Returns `{ data: IssuerStats | null, loading, error }`.
+
+`IssuerStats`:
+
+```ts
+interface IssuerStats {
+  total_issued: number;
+  active: number;
+  revoked: number;
+  expired: number;
+}
+```
