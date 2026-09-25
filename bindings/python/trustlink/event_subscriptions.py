@@ -25,6 +25,37 @@ from .events import (
 
 logger = logging.getLogger(__name__)
 
+# Event topics whose second topic slot (topics[1]) is the subject address.
+_SUBJECT_TOPICS = frozenset(
+    {
+        "created",
+        "imported",
+        "bridged",
+        "del_req",
+        "expired",
+        "ms_prop",
+        "exp_hook",
+        "req_cncl",
+        "bundle",
+    }
+)
+# Event topics whose second topic slot (topics[1]) is the issuer address.
+_ISSUER_TOPICS = frozenset(
+    {
+        "revoked",
+        "renewed",
+        "updated",
+        "iss_reg",
+        "iss_tier",
+        "iss_rem",
+        "att_req",
+        "req_ok",
+        "req_no",
+        "wl_on",
+        "tpl_del",
+    }
+)
+
 # Optional websockets import for GraphQL subscriptions
 try:
     import websockets
@@ -149,14 +180,25 @@ async def subscribe_to_direct_ledger_events(
                         if topics and event_topic not in topics:
                             continue
 
+                        # topics[1] holds the subject for some events and the
+                        # issuer for others, so only compare the filter that
+                        # matches the address stored in that slot.
+                        topic_address = event_topics[1] if len(event_topics) > 1 else None
+
                         # Filter by subject
-                        if options.subject and len(event_topics) > 1:
-                            if event_topics[1] != options.subject:
+                        if options.subject:
+                            if (
+                                event_topic not in _SUBJECT_TOPICS
+                                or topic_address != options.subject
+                            ):
                                 continue
 
                         # Filter by issuer
-                        if options.issuer and len(event_topics) > 1:
-                            if event_topics[1] != options.issuer:
+                        if options.issuer:
+                            if (
+                                event_topic not in _ISSUER_TOPICS
+                                or topic_address != options.issuer
+                            ):
                                 continue
 
                         # Map and invoke callback

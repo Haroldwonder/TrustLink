@@ -3,10 +3,10 @@
 from typing import Optional, List, Any
 from stellar_sdk import (
     Account,
-    Contract,
     Keypair,
     Networks,
     Server,
+    StrKey,
     TransactionBuilder,
     BASE_FEE,
     xdr,
@@ -26,6 +26,7 @@ from .types import (
     TrustLinkError,
     ContractError,
     CONTRACT_ERRORS,
+    decode_contract_error,
 )
 from . import _base
 from ._retry import with_retry
@@ -76,7 +77,6 @@ class TrustLinkClient:
         self.rpc_url = rpc_url
         self.network_passphrase = network_passphrase
         self.server = Server(rpc_url)
-        self.contract = Contract(contract_id)
         self._retry_attempts = retry_attempts
         self._retry_base_ms = retry_base_ms
         self._retry_max_ms = retry_max_ms
@@ -693,7 +693,7 @@ class TrustLinkClient:
                     args=[
                         xdr.SCVal(type=xdr.SCValType.SC_VAL_TYPE_ADDRESS, address=xdr.SCAddress(
                             type=xdr.SCAddressType.SC_ADDRESS_TYPE_CONTRACT,
-                            contract_id=xdr.Hash(self.contract_id.encode()),
+                            contract_id=xdr.Hash(StrKey.decode_contract(self.contract_id)),
                         )),
                         xdr.SCVal(type=xdr.SCValType.SC_VAL_TYPE_SYMBOL, sym=method.encode()),
                         *args,
@@ -707,7 +707,9 @@ class TrustLinkClient:
 
         result = self.server.simulate_transaction(tx)
         if hasattr(result, "error"):
-            raise TrustLinkError(f"Simulation error: {result.error}")
+            raise decode_contract_error(str(result.error)) or TrustLinkError(
+                f"Simulation error: {result.error}"
+            )
 
         if not hasattr(result, "result") or not result.result:
             raise TrustLinkError(f"No result from {method}")
@@ -732,7 +734,7 @@ class TrustLinkClient:
                     args=[
                         xdr.SCVal(type=xdr.SCValType.SC_VAL_TYPE_ADDRESS, address=xdr.SCAddress(
                             type=xdr.SCAddressType.SC_ADDRESS_TYPE_CONTRACT,
-                            contract_id=xdr.Hash(self.contract_id.encode()),
+                            contract_id=xdr.Hash(StrKey.decode_contract(self.contract_id)),
                         )),
                         xdr.SCVal(type=xdr.SCValType.SC_VAL_TYPE_SYMBOL, sym=method.encode()),
                         *args,
@@ -746,7 +748,9 @@ class TrustLinkClient:
 
         sim_result = self.server.simulate_transaction(tx)
         if hasattr(sim_result, "error"):
-            raise TrustLinkError(f"Simulation error: {sim_result.error}")
+            raise decode_contract_error(str(sim_result.error)) or TrustLinkError(
+                f"Simulation error: {sim_result.error}"
+            )
 
         tx = self.server.prepare_transaction(tx)
         tx.sign(keypair)

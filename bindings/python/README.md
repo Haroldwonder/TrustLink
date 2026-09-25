@@ -57,7 +57,7 @@ client.revoke_attestation(
 Install with the async extra to pull in `httpx`:
 
 ```bash
-pip install "trustlink-contract[async]"
+pip install "trustlink-sdk[async]"
 ```
 
 Use `AsyncTrustLinkClient` as an async context manager so the underlying HTTP

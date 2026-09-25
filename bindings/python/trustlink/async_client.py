@@ -3,7 +3,7 @@
 import asyncio
 from typing import Optional, List, Any
 
-from stellar_sdk import Keypair, Networks, SorobanServerAsync, xdr
+from stellar_sdk import Keypair, Networks, SorobanServerAsync, StrKey, xdr
 from stellar_sdk import Account, TransactionBuilder, BASE_FEE
 
 from .types import (
@@ -16,6 +16,7 @@ from .types import (
     Delegation,
     GlobalStats,
     TrustLinkError,
+    decode_contract_error,
 )
 from . import _base
 from ._retry import with_retry_async
@@ -459,7 +460,7 @@ class AsyncTrustLinkClient:
                             type=xdr.SCValType.SC_VAL_TYPE_ADDRESS,
                             address=xdr.SCAddress(
                                 type=xdr.SCAddressType.SC_ADDRESS_TYPE_CONTRACT,
-                                contract_id=xdr.Hash(self.contract_id.encode()),
+                                contract_id=xdr.Hash(StrKey.decode_contract(self.contract_id)),
                             ),
                         ),
                         xdr.SCVal(
@@ -477,7 +478,9 @@ class AsyncTrustLinkClient:
 
         result = await self._server.simulate_transaction(tx)
         if hasattr(result, "error"):
-            raise TrustLinkError(f"Simulation error: {result.error}")
+            raise decode_contract_error(str(result.error)) or TrustLinkError(
+                f"Simulation error: {result.error}"
+            )
         if not hasattr(result, "result") or not result.result:
             raise TrustLinkError(f"No result from {method}")
 
@@ -503,7 +506,7 @@ class AsyncTrustLinkClient:
                             type=xdr.SCValType.SC_VAL_TYPE_ADDRESS,
                             address=xdr.SCAddress(
                                 type=xdr.SCAddressType.SC_ADDRESS_TYPE_CONTRACT,
-                                contract_id=xdr.Hash(self.contract_id.encode()),
+                                contract_id=xdr.Hash(StrKey.decode_contract(self.contract_id)),
                             ),
                         ),
                         xdr.SCVal(
@@ -521,7 +524,9 @@ class AsyncTrustLinkClient:
 
         sim_result = await self._server.simulate_transaction(tx)
         if hasattr(sim_result, "error"):
-            raise TrustLinkError(f"Simulation error: {sim_result.error}")
+            raise decode_contract_error(str(sim_result.error)) or TrustLinkError(
+                f"Simulation error: {sim_result.error}"
+            )
 
         tx = await self._server.prepare_transaction(tx)
         tx.sign(keypair)
