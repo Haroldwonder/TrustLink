@@ -144,9 +144,16 @@ class AsyncTrustLinkClient:
 
         Args:
             subject: Subject address
-            claim_types: List of claim type identifiers
+            claim_types: List of claim type identifiers (empty list always returns False)
             retry_attempts: Override default retry count for this call.
         """
+        if not isinstance(claim_types, list):
+            raise TrustLinkError("claim_types must be a list")
+        for ct in claim_types:
+            if not isinstance(ct, str) or not ct:
+                raise TrustLinkError("Each claim type must be a non-empty string")
+        if not claim_types:
+            return False
         return await self._simulate_with_retry(
             retry_attempts,
             "has_any_claim",
@@ -162,9 +169,16 @@ class AsyncTrustLinkClient:
 
         Args:
             subject: Subject address
-            claim_types: List of claim type identifiers
+            claim_types: List of claim type identifiers (empty list always returns True)
             retry_attempts: Override default retry count for this call.
         """
+        if not isinstance(claim_types, list):
+            raise TrustLinkError("claim_types must be a list")
+        for ct in claim_types:
+            if not isinstance(ct, str) or not ct:
+                raise TrustLinkError("Each claim type must be a non-empty string")
+        if not claim_types:
+            return True
         return await self._simulate_with_retry(
             retry_attempts,
             "has_all_claims",
