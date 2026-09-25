@@ -18,17 +18,29 @@ export const options = {
   },
 };
 
-// Query: List attestations paginated
+// Query: List attestations paginated (cursor-based via first/after)
 const LIST_ATTESTATIONS_QUERY = `
-  query ListAttestations($limit: Int!, $offset: Int!) {
-    attestations(limit: $limit, offset: $offset) {
-      id
-      issuer
-      subject
-      claimType
-      timestamp
-      isRevoked
-      metadata
+  query ListAttestations($first: Int, $after: String) {
+    attestations(first: $first, after: $after) {
+      edges {
+        node {
+          id
+          issuer
+          subject
+          claimType
+          timestamp
+          isRevoked
+          metadata
+        }
+        cursor
+      }
+      pageInfo {
+        hasNextPage
+        hasPreviousPage
+        startCursor
+        endCursor
+      }
+      totalCount
     }
   }
 `;
