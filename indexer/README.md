@@ -677,7 +677,7 @@ WHERE id = 1;
 
 ---
 
-## Webhooks
+## Attestation Schema
 
 | Column        | Type      | Description                        |
 | ------------- | --------- | ---------------------------------- |
