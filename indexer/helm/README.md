@@ -44,7 +44,7 @@ contractId: CAK7PYYSWWQH6ML3ZPO4OB2EIONODOEESE3MIV3YGFDMHEU4EUOBUJQN
 genesisLedger: "0"
 
 image:
-  repository: ghcr.io/od-hunter/trustlink/indexer
+  repository: ghcr.io/haroldwonder/trustlink/indexer
   tag: "1.0.0"
 ```
 

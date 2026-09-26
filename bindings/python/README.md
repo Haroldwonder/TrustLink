@@ -195,11 +195,13 @@ async def get_proposal(proposal_id: str):
 Use whitelist methods to restrict which subjects an issuer can attest:
 
 ```python
+from stellar_sdk import Keypair
 from trustlink import TrustLinkClient
 
 client = TrustLinkClient(contract_id="C...", rpc_url="https://soroban-testnet.stellar.org")
 
 ISSUER_SECRET = "SXXXXXX"
+ISSUER_ADDRESS = Keypair.from_secret(ISSUER_SECRET).public_key
 SUBJECT = "GXXXXXX"
 
 # Enable whitelist mode so only pre-approved subjects can receive attestations
@@ -209,7 +211,7 @@ client.enable_whitelist_mode(ISSUER_SECRET, enabled=True)
 client.add_to_whitelist(ISSUER_SECRET, SUBJECT)
 
 # Verify before issuing
-if client.is_whitelisted(ISSUER_SECRET, SUBJECT):
+if client.is_whitelisted(ISSUER_ADDRESS, SUBJECT):
     client.create_attestation(ISSUER_SECRET, SUBJECT, "KYC_PASSED")
 ```
 
