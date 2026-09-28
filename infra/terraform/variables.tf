@@ -53,9 +53,15 @@ variable "indexer_image" {
 }
 
 variable "indexer_port" {
-  description = "Port the indexer container listens on"
+  description = "Port the indexer REST API listens on"
   type        = number
-  default     = 4000
+  default     = 3000
+}
+
+variable "gql_port" {
+  description = "Port the indexer GraphQL API listens on"
+  type        = number
+  default     = 4001
 }
 
 variable "indexer_cpu" {

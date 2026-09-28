@@ -66,6 +66,13 @@ resource "aws_security_group" "ecs" {
     security_groups = [aws_security_group.alb.id]
   }
 
+  ingress {
+    from_port       = var.gql_port
+    to_port         = var.gql_port
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb.id]
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -162,7 +169,8 @@ resource "aws_ecs_task_definition" "indexer" {
       { name = "DATABASE_URL", value = "postgresql://${var.db_username}:${var.db_password}@${aws_db_instance.indexer.address}:5432/trustlink" },
       { name = "STELLAR_NETWORK", value = var.stellar_network },
       { name = "CONTRACT_ID", value = var.contract_id },
-      { name = "PORT", value = tostring(var.indexer_port) }
+      { name = "PORT", value = tostring(var.indexer_port) },
+      { name = "GQL_PORT", value = tostring(var.gql_port) }
     ]
 
     logConfiguration = {
