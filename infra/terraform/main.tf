@@ -29,19 +29,12 @@ data "aws_subnets" "default" {
 
 resource "aws_security_group" "alb" {
   name        = "${var.name_prefix}-alb"
-  description = "Allow HTTP/HTTPS inbound to ALB"
+  description = "Allow HTTP inbound to ALB"
   vpc_id      = data.aws_vpc.default.id
 
   ingress {
     from_port   = 80
     to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    from_port   = 443
-    to_port     = 443
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -324,3 +317,4 @@ resource "aws_sns_topic_policy" "budget_alerts" {
     }]
   })
 }
+
