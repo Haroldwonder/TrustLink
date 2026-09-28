@@ -10,6 +10,7 @@ A simple command-line tool for issuers to manage attestations without writing co
 - **Revoke attestations**: Revoke existing attestations with optional reason
 - **List issued**: View all attestations issued by this issuer with pagination
 - **Check claims**: Verify if a subject has a valid claim from this issuer
+- **Export audit trail**: Generate a regulator-ready audit report (JSON or CSV) for a date range
 
 ## Prerequisites
 
@@ -33,6 +34,8 @@ export RPC_URL="https://soroban-testnet.stellar.org"
 export NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
 export TRUSTLINK_CONTRACT_ID="CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCN8"
 export ISSUER_SECRET="S..."
+# Required only for the export-audit-trail command:
+export INDEXER_URL="https://your-indexer/graphql"
 ```
 
 ## Usage
@@ -219,6 +222,54 @@ node issuer-cli.mjs import GBRPYHIL... ACCREDITED_INVESTOR \
 Output:
 ```
 Attestation imported. TX: ghi789...
+```
+
+### Export an Audit Trail
+
+Fetches all attestations for an issuer from the indexer and retrieves their
+on-chain audit log entries, then writes a regulator-ready report. Requires
+`INDEXER_URL` to be set.
+
+```bash
+node issuer-cli.mjs export-audit-trail \
+  --issuer <address> \
+  --from <ISO-date> \
+  --to <ISO-date> \
+  [--format csv|json] \
+  [--output <file>]
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--issuer` | Yes | Issuer's Stellar address |
+| `--from` | Yes | Start of date range (ISO 8601, e.g. `2024-01-01`) |
+| `--to` | Yes | End of date range (inclusive) |
+| `--format` | No | `json` (default) or `csv` |
+| `--output` | No | Write output to this file instead of stdout |
+
+Examples:
+
+```bash
+# Export to stdout as JSON
+node issuer-cli.mjs export-audit-trail \
+  --issuer GABC... \
+  --from 2024-01-01 --to 2024-12-31
+
+# Export to a CSV file
+node issuer-cli.mjs export-audit-trail \
+  --issuer GABC... \
+  --from 2024-01-01 --to 2024-12-31 \
+  --format csv --output audit-2024.csv
+```
+
+Output:
+```
+Exporting audit trail for issuer: GABC...
+Date range: 2024-01-01 → 2024-12-31
+Fetching attestations from indexer...
+Found 42 attestation(s).
+Fetching audit log entries from contract...
+✓ Written 56 audit entries to audit-2024.csv
 ```
 
 ## Help
