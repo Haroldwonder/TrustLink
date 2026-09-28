@@ -75,7 +75,7 @@ async function submitWrite(server, sourceKeypair, operation, networkPassphrase) 
     throw new Error(`Write simulation failed: ${sim.error}`);
   }
 
-  tx = SorobanRpc.assembleTransaction(tx, sim, networkPassphrase);
+  tx = SorobanRpc.assembleTransaction(tx, sim).build();
   tx.sign(sourceKeypair);
 
   const sent = await server.sendTransaction(tx);
@@ -344,8 +344,14 @@ async function listProposals() {
   required(config.contractId, "TRUSTLINK_CONTRACT_ID");
 
   const server = new SorobanRpc.Server(config.rpcUrl);
+
+  // getEvents requires a recent startLedger; fetch the latest and look back
+  // up to the maximum window the RPC retains (17280 ledgers ≈ 24 hours).
+  const latestLedger = await server.getLatestLedger();
+  const startLedger = Math.max(1, latestLedger.sequence - 17280);
+
   const events = await server.getEvents({
-    startLedger: 0,
+    startLedger,
     filters: [{ type: "contract", contractIds: [config.contractId], topics: [["ms_prop"]] }],
     limit: 100,
   });

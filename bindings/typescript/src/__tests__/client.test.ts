@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { TrustLinkClient } from "../client";
 
-const CONTRACT_ID = "C" + "A".repeat(55);
+// Valid Soroban contract strkey (32 zero bytes, correct base32 checksum)
+const CONTRACT_ID = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
 
 describe("TrustLinkClient", () => {
   it("constructs with default options", () => {
