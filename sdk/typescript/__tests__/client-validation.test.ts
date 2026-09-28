@@ -1,7 +1,8 @@
 import { TrustLinkClient } from "../src/client";
 
 describe("TrustLinkClient constructor validation", () => {
-  const CONTRACT_ID = "CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
+  // Valid Soroban contract strkey (32 zero bytes, correct base32 checksum)
+  const CONTRACT_ID = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
 
   test("accepts valid network names", () => {
     expect(() => new TrustLinkClient({ contractId: CONTRACT_ID, network: "testnet" })).not.toThrow();
@@ -37,6 +38,6 @@ describe("TrustLinkClient constructor validation", () => {
       contractId: CONTRACT_ID,
       network: "testnet",
       rpcUrl: "not-a-valid-url"
-    })).toThrow("Invalid rpcUrl: \"not-a-valid-url\" is not a valid URL.");
+    })).toThrow("Invalid rpcUrl: \"not-a-valid-url\" must start with http:// or https://");
   });
 });
