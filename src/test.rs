@@ -10050,6 +10050,60 @@ fn test_attestation_transferred_event_emission() {
     assert!(!transfer_events.is_empty());
 }
 
+// Test event emission with 1KB byte vector payload approaching Soroban event size limit
+#[test]
+fn test_event_emission_max_payload_1kb() {
+    use soroban_sdk::Bytes;
+
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, issuer, _client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    env.ledger().set_timestamp(1000);
+
+    let payload_bytes: [u8; 1024] = [0xABu8; 1024];
+    let large_payload = Bytes::from_slice(&env, &payload_bytes);
+
+    env.events().publish(
+        (
+            soroban_sdk::symbol_short!("payload"),
+            subject.clone(),
+        ),
+        (
+            issuer.clone(),
+            large_payload.clone(),
+        ),
+    );
+
+    let events = env.events().all();
+    let mut found = false;
+
+    for (_, topics, data) in events.iter() {
+        if let Some(topic0_raw) = topics.get(0) {
+            let topic0: soroban_sdk::Symbol =
+                soroban_sdk::TryFromVal::try_from_val(&env, &topic0_raw).unwrap();
+            if topic0 == soroban_sdk::symbol_short!("payload") {
+                let event_data: (Address, Bytes) =
+                    soroban_sdk::TryFromVal::try_from_val(&env, &data).unwrap();
+
+                assert_eq!(event_data.0, issuer);
+                assert_eq!(event_data.1.len(), 1024);
+                assert_eq!(event_data.1, large_payload);
+
+                assert_eq!(event_data.1.get(0).unwrap(), 0xAB);
+                assert_eq!(event_data.1.get(1023).unwrap(), 0xAB);
+
+                found = true;
+                break;
+            }
+        }
+    }
+
+    assert!(found, "large payload event not found in emitted events");
+}
+
 // Issue #914: Test for non-duplicated storage methods
 #[test]
 fn test_storage_multisig_proposal_persistence() {
