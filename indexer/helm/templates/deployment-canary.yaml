@@ -51,6 +51,8 @@ spec:
             secretKeyRef:
               name: {{ include "trustlink-indexer.fullname" . }}
               key: DATABASE_URL
+        - name: REDIS_URL
+          value: {{ .Values.redisUrl | quote }}
         - name: CANARY_DEPLOYMENT
           value: "true"
         startupProbe:

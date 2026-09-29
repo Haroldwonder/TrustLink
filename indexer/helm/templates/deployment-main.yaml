@@ -45,6 +45,8 @@ spec:
             secretKeyRef:
               name: {{ include "trustlink-indexer.fullname" . }}
               key: DATABASE_URL
+        - name: REDIS_URL
+          value: {{ .Values.redisUrl | quote }}
         startupProbe:
           {{- toYaml .Values.startupProbe | nindent 10 }}
         livenessProbe:
