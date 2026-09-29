@@ -90,13 +90,13 @@ A distinct on-chain feature where a registered **issuer** vouches for an existin
 Unlike an **attestation** (which is a direct claim about a subject), an endorsement is a meta-claim: the endorser is stating "I verify that this existing attestation is trustworthy." Endorsements enable reputation networks where trust is built through accumulated third-party validation.
 
 Endorsements are managed via:
-- `endorse_attestation(env, endorser, attestation_id)` — create an endorsement
-- `get_endorsement_count(env, attestation_id)` — count endorsements on an attestation
-- `list_endorsements_by_endorser(env, endorser)` — list attestations endorsed by an issuer
+- `endorse_attestation(env, endorser, attestation_id)` - create an endorsement
+- `get_endorsement_count(env, attestation_id)` - count endorsements on an attestation
+- `list_endorsements_by_endorser(env, endorser)` - list attestations endorsed by an issuer
 
 The following errors apply to endorsements:
-- `CannotEndorseOwn` — an issuer cannot endorse their own attestation
-- `AlreadyEndorsed` — an issuer has already endorsed this attestation
+- `CannotEndorseOwn` - an issuer cannot endorse their own attestation
+- `AlreadyEndorsed` - an issuer has already endorsed this attestation
 
 ---
 
