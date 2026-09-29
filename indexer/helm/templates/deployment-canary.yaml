@@ -1,4 +1,4 @@
-{{- if .Values.canary.enabled }}
+{{- if .Values.canary.enabled | default false }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -9,7 +9,7 @@ metadata:
   annotations:
     description: "Canary deployment for gradual rollout testing"
 spec:
-  replicas: {{ .Values.canary.replicaCount }}
+  replicas: {{ .Values.canary.replicaCount | default .Values.replicaCount | default 1 }}
   selector:
     matchLabels:
       {{- include "trustlink-indexer.selectorLabels" . | nindent 6 }}

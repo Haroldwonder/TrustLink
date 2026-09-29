@@ -1,4 +1,4 @@
-{{- if not .Values.main.enabled }}
+{{- if not (.Values.main.enabled | default false) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
