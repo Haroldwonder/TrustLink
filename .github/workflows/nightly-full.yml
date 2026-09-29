@@ -23,6 +23,9 @@ jobs:
       - name: Install Rust toolchain
         run: rustup show
 
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
       - name: Run cargo audit
         run: cargo audit --deny warnings
 

@@ -103,22 +103,31 @@ Before pushing to main, ensure:
 ```
 TrustLink/
 ├── src/
-│   ├── lib.rs           # Main contract implementation
-│   ├── types.rs         # Data structures and errors
-│   ├── storage.rs       # Storage patterns
-│   ├── validation.rs    # Authorization logic
-│   ├── events.rs        # Event emission
-│   └── test.rs          # Unit tests
+│   ├── lib.rs              # Main contract implementation
+│   ├── types.rs            # Data structures and error definitions
+│   ├── storage.rs          # Storage patterns and key management
+│   ├── validation.rs       # Authorization and access control
+│   ├── events.rs           # Event emission for indexers
+│   ├── admin.rs            # Admin role management
+│   ├── attestation.rs      # Attestation creation and lifecycle
+│   ├── bundle.rs           # Bundle attestation batching
+│   ├── bundle-data.rs      # Bundle data structures
+│   ├── constants.rs        # Contract constants and configuration
+│   ├── errors.rs           # Error type definitions
+│   ├── multisig.rs         # Multi-signature attestation support
+│   ├── query.rs            # Query functions
+│   ├── request.rs          # Request data structures
+│   └── test.rs             # Unit tests
 ├── tests/
-│   └── integration_test.rs  # Integration tests
-├── Cargo.toml           # Dependencies
-├── Makefile             # Build commands
-├── build.ps1            # Windows build script
-├── README.md            # Main documentation
-├── DEPLOYMENT.md        # Deployment guide
-├── PROJECT_STATUS.md    # This file
-├── .gitignore           # Git ignore rules
-└── rust-toolchain.toml  # Rust version spec
+│   └── integration_test.rs     # Integration tests
+├── Cargo.toml              # Dependencies
+├── Makefile                # Build commands
+├── build.ps1               # Windows build script
+├── README.md               # Main documentation
+├── DEPLOYMENT.md           # Deployment guide
+├── PROJECT_STATUS.md       # This file
+├── .gitignore              # Git ignore rules
+└── rust-toolchain.toml     # Rust version spec
 ```
 
 ## 🔧 Quick Commands
