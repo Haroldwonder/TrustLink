@@ -175,24 +175,24 @@ rollback:
 	@if [ -z "$(WASM_HASH)" ]; then \
 		echo "ERROR: WASM_HASH is required. Example: make rollback NETWORK=mainnet WASM_HASH=<hash>"; \
 		exit 1; \
-	fi; \
+	fi
 	@if [ -z "$(SHA256SUM)" ]; then \
 		echo "ERROR: sha256sum or shasum is required to verify WASM hashes."; \
 		exit 1; \
-	fi; \
-	@echo "Searching for a matching WASM artifact in $(WASM_LOOKUP_DIR)..."; \
+	fi
+	@echo "Searching for a matching WASM artifact in $(WASM_LOOKUP_DIR)..."
 	WASM_FILE=""; \
 	for f in $$(find $(WASM_LOOKUP_DIR) -type f -name '*.wasm' 2>/dev/null); do \
 		HASH=$$($(SHA256SUM) $(SHA256SUM_ARGS) "$$f" | awk '{print $$1}'); \
 		if [ "$$HASH" = "$(WASM_HASH)" ]; then \
 			WASM_FILE="$$f"; break; \
 		fi; \
-	done; \
-	if [ -z "$$WASM_FILE" ]; then \
+	done
+	@if [ -z "$$WASM_FILE" ]; then \
 		echo "ERROR: no compiled WASM artifact found matching hash $(WASM_HASH)."; \
 		echo "Restore or build the matching WASM artifact and retry."; \
 		exit 1; \
-	fi; \
+	fi
 	@if [ "$(NETWORK)" = "mainnet" ]; then \
 		echo "WARNING: mainnet rollback is sensitive. This will redeploy WASM hash $(WASM_HASH) to mainnet."; \
 		printf "Type 'ROLLBACK' to confirm: "; \
@@ -201,8 +201,8 @@ rollback:
 			echo "Aborted rollback."; \
 			exit 1; \
 		fi; \
-	fi; \
-	@echo "Rolling back with artifact: $$WASM_FILE"; \
+	fi
+	@echo "Rolling back with artifact: $$WASM_FILE"
 	stellar contract deploy --wasm "$$WASM_FILE" --network $(NETWORK)
 
 ## Clean build artifacts and compiled outputs
