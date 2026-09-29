@@ -210,7 +210,7 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for full contribution guidelines.
 - **Integration Guide** — [../../docs/integration-guide.md](../docs/integration-guide.md)
 - **Quickstart** — [../../docs/quickstart.md](../docs/quickstart.md)
 - **API Reference** — [../../docs/](../docs/)
-- **GitHub Issues** — [Report bugs or request features](https://github.com/unixfundz/TrustLink/issues)
+- **GitHub Issues** — [Report bugs or request features](https://github.com/Idaonoli/TrustLink/issues)
 
 ## License
 

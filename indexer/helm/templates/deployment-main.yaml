@@ -25,6 +25,9 @@ spec:
         - name: http
           containerPort: {{ .Values.port }}
           protocol: TCP
+        - name: graphql
+          containerPort: {{ .Values.gqlPort }}
+          protocol: TCP
         env:
         - name: RPC_URL
           value: {{ .Values.rpcUrl }}
@@ -34,6 +37,8 @@ spec:
           value: "{{ .Values.genesisLedger }}"
         - name: PORT
           value: "{{ .Values.port }}"
+        - name: GQL_PORT
+          value: "{{ .Values.gqlPort }}"
         - name: DATABASE_URL
           valueFrom:
             secretKeyRef:

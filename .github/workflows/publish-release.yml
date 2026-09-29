@@ -6,7 +6,7 @@ on:
 
 permissions:
   contents: write
-  id-token: write    # Required for OIDC-based npm provenance and SLSA attestations
+  id-token: write # Required for OIDC-based npm provenance and SLSA attestations
   attestations: write # Required for actions/attest-build-provenance
 
 jobs:
@@ -37,15 +37,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Install soroban-cli
-        run: cargo install --locked soroban-cli
+      - name: Install Stellar CLI
+        run: cargo install --locked stellar-cli --features opt
 
       - name: Build WASM
         run: cargo build --target wasm32-unknown-unknown --release
 
       - name: Optimize WASM
         run: |
-          soroban contract optimize \
+          stellar contract optimize \
             --wasm target/wasm32-unknown-unknown/release/trustlink.wasm \
             --wasm-out target/wasm32-unknown-unknown/release/trustlink.optimized.wasm
 
@@ -70,62 +70,59 @@ jobs:
           # Compute SHA256 hashes for both WASM binaries
           UNOPT_HASH=$(sha256sum target/wasm32-unknown-unknown/release/trustlink.wasm | awk '{print $1}')
           OPT_HASH=$(sha256sum target/wasm32-unknown-unknown/release/trustlink.optimized.wasm | awk '{print $1}')
-          
+
           # Store hashes for use in later steps
           echo "unoptimized=$UNOPT_HASH" >> $GITHUB_OUTPUT
           echo "optimized=$OPT_HASH" >> $GITHUB_OUTPUT
-          
+
           # Create hash file for release artifact
           cat > wasm-hashes.txt <<EOF
           # TrustLink WASM Binary Hashes (SHA-256)
-          
+
           ## Build Information
           - Release Tag: ${{ github.ref_name }}
           - Build Date: $(date -u +'%Y-%m-%dT%H:%M:%SZ')
           - Repository: ${{ github.repository }}
           - Commit: ${{ github.sha }}
-          
+
           ## WASM Binary Hashes
-          
+
           ### Unoptimized WASM
           - File: trustlink.wasm
           - SHA256: $UNOPT_HASH
           - Size: $(du -b target/wasm32-unknown-unknown/release/trustlink.wasm | awk '{print $1}') bytes
-          
+
           ### Optimized WASM (Production)
           - File: trustlink.optimized.wasm
           - SHA256: $OPT_HASH
           - Size: $(du -b target/wasm32-unknown-unknown/release/trustlink.optimized.wasm | awk '{print $1}') bytes
-          
+
           ## Verification
-          
+
           To verify these hashes on your machine, clone the repository and run:
-          
+
           \`\`\`bash
-          # Build reproducibly and verify against the unoptimized hash
-          ./scripts/verify_wasm_hash.sh $UNOPT_HASH
-          
-          # Or for the optimized version, build and optimize manually:
+          # Build, optimize with Stellar CLI, and verify against the optimized hash
+          ./scripts/verify_wasm_hash.sh $OPT_HASH
+
+          # To verify the unoptimized binary separately, build and hash trustlink.wasm
           cargo build --target wasm32-unknown-unknown --release
-          soroban contract optimize \
-            --wasm target/wasm32-unknown-unknown/release/trustlink.wasm \
-            --wasm-out target/wasm32-unknown-unknown/release/trustlink.optimized.wasm
-          sha256sum target/wasm32-unknown-unknown/release/trustlink.optimized.wasm
+          sha256sum target/wasm32-unknown-unknown/release/trustlink.wasm
           \`\`\`
-          
+
           For full reproducible build instructions, see [docs/mainnet-checklist.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/mainnet-checklist.md#reproducible-build-environment).
-          
+
           ## SLSA Provenance & Supply Chain Security
-          
+
           WASM binaries are signed with SLSA provenance attestations. Verify with:
-          
+
           \`\`\`bash
           gh attestation verify trustlink.optimized.wasm --repo ${{ github.repository }}
           \`\`\`
-          
+
           See [docs/slsa-provenance.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/slsa-provenance.md) for full verification details.
           EOF
-          
+
           echo "Hash file created:"
           cat wasm-hashes.txt
 
@@ -216,10 +213,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
-          cache: 'npm'
-          cache-dependency-path: 'sdk/typescript/package-lock.json'
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+          cache: "npm"
+          cache-dependency-path: "sdk/typescript/package-lock.json"
 
       - name: Install dependencies
         working-directory: sdk/typescript

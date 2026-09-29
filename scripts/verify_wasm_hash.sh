@@ -14,7 +14,7 @@
 #   Rust toolchain : stable (pinned via rust-toolchain.toml)
 #   Target         : wasm32-unknown-unknown
 #   Profile        : release
-#   Optimiser      : stellar contract optimize (wasm-opt -Oz)
+#   Optimiser      : stellar contract optimize (requires Stellar CLI with opt feature)
 #   OS             : Linux x86_64 (use Docker for cross-platform consistency)
 #
 # Example — record hash after initial trusted build:
@@ -42,18 +42,13 @@ if [[ ! -f "$WASM_PATH" ]]; then
 fi
 
 # ── 2. Optimise ───────────────────────────────────────────────────────────────
-echo "==> Optimising WASM..."
-if command -v stellar &>/dev/null; then
-  stellar contract optimize --wasm "$WASM_PATH" --wasm-out "$OPT_WASM_PATH" 2>&1
-  FINAL_WASM="$OPT_WASM_PATH"
-elif command -v wasm-opt &>/dev/null; then
-  wasm-opt -Oz "$WASM_PATH" -o "$OPT_WASM_PATH" 2>&1
-  FINAL_WASM="$OPT_WASM_PATH"
-else
-  echo "WARNING: neither 'stellar' nor 'wasm-opt' found; skipping optimisation." >&2
-  echo "         Hash will be of the unoptimised WASM." >&2
-  FINAL_WASM="$WASM_PATH"
+echo "==> Optimising WASM with Stellar CLI..."
+if ! command -v stellar &>/dev/null; then
+  echo "ERROR: Stellar CLI not found. Install it with: cargo install --locked stellar-cli --features opt" >&2
+  exit 1
 fi
+stellar contract optimize --wasm "$WASM_PATH" --wasm-out "$OPT_WASM_PATH" 2>&1
+FINAL_WASM="$OPT_WASM_PATH"
 
 # ── 3. Hash ───────────────────────────────────────────────────────────────────
 echo "==> Computing SHA-256..."

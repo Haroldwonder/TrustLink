@@ -1,6 +1,6 @@
 # TrustLink Indexer Helm Chart
 
-Deploys the TrustLink event indexer on Kubernetes. The chart mirrors the configuration used in `docker-compose.yml`: the indexer connects to an external PostgreSQL database and a Soroban RPC endpoint, then exposes a REST API.
+Deploys the TrustLink event indexer on Kubernetes. The chart mirrors the configuration used in `docker-compose.yml`: the indexer connects to an external PostgreSQL database and a Soroban RPC endpoint, then exposes REST and GraphQL/WS APIs.
 
 ## Prerequisites
 
@@ -11,13 +11,14 @@ Deploys the TrustLink event indexer on Kubernetes. The chart mirrors the configu
 
 ## Configuration
 
-| Value | Environment variable | Description | Default |
-|---|---|---|---|
-| `rpcUrl` | `RPC_URL` | Soroban RPC endpoint | `https://soroban-testnet.stellar.org` |
-| `databaseUrl` | `DATABASE_URL` | PostgreSQL connection string (stored in Secret) | — (required) |
-| `port` | `PORT` | REST API port | `3000` |
-| `contractId` | `CONTRACT_ID` | Deployed TrustLink contract ID | — (required) |
-| `genesisLedger` | `GENESIS_LEDGER` | First ledger to index | `0` |
+| Value           | Environment variable | Description                                     | Default                               |
+| --------------- | -------------------- | ----------------------------------------------- | ------------------------------------- |
+| `rpcUrl`        | `RPC_URL`            | Soroban RPC endpoint                            | `https://soroban-testnet.stellar.org` |
+| `databaseUrl`   | `DATABASE_URL`       | PostgreSQL connection string (stored in Secret) | — (required)                          |
+| `port`          | `PORT`               | REST API port                                   | `3000`                                |
+| `gqlPort`       | `GQL_PORT`           | GraphQL HTTP/WS API port                        | `4000`                                |
+| `contractId`    | `CONTRACT_ID`        | Deployed TrustLink contract ID                  | — (required)                          |
+| `genesisLedger` | `GENESIS_LEDGER`     | First ledger to index                           | `0`                                   |
 
 Additional values control the container image, replica count, service type, and probes. See `values.yaml` for the full list.
 
@@ -40,6 +41,7 @@ Or provide a custom values file:
 rpcUrl: https://soroban-testnet.stellar.org
 databaseUrl: postgresql://trustlink:secret@postgres.example.com:5432/trustlink
 port: 3000
+gqlPort: 4000
 contractId: CAK7PYYSWWQH6ML3ZPO4OB2EIONODOEESE3MIV3YGFDMHEU4EUOBUJQN
 genesisLedger: "0"
 
@@ -59,8 +61,9 @@ helm install trustlink-indexer ./indexer/helm \
 
 ```bash
 kubectl get pods -n trustlink -l app.kubernetes.io/name=trustlink-indexer
-kubectl port-forward svc/trustlink-indexer 3000:3000 -n trustlink
+kubectl port-forward svc/trustlink-indexer 3000:3000 4000:4000 -n trustlink
 curl http://localhost:3000/health
+curl http://localhost:4000/graphql -H 'Content-Type: application/json' -d '{"query":"{ __typename }"}'
 ```
 
 ## Upgrade

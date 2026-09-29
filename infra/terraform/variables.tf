@@ -59,9 +59,9 @@ variable "indexer_port" {
 }
 
 variable "gql_port" {
-  description = "Port the indexer GraphQL API listens on"
+  description = "Port the indexer GraphQL/WS server listens on"
   type        = number
-  default     = 4001
+  default     = 4000
 }
 
 variable "indexer_cpu" {

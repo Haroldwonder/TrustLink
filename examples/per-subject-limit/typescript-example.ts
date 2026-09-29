@@ -99,6 +99,7 @@ async function scenario2_CreateAttestationsUpToLimit() {
     issuerAddress,
     subjectAddress,
     issuerKeypair,
+    adminKeypair,
   } = await setupExample();
 
   try {
@@ -153,6 +154,7 @@ async function scenario3_HandleLimitExceeded() {
     issuerAddress,
     subjectAddress,
     issuerKeypair,
+    adminKeypair,
   } = await setupExample();
 
   try {
@@ -315,6 +317,7 @@ async function scenario6_BundleWithLimitEnforcement() {
     issuerAddress,
     subjectAddress,
     issuerKeypair,
+    adminKeypair,
   } = await setupExample();
 
   try {

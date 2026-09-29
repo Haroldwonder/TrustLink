@@ -46,7 +46,7 @@ key. It is set once during `initialize` and can be transferred atomically via
 |--------|----------|
 | Register a new issuer | `register_issuer` |
 | Remove an existing issuer | `remove_issuer` |
-| Assign or update an issuer's trust tier | `update_issuer_tier` |
+| Assign or update an issuer's trust tier | `set_issuer_tier` |
 | Register a bridge contract | `register_bridge` |
 | Import a historical attestation on behalf of a registered issuer | `import_attestation` |
 | Register a claim type with a description | `register_claim_type` |
