@@ -189,7 +189,7 @@ export * from "./types";
 ### In TypeScript Projects
 
 ```typescript
-import { Client, Attestation } from "@trustlink/bindings";
+import { Client, Attestation } from "@trustlink/contract";
 
 const client = new Client({
   rpcUrl: "https://soroban-testnet.stellar.org",
