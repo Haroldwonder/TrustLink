@@ -1,5 +1,21 @@
 replicaCount: 1
 
+# Main deployment configuration
+# When enabled, creates a "main" deployment instead of the standard deployment
+# This is useful for production configurations with a dedicated main deployment
+# When main.enabled=true, the standard deployment is not created
+main:
+  enabled: false
+  replicaCount: 1
+  imageTag: ""  # Override default image.tag if needed
+
+# Canary deployment configuration
+# When enabled, creates a canary deployment for gradual rollout testing
+canary:
+  enabled: false
+  replicaCount: 1
+  imageTag: ""  # Override default image.tag if needed
+
 image:
   repository: ghcr.io/haroldwonder/trustlink/indexer
   tag: latest

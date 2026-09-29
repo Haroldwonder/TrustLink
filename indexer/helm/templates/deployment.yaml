@@ -1,3 +1,4 @@
+{{- if not (.Values.main.enabled | default false) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -9,10 +10,12 @@ spec:
   selector:
     matchLabels:
       {{- include "trustlink-indexer.selectorLabels" . | nindent 6 }}
+      deployment-type: standard
   template:
     metadata:
       labels:
         {{- include "trustlink-indexer.selectorLabels" . | nindent 8 }}
+        deployment-type: standard
     spec:
       containers:
         - name: indexer
@@ -40,3 +43,4 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+{{- end }}
