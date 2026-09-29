@@ -43,7 +43,7 @@ jobs:
       - name: Upload TypeScript docs artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ts-docs
+          name: ts-docs-node${{ matrix.node-version }}
           path: sdk/typescript/docs/api
 
   build-python-docs:
@@ -77,10 +77,22 @@ jobs:
     timeout-minutes: 10
     needs: [build-ts-docs, build-python-docs]
     steps:
-      - name: Download TypeScript docs
+      - name: Download TypeScript docs (Node 18)
         uses: actions/download-artifact@v4
         with:
-          name: ts-docs
+          name: ts-docs-node18
+          path: site/
+
+      - name: Download TypeScript docs (Node 20)
+        uses: actions/download-artifact@v4
+        with:
+          name: ts-docs-node20
+          path: site/
+
+      - name: Download TypeScript docs (Node 22)
+        uses: actions/download-artifact@v4
+        with:
+          name: ts-docs-node22
           path: site/
 
       - name: Download Python docs
@@ -90,7 +102,6 @@ jobs:
           path: site/python/
 
       - name: Upload Pages artifact
-        if: matrix.node-version == '20'
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
           path: site/
