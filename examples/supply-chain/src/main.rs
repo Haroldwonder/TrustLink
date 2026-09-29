@@ -43,7 +43,7 @@ impl SupplyChainVerifier {
     /// );
     /// ```
     pub fn verify_supply_chain(env: Env, shipment_id: Address, trustlink: Address) -> bool {
-        let trustlink_client = crate::Client::new(&env, &trustlink);
+        let trustlink_client = trustlink_client::Client::new(&env, &trustlink);
 
         let mut required_claims = soroban_sdk::Vec::new(&env);
         required_claims.push_back(String::from_str(&env, claims::CERTIFIED_ORGANIC));
@@ -63,7 +63,7 @@ impl SupplyChainVerifier {
         trustlink: Address,
         expected_certifier: Address,
     ) -> bool {
-        let trustlink_client = crate::Client::new(&env, &trustlink);
+        let trustlink_client = trustlink_client::Client::new(&env, &trustlink);
 
         // Check for CERTIFIED_ORGANIC from the specific certifier
         trustlink_client.has_valid_claim_from_issuer(
@@ -80,7 +80,7 @@ impl SupplyChainVerifier {
     /// - Bit 1: CUSTOMS_CLEARED
     /// - Bit 2: RETAILER_VERIFIED
     pub fn get_shipment_status(env: Env, shipment_id: Address, trustlink: Address) -> u32 {
-        let trustlink_client = crate::Client::new(&env, &trustlink);
+        let trustlink_client = trustlink_client::Client::new(&env, &trustlink);
         let mut status = 0u32;
 
         if trustlink_client.has_valid_claim(
@@ -109,8 +109,8 @@ impl SupplyChainVerifier {
 }
 
 /// TrustLink client (placeholder — in production, use generated bindings)
-mod crate {
-    use soroban_sdk::{Address, Env, String, Vec};
+mod trustlink_client {
+    use soroban_sdk::{symbol_short, Address, Env, IntoVal, String, Symbol, Vec};
 
     pub struct Client<'a> {
         env: &'a Env,
@@ -122,19 +122,24 @@ mod crate {
             Self { env, contract_id }
         }
 
-        pub fn has_all_claims(
-            &self,
-            subject: &Address,
-            claim_types: &Vec<String>,
-        ) -> bool {
+        pub fn has_all_claims(&self, subject: &Address, claim_types: &Vec<String>) -> bool {
             // Invoke TrustLink contract
-            self.env
-                .invoke_contract(self.contract_id, &Symbol::new(self.env, "has_all_claims"), args)
+            let args = (subject, claim_types).into_val(self.env);
+            self.env.invoke_contract(
+                self.contract_id,
+                &Symbol::new(self.env, "has_all_claims"),
+                args,
+            )
         }
 
         pub fn has_valid_claim(&self, subject: &Address, claim_type: &String) -> bool {
             // Invoke TrustLink contract
-            true
+            let args = (subject, claim_type).into_val(self.env);
+            self.env.invoke_contract(
+                self.contract_id,
+                &Symbol::new(self.env, "has_valid_claim"),
+                args,
+            )
         }
 
         pub fn has_valid_claim_from_issuer(
@@ -144,11 +149,14 @@ mod crate {
             issuer: &Address,
         ) -> bool {
             // Invoke TrustLink contract
-            true
+            let args = (subject, claim_type, issuer).into_val(self.env);
+            self.env.invoke_contract(
+                self.contract_id,
+                &Symbol::new(self.env, "has_valid_claim_from_issuer"),
+                args,
+            )
         }
     }
-
-    use soroban_sdk::Symbol;
 }
 
 #[cfg(test)]
