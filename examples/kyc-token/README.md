@@ -30,6 +30,7 @@ if !from_kyc || !to_kyc {
 | Transfer blocked — sender lacks KYC | `transfer_blocked_when_sender_lacks_kyc` |
 | Transfer blocked — recipient lacks KYC | `transfer_blocked_when_recipient_lacks_kyc` |
 | Transfer blocked — neither party has KYC | `transfer_blocked_for_non_kyc_address` |
+| Transfer blocked — KYC expired | `transfer_blocked_when_kyc_expired` |
 | Transfer allowed — both parties have KYC | `transfer_allowed_for_kyc_addresses` |
 
 ## Files
