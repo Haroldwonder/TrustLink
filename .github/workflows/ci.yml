@@ -672,8 +672,8 @@ jobs:
       - name: Build WASM
         run: cargo build --target wasm32-unknown-unknown --release
 
-      - name: Install Soroban CLI
-        run: cargo install --locked soroban-cli
+      - name: Install Stellar CLI
+        run: cargo install --locked stellar-cli --features opt
 
       - name: Deploy contract to local network
         run: ./scripts/setup_local.sh

@@ -3,7 +3,7 @@ name: Testnet Smoke Test
 on:
   push:
     branches:
-      - 'release/**'
+      - 'main'
   workflow_dispatch:
 
 jobs:
