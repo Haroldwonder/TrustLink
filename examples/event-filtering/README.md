@@ -199,13 +199,9 @@ export INDEXER_WS_URL="wss://indexer.trustlink.io/graphql"
 
 # TrustLink contract ID
 export CONTRACT_ID="CDJVR36XC2HTUGDGSTHVUGMR3JTYHWQQFBOJGZAVDMJLQGZXVVGTJMZV"
-
-# Optional: Soroban RPC URL (defaults to testnet)
-export RPC_URL="https://soroban-testnet.stellar.org"
-
-# Optional: Network passphrase (defaults to testnet)
-export NETWORK_PASSPHRASE="Test SDF Future Network ; October 2024"
 ```
+
+Note: The example scripts currently hardcode the Soroban testnet RPC URL (`https://soroban-testnet.stellar.org`) and network passphrase (`Test SDF Future Network ; October 2024`). To use different networks, edit the scripts directly.
 
 ## Event Filtering Best Practices
 
