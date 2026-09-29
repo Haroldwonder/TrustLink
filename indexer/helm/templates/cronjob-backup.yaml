@@ -43,7 +43,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: {{ include "trustlink-indexer.fullname" . }}
-                  key: database-url
+                  key: DATABASE_URL
             - name: BACKUP_STORAGE
               value: {{ .Values.backup.storage | quote }}
             {{- if eq .Values.backup.storage "s3" }}

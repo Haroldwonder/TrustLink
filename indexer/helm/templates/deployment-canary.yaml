@@ -49,8 +49,8 @@ spec:
         - name: DATABASE_URL
           valueFrom:
             secretKeyRef:
-              name: {{ include "trustlink-indexer.fullname" . }}-db-canary
-              key: database-url
+              name: {{ include "trustlink-indexer.fullname" . }}
+              key: DATABASE_URL
         - name: CANARY_DEPLOYMENT
           value: "true"
         startupProbe:

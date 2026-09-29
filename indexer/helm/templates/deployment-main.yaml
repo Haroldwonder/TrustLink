@@ -42,8 +42,8 @@ spec:
         - name: DATABASE_URL
           valueFrom:
             secretKeyRef:
-              name: {{ include "trustlink-indexer.fullname" . }}-db
-              key: database-url
+              name: {{ include "trustlink-indexer.fullname" . }}
+              key: DATABASE_URL
         startupProbe:
           {{- toYaml .Values.startupProbe | nindent 10 }}
         livenessProbe:
