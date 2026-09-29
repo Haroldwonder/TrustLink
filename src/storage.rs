@@ -106,6 +106,15 @@ pub struct ClaimTypeIssuanceKey {
     pub claim_type: String,
 }
 
+/// Key for the superseded_by pointer on a registration.
+/// Stored as a separate `contracttype` struct so it doesn't count against
+/// the `StorageKey` enum's 50-variant limit.
+#[contracttype]
+#[derive(Clone)]
+pub struct IssuerSupersededByKey {
+    pub issuer: Address,
+}
+
 /// Bundle of infrequently-changed, contract-wide singleton settings, stored
 /// under a single `StorageKey::MiscConfig` entry to stay within the
 /// `#[contracttype]` enum's 50-variant limit.
@@ -427,6 +436,17 @@ impl Storage {
 
     pub fn get_issuer_metadata(env: &Env, issuer: &Address) -> Option<IssuerMetadata> {
         env.storage().persistent().get(&StorageKey::IssuerMetadata(issuer.clone()))
+    }
+
+    pub fn set_issuer_superseded_by(env: &Env, issuer: &Address, replacement: &Address) {
+        let key = IssuerSupersededByKey { issuer: issuer.clone() };
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, replacement);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    pub fn get_issuer_superseded_by(env: &Env, issuer: &Address) -> Option<Address> {
+        env.storage().persistent().get(&IssuerSupersededByKey { issuer: issuer.clone() })
     }
 
     pub fn set_claim_type(env: &Env, info: &ClaimTypeInfo) {

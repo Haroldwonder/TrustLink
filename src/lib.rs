@@ -159,6 +159,15 @@ impl TrustLinkContract {
         admin::set_issuer_metadata(&env, issuer, metadata)
     }
 
+    pub fn set_superseded_by(env: Env, issuer: Address, replacement: Address) -> Result<(), Error> {
+        admin::set_superseded_by(&env, issuer, replacement)
+    }
+
+    #[must_use]
+    pub fn get_superseded_by(env: Env, issuer: Address) -> Option<Address> {
+        admin::get_superseded_by(&env, issuer)
+    }
+
     #[must_use]
     pub fn get_issuer_stats(env: Env, issuer: Address) -> IssuerStats {
         admin::get_issuer_stats(&env, issuer)
