@@ -39,6 +39,9 @@ jobs:
 
       indexer:
         image: ${{ github.event.inputs.indexer_image }}
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
         env:
           DATABASE_URL: postgresql://testuser:testpass@postgres:5432/trustlink_test
           RPC_URL: https://soroban-testnet.stellar.org
