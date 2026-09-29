@@ -1,7 +1,7 @@
 # TrustLink - On-Chain Attestation & Verification System
 
-[![CI](https://github.com/afurious/TrustLink/actions/workflows/ci.yml/badge.svg)](https://github.com/afurious/TrustLink/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/afurious/TrustLink/branch/main/graph/badge.svg)](https://codecov.io/gh/afurious/TrustLink)
+[![CI](https://github.com/Haroldwonder/TrustLink/actions/workflows/ci.yml/badge.svg)](https://github.com/Haroldwonder/TrustLink/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/Haroldwonder/TrustLink/branch/main/graph/badge.svg)](https://codecov.io/gh/Haroldwonder/TrustLink)
 [![Security Audit](https://img.shields.io/badge/Security%20Audit-In%20Progress-yellow)](./AUDIT_SCOPE.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
