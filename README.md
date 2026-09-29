@@ -3570,3 +3570,8 @@ preserved pagination
 no unnecessary behavioral changes
 
 A successful implementation will make "src/storage.rs" easier to understand, reduce misleading API surface, and make it immediately apparent which parts of "ChunkedIndex" are genuinely load-bearing.
+
+## Handsoff notes
+
+<!-- handsoff-issue-1034 -->
+- #1034: Add a postmortem ADR documenting the main-branch build-breakage root cause and remediation

@@ -8,4 +8,4 @@ contact_links:
     about: Read the documentation before opening an issue
   - name: 🔒 Report a Security Vulnerability
     url: https://github.com/Haroldwonder/TrustLink/security/advisories/new
-    about: Please report security vulnerabilities privately
+    about: Report security vulnerabilities privately via GitHub Security Advisories (requires private vulnerability reporting to be enabled on this repo)
