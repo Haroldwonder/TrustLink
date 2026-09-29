@@ -14,6 +14,9 @@ databaseUrl: ""
 # HTTP port for the REST API (maps to PORT)
 port: 3000
 
+# HTTP/WS port for the GraphQL API (maps to GQL_PORT)
+gqlPort: 4000
+
 # Required: deployed TrustLink contract ID
 contractId: ""
 
@@ -28,6 +31,7 @@ redisUrl: "redis://localhost:6379"
 service:
   type: ClusterIP
   port: 3000
+  graphqlPort: 4000
 
 resources: {}
 
@@ -61,6 +65,8 @@ backup:
 
   # Local storage (requires PVC)
   localPath: /backups
+  pvcSize: 10Gi # Size of the backup PVC created when storage=local
+  storageClassName: "" # Optional; uses the cluster default if empty
 
   # S3 configuration
   s3Bucket: "" # Required if storage=s3

@@ -242,7 +242,18 @@ stellar contract invoke \
 
 ### Step 3 — Verify council state
 
-The contract does not currently expose a `get_admin_council` query; verify by attempting a privileged call with each expected member key and confirming the outgoing key is rejected.
+Query the admin council directly:
+
+```bash
+stellar contract invoke \
+  --id CONTRACT_ID \
+  --source ANY_KEY \
+  --network mainnet \
+  -- \
+  get_admin_council
+```
+
+Confirm the returned list contains the new member and does not contain the outgoing member.
 
 ---
 

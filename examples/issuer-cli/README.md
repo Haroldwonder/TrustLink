@@ -33,6 +33,7 @@ export RPC_URL="https://soroban-testnet.stellar.org"
 export NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
 export TRUSTLINK_CONTRACT_ID="CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCN8"
 export ISSUER_SECRET="S..."
+export INDEXER_URL="https://your-indexer.example.com/graphql"  # required for export-audit-trail
 ```
 
 ## Usage
@@ -220,6 +221,74 @@ Output:
 ```
 Attestation imported. TX: ghi789...
 ```
+
+### Export Audit Trail
+
+Exports a regulator-ready audit trail for all attestations issued by a given
+address over a date range. The command queries attestation records from the
+configured GraphQL indexer and fetches the on-chain audit log for each one,
+then writes the result as JSON (default) or CSV.
+
+Requires `INDEXER_URL` to be set.
+
+```bash
+node issuer-cli.mjs export-audit-trail \
+  --issuer <address> \
+  --from <ISO-date> \
+  --to <ISO-date> \
+  [--format csv|json] \
+  [--output <file>]
+```
+
+Examples:
+
+```bash
+# Export to stdout as JSON
+node issuer-cli.mjs export-audit-trail \
+  --issuer GABC... --from 2024-01-01 --to 2024-12-31
+
+# Export to a CSV file
+node issuer-cli.mjs export-audit-trail \
+  --issuer GABC... --from 2024-01-01 --to 2024-12-31 \
+  --format csv --output audit.csv
+```
+
+Output (JSON):
+```json
+[
+  {
+    "issuer": "GABC...",
+    "attestation_id": "att_abc123",
+    "claim_type": "KYC_PASSED",
+    "subject": "GXYZ...",
+    "action": "Created",
+    "actor": "GABC...",
+    "timestamp": "2024-03-15T09:22:04.000Z",
+    "details": ""
+  }
+]
+```
+
+Output (CSV):
+```
+issuer,attestation_id,claim_type,subject,action,actor,timestamp,details
+GABC...,att_abc123,KYC_PASSED,GXYZ...,Created,GABC...,2024-03-15T09:22:04.000Z,
+```
+
+Required flags:
+
+| Flag | Description |
+|------|-------------|
+| `--issuer <address>` | Stellar address of the issuer |
+| `--from <ISO-date>` | Start of date range (e.g. `2024-01-01`) |
+| `--to <ISO-date>` | End of date range (e.g. `2024-12-31`) |
+
+Optional flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--format csv\|json` | `json` | Output format |
+| `--output <file>` | stdout | Write output to a file instead of stdout |
 
 ## Help
 
