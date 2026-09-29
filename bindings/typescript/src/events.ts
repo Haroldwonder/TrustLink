@@ -28,6 +28,7 @@ export const EventTopics = {
   ISS_REG: "iss_reg",
   ISS_TIER: "iss_tier",
   ISS_REM: "iss_rem",
+  ISS_SUPR: "iss_supr",
 
   // ─── Admin & Governance ────────────────────────────────────────────────────────
   ADM_INIT: "adm_init",
@@ -97,11 +98,12 @@ export const EventCategories = {
     EventTopics.XFER,
   ] as const,
 
-  /** Issuer compliance: iss_reg, iss_tier, iss_rem, wl_on, wl_add, wl_rem, del_crtd, del_rvkd */
+  /** Issuer compliance: iss_reg, iss_tier, iss_rem, iss_supr, wl_on, wl_add, wl_rem, del_crtd, del_rvkd */
   ISSUER_COMPLIANCE: [
     EventTopics.ISS_REG,
     EventTopics.ISS_TIER,
     EventTopics.ISS_REM,
+    EventTopics.ISS_SUPR,
     EventTopics.WL_ON,
     EventTopics.WL_ADD,
     EventTopics.WL_REM,
@@ -255,6 +257,7 @@ export function getTopicDescription(topic: EventTopic): string {
     [EventTopics.ISS_REG]: "Issuer registered",
     [EventTopics.ISS_TIER]: "Issuer tier updated",
     [EventTopics.ISS_REM]: "Issuer removed",
+    [EventTopics.ISS_SUPR]: "Issuer superseded by replacement",
     [EventTopics.ADM_INIT]: "Admin initialized",
     [EventTopics.ADM_XFER]: "Admin transferred",
     [EventTopics.ADM_ADD]: "Admin added",

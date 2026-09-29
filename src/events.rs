@@ -15,6 +15,7 @@ const TOPIC_DEL_REQ: Symbol = symbol_short!("del_req");
 const TOPIC_ISS_REG: Symbol = symbol_short!("iss_reg");
 const TOPIC_ISS_TIER: Symbol = symbol_short!("iss_tier");
 const TOPIC_ISS_REM: Symbol = symbol_short!("iss_rem");
+const TOPIC_ISS_SUPR: Symbol = symbol_short!("iss_supr");
 const TOPIC_CLM_TYPE: Symbol = symbol_short!("clm_type");
 const TOPIC_MS_PROP: Symbol = symbol_short!("ms_prop");
 const TOPIC_MS_SIGN: Symbol = symbol_short!("ms_sign");
@@ -156,6 +157,10 @@ impl Events {
             (TOPIC_ISS_REM, issuer.clone()),
             (admin.clone(), timestamp),
         );
+    }
+
+    pub fn issuer_superseded(env: &Env, issuer: &Address, replacement: &Address) {
+        env.events().publish((TOPIC_ISS_SUPR, issuer.clone()), replacement.clone());
     }
 
     pub fn claim_type_registered(env: &Env, claim_type: &String, description: &String) {
