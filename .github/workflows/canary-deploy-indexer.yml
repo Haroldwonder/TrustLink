@@ -48,7 +48,7 @@ jobs:
           fi
 
   deploy-canary:
-    name: Deploy canary ({{ inputs.traffic_weight }}% traffic)
+    name: Deploy canary (${{ github.event.inputs.traffic_weight }}% traffic)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: validate-version
