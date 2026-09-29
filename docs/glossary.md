@@ -79,7 +79,20 @@ Custom claim types can be registered by the admin for application-specific purpo
 
 ## Delegation
 
-The ability for an **issuer** to authorize another address to act on their behalf. TrustLink does not currently implement general delegation, but the **multi-signature attestation** flow (`propose_attestation` / `cosign_attestation`) allows a group of signers to collectively authorize an attestation, which achieves a similar effect for shared-custody issuers.
+The ability for an **issuer** to authorize another address to act on their behalf for specific claim types. TrustLink implements a complete delegation subsystem that allows issuers to delegate the authority to create attestations for specific claim types to other addresses.
+
+**Delegation Functions:**
+- `delegate_claim_type(issuer, delegate, claim_type, expiration)` – Grant delegation authority to an address for a specific claim type with optional expiration
+- `revoke_delegation(issuer, delegate, claim_type)` – Revoke delegation authority for a specific claim type
+- `revoke_delegation_all(delegator)` – Revoke all delegations issued by an address
+- `get_delegation(delegator, delegate, claim_type)` – Query a specific delegation
+- `list_delegations_by_delegator(delegator, start, limit)` – List all delegations issued by an address (paginated)
+
+**Supported Delegation Scenarios:**
+- Delegating claim-type-specific authority to trusted partners or team members
+- Time-bound delegations via optional expiration
+- Emergency delegation revocation via `revoke_delegation_all`
+- Integration with multi-signature workflows for shared-custody issuers
 
 ---
 

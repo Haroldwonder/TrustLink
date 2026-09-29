@@ -19,9 +19,9 @@ Subject (user) initiates an attestation request:
 ```typescript
 // Subject asks issuer to verify KYC status
 await contract.request_attestation(
+  subject_address,
   issuer_address,
-  "KYC_PASSED",
-  "Need KYC to trade"
+  "KYC_PASSED"
 );
 ```
 
@@ -29,11 +29,13 @@ await contract.request_attestation(
 Issuer retrieves and reviews pending requests:
 ```typescript
 // Issuer checks all pending requests
-const pending_requests = await contract.get_issuer_pending_requests(
-  issuer_address
+const pending_requests = await contract.get_pending_requests(
+  issuer_address,
+  0,  // start
+  10  // limit
 );
 
-// Issuer reviews: claim type, reason, subject identity
+// Issuer reviews: claim type, subject identity
 for (const request of pending_requests) {
   console.log(`Request from ${request.subject} for ${request.claim_type}`);
 }
