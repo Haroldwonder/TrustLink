@@ -18,11 +18,11 @@
 #
 # Signing identity
 # ----------------
-# ADMIN_SECRET  — Stellar secret key (S...) used to sign deploy/invoke txns.
-#                 Required for deploy and invoke targets.
-#                 Never hard-code this value; pass it via the environment:
-#                   export ADMIN_SECRET=SXXX...
-#                   make deploy
+# SOURCE        — Stellar key alias passed to stellar CLI.
+#                 The Stellar CLI signs deploy/invoke txns using keys stored locally.
+#                 Set a key alias (e.g., 'deployer') and pass it to deploy/invoke targets:
+#                   make deploy SOURCE=deployer NETWORK=testnet
+#                   make invoke CONTRACT_ID=C... SOURCE=deployer NETWORK=testnet
 #
 # Contract ID
 # -----------
@@ -256,7 +256,7 @@ check-error-variants:
 SOURCE ?= deployer
 
 ## Build, optimize, and deploy the contract to NETWORK.
-## Requires: ADMIN_SECRET exported in the environment; SOURCE set to a key alias.
+## Requires: SOURCE set to a locally-registered Stellar key alias.
 ## After deploy, note the printed CONTRACT_ID and run: make verify CONTRACT_ID=... SOURCE=...
 deploy: optimize
 ifeq ($(NETWORK),mainnet)
