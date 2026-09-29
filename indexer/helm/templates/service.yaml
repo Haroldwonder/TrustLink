@@ -17,3 +17,8 @@ spec:
       name: graphql
   selector:
     {{- include "trustlink-indexer.selectorLabels" . | nindent 4 }}
+    {{- if .Values.main.enabled }}
+    deployment-type: main
+    {{- else }}
+    deployment-type: standard
+    {{- end }}
