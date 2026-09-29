@@ -1,9 +1,8 @@
 name: Publish Python SDK to PyPI
 
 on:
-  push:
-    tags:
-      - "python-v*"
+  release:
+    types: [released]
 
 permissions:
   contents: read
