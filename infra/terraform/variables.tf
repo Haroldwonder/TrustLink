@@ -53,7 +53,7 @@ variable "indexer_image" {
 }
 
 variable "indexer_port" {
-  description = "Port the indexer container listens on"
+  description = "Port the indexer REST API listens on"
   type        = number
   default     = 3000
 }

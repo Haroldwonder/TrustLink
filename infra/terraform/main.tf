@@ -29,7 +29,7 @@ data "aws_subnets" "default" {
 
 resource "aws_security_group" "alb" {
   name        = "${var.name_prefix}-alb"
-  description = "Allow HTTP/HTTPS inbound to ALB"
+  description = "Allow HTTP inbound to ALB"
   vpc_id      = data.aws_vpc.default.id
 
   ingress {
@@ -368,3 +368,4 @@ resource "aws_sns_topic_policy" "budget_alerts" {
     }]
   })
 }
+
