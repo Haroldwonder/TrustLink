@@ -30,7 +30,7 @@ jobs:
             This issue was closed automatically after 14 days of inactivity
             following the stale warning. Feel free to reopen if it's still
             relevant.
-          exempt-issue-labels: "high-priority,security,pinned"
+          exempt-issue-labels: "high-priority,security"
 
           # Pull requests are not auto-closed, only flagged, so reviewers
           # don't lose in-progress work to inactivity alone.
@@ -41,6 +41,6 @@ jobs:
             This pull request has been automatically marked as stale because
             it has had no activity for 30 days. Remove the `stale` label or
             push a commit to keep it open.
-          exempt-pr-labels: "high-priority,security,pinned"
+          exempt-pr-labels: "high-priority,security"
 
           operations-per-run: 100

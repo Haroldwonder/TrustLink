@@ -99,7 +99,7 @@ check_file() {
   if grep -qiE 'ALTER[[:space:]]+COLUMN[[:space:]].*SET[[:space:]]+NOT[[:space:]]+NULL' <<<"$sql"; then
     if ! grep -qiE 'SET[[:space:]]+NOT[[:space:]]+NULL[^;]*DEFAULT|DEFAULT[^;]*SET[[:space:]]+NOT[[:space:]]+NULL' <<<"$sql"; then
       # Allow if the same statement block also has DEFAULT on a nearby line — best-effort.
-      if ! grep -qiE 'ALTER[[:space:]]+COLUMN' <<<"$sql" | grep -qi 'DEFAULT'; then
+      if ! grep -qiE 'DEFAULT' <<<"$sql"; then
         echo "FAIL [$rel]: SET NOT NULL without DEFAULT breaks currently-deployed writers"
         FAILURES=$((FAILURES + 1))
       fi
