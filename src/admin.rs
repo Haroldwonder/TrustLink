@@ -264,6 +264,21 @@ pub fn set_issuer_metadata(env: &Env, issuer: Address, metadata: IssuerMetadata)
     Ok(())
 }
 
+pub fn set_superseded_by(env: &Env, issuer: Address, replacement: Address) -> Result<(), Error> {
+    issuer.require_auth();
+    Validation::require_issuer(env, &issuer)?;
+    if !Storage::is_issuer(env, &replacement) {
+        return Err(Error::NotFound);
+    }
+    Storage::set_issuer_superseded_by(env, &issuer, &replacement);
+    Events::issuer_superseded(env, &issuer, &replacement);
+    Ok(())
+}
+
+pub fn get_superseded_by(env: &Env, issuer: Address) -> Option<Address> {
+    Storage::get_issuer_superseded_by(env, &issuer)
+}
+
 pub fn get_issuer_stats(env: &Env, issuer: Address) -> IssuerStats {
     Storage::get_issuer_stats(env, &issuer)
 }

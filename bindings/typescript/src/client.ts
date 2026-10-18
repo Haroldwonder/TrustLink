@@ -352,6 +352,18 @@ export class TrustLinkClient {
     return this.simulate("get_issuer_metadata", [addr(issuer)]) as Promise<IssuerMetadata | null>;
   }
 
+  /** Point this registration at its replacement. Owner only. Replacement must be registered. */
+  async setSupersededBy(issuer: Keypair, replacement: string): Promise<string> {
+    validateAddress(replacement);
+    return this.invoke("set_superseded_by", [addr(issuer.publicKey()), addr(replacement)], issuer);
+  }
+
+  /** Return the replacement address for a superseded issuer, or null if not set. */
+  async getSupersededBy(issuer: string): Promise<string | null> {
+    validateAddress(issuer);
+    return this.simulate("get_superseded_by", [addr(issuer)]) as Promise<string | null>;
+  }
+
   /** Return per-issuer statistics. */
   async getIssuerStats(issuer: string): Promise<IssuerStats> {
     validateAddress(issuer);
