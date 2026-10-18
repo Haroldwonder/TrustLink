@@ -644,21 +644,27 @@ TrustLink errors are returned as `Error(Contract, #N)` values. This section cove
 
 ### Error Code Reference
 
-| Code | Name                  | Meaning                                                        | Retryable? |
-|------|-----------------------|----------------------------------------------------------------|------------|
-| `#1` | `AlreadyInitialized`  | `initialize()` was called on an already-initialized contract   | No         |
-| `#2` | `NotInitialized`      | Contract has not been initialized yet                          | No         |
-| `#3` | `Unauthorized`        | Caller is not the admin, a registered issuer, or the subject   | No         |
-| `#4` | `NotFound`            | Attestation ID does not exist                                  | No         |
-| `#5` | `DuplicateAttestation`| An attestation with the same deterministic hash already exists | No         |
-| `#6` | `AlreadyRevoked`      | The attestation has already been revoked                       | No         |
-| `#7` | `Expired`             | The attestation's expiration timestamp has passed              | No         |
-| `#8` | `InvalidThreshold`    | Multi-sig threshold is 0 or exceeds the number of signers      | No         |
-| `#9` | `NotRequiredSigner`   | Cosigner address is not in the proposal's required-signers list| No         |
-| `#10`| `LimitExceeded`       | Issuer or subject has reached the configured attestation limit | No†        |
-| `#11`| `AlreadySigned`       | This issuer has already co-signed the proposal                 | No         |
-| `#12`| `ProposalFinalized`   | The multi-sig proposal has already been activated              | No         |
-| `#13`| `ProposalExpired`     | The 7-day co-signing window elapsed without reaching threshold | No         |
+| Code  | Name                  | Meaning                                                         | Retryable? |
+|-------|-----------------------|-----------------------------------------------------------------|------------|
+| `#1`  | `AlreadyInitialized`  | `initialize()` was called on an already-initialized contract    | No         |
+| `#2`  | `NotInitialized`      | Contract has not been initialized yet                           | No         |
+| `#3`  | `Unauthorized`        | Caller is not the admin, a registered issuer, or the subject    | No         |
+| `#4`  | `NotFound`            | Attestation ID does not exist                                   | No         |
+| `#5`  | `DuplicateAttestation`| An attestation with the same deterministic hash already exists  | No         |
+| `#6`  | `AlreadyRevoked`      | The attestation has already been revoked                        | No         |
+| `#7`  | `Expired`             | The attestation's expiration timestamp has passed               | No         |
+| `#8`  | `InvalidValidFrom`    | The attestation's valid-from timestamp is in the future/invalid | No         |
+| `#9`  | `InvalidExpiration`   | Expiration timestamp is before valid-from timestamp             | No         |
+| `#10` | `MetadataTooLong`     | Metadata length exceeds maximum permitted size                  | No         |
+| `#11` | `InvalidTimestamp`    | Timestamp provided is invalid or malformed                      | No         |
+| `#12` | `InvalidFee`          | Fee amount provided is invalid or insufficient                  | No         |
+| `#13` | `FeeTokenRequired`    | Fee token address is missing or required fee token not provided | No         |
+| `#16` | `InvalidThreshold`    | Multi-sig threshold is 0 or exceeds the number of signers       | No         |
+| `#17` | `NotRequiredSigner`   | Cosigner address is not in the proposal's required-signers list | No         |
+| `#18` | `AlreadySigned`       | This issuer has already co-signed the proposal                  | No         |
+| `#19` | `ProposalFinalized`   | The multi-sig proposal has already been activated               | No         |
+| `#20` | `ProposalExpired`     | The 7-day co-signing window elapsed without reaching threshold  | No         |
+| `#29` | `LimitExceeded`       | Issuer or subject has reached the configured attestation limit  | No†        |
 
 > † `LimitExceeded` is not retryable for the same issuer/subject until the admin raises the limit or stale attestations are revoked.
 
@@ -677,12 +683,18 @@ const TRUSTLINK_ERRORS: Record<
   5:  { name: "DuplicateAttestation", retryable: false, userMessage: "This attestation already exists." },
   6:  { name: "AlreadyRevoked",       retryable: false, userMessage: "This attestation has already been revoked." },
   7:  { name: "Expired",              retryable: false, userMessage: "This attestation has expired. Please renew your verification." },
-  8:  { name: "InvalidThreshold",     retryable: false, userMessage: "The approval threshold is invalid." },
-  9:  { name: "NotRequiredSigner",    retryable: false, userMessage: "Your account is not authorised to co-sign this proposal." },
-  10: { name: "LimitExceeded",        retryable: false, userMessage: "The attestation limit has been reached. Please contact support." },
-  11: { name: "AlreadySigned",        retryable: false, userMessage: "You have already signed this proposal." },
-  12: { name: "ProposalFinalized",    retryable: false, userMessage: "This proposal has already been completed." },
-  13: { name: "ProposalExpired",      retryable: false, userMessage: "The signing window for this proposal has closed." },
+  8:  { name: "InvalidValidFrom",     retryable: false, userMessage: "The valid-from timestamp is invalid." },
+  9:  { name: "InvalidExpiration",    retryable: false, userMessage: "The expiration timestamp is invalid." },
+  10: { name: "MetadataTooLong",      retryable: false, userMessage: "The attestation metadata exceeds the maximum permitted length." },
+  11: { name: "InvalidTimestamp",     retryable: false, userMessage: "The provided timestamp is invalid." },
+  12: { name: "InvalidFee",           retryable: false, userMessage: "The fee provided is invalid." },
+  13: { name: "FeeTokenRequired",     retryable: false, userMessage: "A required fee token was not specified." },
+  16: { name: "InvalidThreshold",     retryable: false, userMessage: "The approval threshold is invalid." },
+  17: { name: "NotRequiredSigner",    retryable: false, userMessage: "Your account is not authorised to co-sign this proposal." },
+  18: { name: "AlreadySigned",        retryable: false, userMessage: "You have already signed this proposal." },
+  19: { name: "ProposalFinalized",    retryable: false, userMessage: "This proposal has already been completed." },
+  20: { name: "ProposalExpired",      retryable: false, userMessage: "The signing window for this proposal has closed." },
+  29: { name: "LimitExceeded",        retryable: false, userMessage: "The attestation limit has been reached. Please contact support." },
 };
 
 interface TrustLinkErrorInfo {
