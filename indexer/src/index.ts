@@ -32,14 +32,6 @@ if (redis) {
   });
 }
 
-const logger = {
-  info: (...args: unknown[]) => console.log(...args),
-  error: (...args: unknown[]) => console.error(...args),
-  debug: (...args: unknown[]) => console.debug(...args),
-};
-
-const requestLogger = (correlationId: string) => logger;
-
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -47,15 +39,6 @@ function readBody(req: IncomingMessage): Promise<string> {
     req.on("end", () => resolve(body));
     req.on("error", reject);
   });
-}
-
-function isAuthorized(req: IncomingMessage): boolean {
-  const apiKey = req.headers["x-api-key"] as string | undefined;
-  const expectedKey = process.env.API_KEY;
-  if (!expectedKey) {
-    return true;
-  }
-  return apiKey === expectedKey;
 }
 
 async function main() {
@@ -77,7 +60,7 @@ async function main() {
   const MAX_DEPTH = Number(process.env.GRAPHQL_MAX_DEPTH ?? 7);
   const MAX_COMPLEXITY = Number(process.env.GRAPHQL_MAX_COMPLEXITY ?? 1000);
   const complexityRule = createComplexityLimitRule(MAX_COMPLEXITY, {
-    onCost: (cost) => logger.debug({ cost }, "graphql query complexity"),
+    onCost: (cost: number) => logger.debug({ cost }, "graphql query complexity"),
   });
 
   const wsServer = new WebSocketServer({ noServer: true });
