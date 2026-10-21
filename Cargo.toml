@@ -10,12 +10,12 @@ rust-version = "1.81"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-soroban-sdk = "21.0.0"
+soroban-sdk = "29.0.1"
 # Pin ed25519-dalek to 2.x for compatibility with soroban-env-host 21.2.1 (#1586)
 ed25519-dalek = "2"
 
 [dev-dependencies]
-soroban-sdk = { version = "21.0.0", features = ["testutils"] }
+soroban-sdk = { version = "29.0.1", features = ["testutils"] }
 proptest = { version = "=1.2.0", default-features = false, features = ["std"] }
 
 
