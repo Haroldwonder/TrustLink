@@ -2014,6 +2014,29 @@ fn test_multisig_expired_proposal_rejected() {
 }
 
 #[test]
+fn test_multisig_cancelled_proposal_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (issuer1, issuer2, issuer3, _, client) = setup_multisig(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "ACCREDITED_INVESTOR");
+
+    let mut required = soroban_sdk::Vec::new(&env);
+    required.push_back(issuer1.clone());
+    required.push_back(issuer2.clone());
+    required.push_back(issuer3.clone());
+
+    let proposal_id = client.propose_attestation(&issuer1, &subject, &claim_type, &required, &2);
+    client.cancel_multisig_proposal(&issuer1, &proposal_id);
+
+    let result = client.try_cosign_attestation(&issuer2, &proposal_id);
+    assert_eq!(result, Err(Ok(types::Error::ProposalCancelled)));
+    assert!(!client.has_valid_claim(&subject, &claim_type));
+    assert!(client.get_multisig_proposal(&proposal_id).cancelled);
+}
+
+#[test]
 fn test_multisig_invalid_threshold_rejected() {
     let env = Env::default();
     env.mock_all_auths();
@@ -3415,6 +3438,21 @@ mod ttl_tests {
         );
     }
 
+    #[test]
+    fn test_initialize_rejects_invalid_ttl_days() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        for bad_days in [0u32, u32::MAX] {
+            let contract_id = env.register_contract(None, TrustLinkContract);
+            let client = TrustLinkContractClient::new(&env, &contract_id);
+            let admin = Address::generate(&env);
+
+            let result = client.try_initialize(&admin, &Some(bad_days));
+            assert_eq!(result, Err(Ok(Error::InvalidTtl)));
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Issuer metadata TTL
     // -------------------------------------------------------------------------
@@ -3571,6 +3609,21 @@ mod request_tests {
         assert_eq!(att.subject, subject);
         assert_eq!(att.claim_type, claim);
         assert!(!att.revoked);
+    }
+
+    #[test]
+    fn test_fulfill_request_audit_entry_references_request_id() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, issuer, subject, client) = setup(&env);
+
+        let claim = String::from_str(&env, "KYC");
+        let req_id = client.request_attestation(&subject, &issuer, &claim);
+        let att_id = client.fulfill_request(&issuer, &req_id, &None);
+
+        let log = client.get_audit_log(&att_id);
+        assert_eq!(log.len(), 1);
+        assert_eq!(log.get(0).unwrap().details, Some(req_id));
     }
 
     #[test]
@@ -10443,6 +10496,28 @@ fn test_contract_config_fields_persistence() {
     let config = client.get_config();
     assert!(config.require_registered_claim_type == false || config.require_registered_claim_type == true);
     assert!(config.metadata_hash_only == false || config.metadata_hash_only == true);
+}
+
+#[test]
+fn test_contract_config_snapshot_tracks_live_fee_and_ttl() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, TrustLinkContract);
+    let client = TrustLinkContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let collector = Address::generate(&env);
+
+    client.initialize(&admin, &Some(45));
+    client.set_require_registered_claim_type(&admin, &true);
+    client.set_fee(&admin, &120_i128, &collector, &None);
+
+    let config = client.get_config();
+    assert_eq!(config.contract_version, String::from_str(&env, "1.0.0"));
+    assert_eq!(config.fee_config.attestation_fee, 120_i128);
+    assert_eq!(config.fee_config.fee_collector, collector);
+    assert_eq!(config.ttl_config.ttl_days, 45);
+    assert!(!config.contract_description.is_empty());
 }
 
 #[test]

@@ -210,6 +210,35 @@ pub struct ContractConfig {
     pub chunk_size: u32,
 }
 
+impl ContractConfig {
+    pub fn default_for(env: &Env) -> Self {
+        let version = crate::storage::Storage::get_version(env)
+            .unwrap_or_else(|| String::from_str(env, "1.0.0"));
+        let description = String::from_str(
+            env,
+            "On-chain attestation and verification system for the Stellar blockchain.",
+        );
+        let fee = crate::storage::Storage::get_fee_config(env).unwrap_or(FeeConfig {
+            attestation_fee: 0,
+            fee_collector: env.current_contract_address(),
+            fee_token: None,
+        });
+        let ttl = crate::storage::Storage::get_ttl_config(env).unwrap_or(TtlConfig { ttl_days: 30 });
+
+        Self {
+            contract_name: String::from_str(env, "TrustLink"),
+            contract_version: version,
+            contract_description: description,
+            fee_config: fee,
+            ttl_config: ttl,
+            require_registered_claim_type: false,
+            metadata_hash_only: false,
+            max_attestations_per_subject: None,
+            chunk_size: 50,
+        }
+    }
+}
+
 /// Status of a registered claim type.
 #[contracttype]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

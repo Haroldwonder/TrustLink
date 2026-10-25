@@ -162,7 +162,8 @@ fn get_ttl_lifetime(env: &Env) -> u32 {
         .instance()
         .get::<StorageKey, TtlConfig>(&StorageKey::TtlConfig)
     {
-        DAY_IN_LEDGERS * config.ttl_days
+        let ttl_days = config.ttl_days.min(crate::constants::MAX_TTL_DAYS).max(1);
+        DAY_IN_LEDGERS.saturating_mul(ttl_days)
     } else {
         DEFAULT_INSTANCE_LIFETIME
     }

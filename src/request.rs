@@ -84,43 +84,28 @@ pub fn fulfill_request(
     crate::attestation::validate_new_attestation_common(env, &issuer, &request.subject, &request.claim_type)?;
     validate_native_expiration(env, expiration)?;
 
-    let attestation_id = Attestation::generate_id(env, &issuer, &request.subject, &request.claim_type, current_time);
-    if Storage::has_attestation(env, &attestation_id) {
-        return Err(Error::DuplicateAttestation);
-    }
-
-    let limits = Storage::get_limits(env);
-    if Storage::get_issuer_attestations(env, &issuer).len() >= limits.max_attestations_per_issuer {
-        return Err(Error::LimitExceeded);
-    }
-    if crate::storage::ChunkedIndex::subject_count(env, &request.subject) >= limits.max_attestations_per_subject {
-        return Err(Error::LimitExceeded);
-    }
-
-    let attestation = Attestation {
-        id: attestation_id.clone(),
-        issuer: issuer.clone(),
-        subject: request.subject.clone(),
-        claim_type: request.claim_type.clone(),
-        timestamp: current_time,
+    let attestation_id = crate::attestation::create_attestation_internal(
+        env,
+        issuer.clone(),
+        request.subject.clone(),
+        request.claim_type.clone(),
         expiration,
-        revoked: false,
-        metadata: None,
-        jurisdiction: None,
-        valid_from: None,
-        origin: AttestationOrigin::Native,
-        source_chain: None,
-        source_tx: None,
-        tags: None,
-        revocation_reason: None,
-        deleted: false,
-        bundle_id: None,
-    };
+        None,
+        None,
+        None,
+        None,
+    )?;
 
-    store_attestation(env, &attestation);
-    // Keep the attestation and its indexes live until expiration.
-    Storage::extend_attestation_ttl_for_expiry(env, &attestation);
-    Events::attestation_created(env, &attestation);
+    Storage::append_audit_entry(
+        env,
+        &attestation_id,
+        &crate::types::AuditEntry {
+            action: crate::types::AuditAction::Created,
+            actor: issuer.clone(),
+            timestamp: current_time,
+            details: Some(request_id.clone()),
+        },
+    );
 
     request.status = RequestStatus::Fulfilled;
     Storage::set_request(env, &request);

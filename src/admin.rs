@@ -19,12 +19,15 @@ pub fn initialize(env: &Env, admin: Address, ttl_days: Option<u32>) -> Result<()
     if Storage::has_admin(env) {
         return Err(Error::AlreadyInitialized);
     }
+    let days = ttl_days.unwrap_or(crate::constants::DEFAULT_TTL_DAYS);
+    if days == 0 || days > crate::constants::MAX_TTL_DAYS {
+        return Err(Error::InvalidTtl);
+    }
     let mut council: AdminCouncil = Vec::new(env);
     council.push_back(admin.clone());
     Storage::set_admin_council(env, &council);
     Storage::set_version(env, &String::from_str(env, "1.0.0"));
     Storage::set_fee_config(env, &FeeConfig { attestation_fee: 0, fee_collector: admin.clone(), fee_token: None });
-    let days = ttl_days.unwrap_or(30);
     Storage::set_ttl_config(env, &TtlConfig { ttl_days: days });
     Events::admin_initialized(env, &admin, env.ledger().timestamp());
     Ok(())
@@ -384,7 +387,12 @@ pub fn set_fee(env: &Env, admin: Address, fee: i128, collector: Address, fee_tok
     if admin == collector {
         return Err(Error::Unauthorized);
     }
-    Storage::set_fee_config(env, &FeeConfig { attestation_fee: fee, fee_collector: collector, fee_token });
+    let fee_config = FeeConfig { attestation_fee: fee, fee_collector: collector.clone(), fee_token };
+    Storage::set_fee_config(env, &fee_config);
+    if let Some(mut config) = Storage::get_contract_config(env) {
+        config.fee_config = fee_config;
+        Storage::set_contract_config(env, &config);
+    }
     Ok(())
 }
 
@@ -456,24 +464,7 @@ pub fn set_require_registered_claim_type(env: &Env, admin: Address, require: boo
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
 
-    let mut config = Storage::get_contract_config(env).unwrap_or_else(|| {
-        ContractConfig {
-            contract_name: soroban_sdk::String::from_str(env, "TrustLink"),
-            contract_version: soroban_sdk::String::from_str(env, "0.1.0"),
-            contract_description: soroban_sdk::String::from_str(env, ""),
-            ttl_config: Storage::get_ttl_config(env).unwrap_or(TtlConfig { ttl_days: 30 }),
-            fee_config: Storage::get_fee_config(env).unwrap_or(FeeConfig {
-                attestation_fee: 0,
-                fee_collector: admin.clone(),
-                fee_token: None,
-            }),
-            require_registered_claim_type: false,
-            metadata_hash_only: false,
-            max_attestations_per_subject: None,
-            chunk_size: 50,
-        }
-    });
-
+    let mut config = Storage::get_contract_config(env).unwrap_or_else(|| ContractConfig::default_for(env));
     config.require_registered_claim_type = require;
     Storage::set_contract_config(env, &config);
     Ok(())
@@ -508,32 +499,11 @@ pub fn set_max_attestations_per_subject(env: &Env, admin: Address, limit: Option
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
 
-    if let Some(mut config) = Storage::get_contract_config(env) {
-        config.max_attestations_per_subject = limit;
-        Storage::set_contract_config(env, &config);
-        Events::max_attestations_per_subject_changed(env, &admin, limit);
-        Ok(())
-    } else {
-        // If no config is stored yet, initialize it with the limit
-        let config = ContractConfig {
-            contract_name: soroban_sdk::String::from_str(env, "TrustLink"),
-            contract_version: soroban_sdk::String::from_str(env, "0.1.0"),
-            contract_description: soroban_sdk::String::from_str(env, ""),
-            ttl_config: Storage::get_ttl_config(env).unwrap_or(TtlConfig { ttl_days: 30 }),
-            fee_config: Storage::get_fee_config(env).unwrap_or(FeeConfig {
-                attestation_fee: 0,
-                fee_collector: admin.clone(),
-                fee_token: None,
-            }),
-            require_registered_claim_type: false,
-            metadata_hash_only: false,
-            max_attestations_per_subject: limit,
-            chunk_size: 50,
-        };
-        Storage::set_contract_config(env, &config);
-        Events::max_attestations_per_subject_changed(env, &admin, limit);
-        Ok(())
-    }
+    let mut config = Storage::get_contract_config(env).unwrap_or_else(|| ContractConfig::default_for(env));
+    config.max_attestations_per_subject = limit;
+    Storage::set_contract_config(env, &config);
+    Events::max_attestations_per_subject_changed(env, &admin, limit);
+    Ok(())
 }
 
 pub fn get_max_attestations_per_subject(env: &Env) -> Option<u32> {
@@ -561,23 +531,23 @@ pub fn set_chunk_size(env: &Env, admin: Address, chunk_size: u32) -> Result<(), 
     if chunk_size == 0 {
         return Err(Error::InvalidChunkSize);
     }
-    let mut config = Storage::get_contract_config(env).unwrap_or_else(|| ContractConfig {
-        contract_name: String::from_str(env, "TrustLink"),
-        contract_version: String::from_str(env, ""),
-        contract_description: String::from_str(env, ""),
-        fee_config: crate::types::FeeConfig {
-            attestation_fee: 0,
-            fee_collector: admin.clone(),
-            fee_token: None,
-        },
-        ttl_config: crate::types::TtlConfig { ttl_days: 30 },
-        require_registered_claim_type: false,
-        metadata_hash_only: false,
-        max_attestations_per_subject: None,
-        chunk_size: 50,
-    });
+    let mut config = Storage::get_contract_config(env).unwrap_or_else(|| ContractConfig::default_for(env));
     config.chunk_size = chunk_size;
     Storage::set_contract_config(env, &config);
+    Ok(())
+}
+
+pub fn set_ttl_days(env: &Env, admin: Address, days: u32) -> Result<(), Error> {
+    admin.require_auth();
+    Validation::require_admin(env, &admin)?;
+    if days == 0 || days > crate::constants::MAX_TTL_DAYS {
+        return Err(Error::InvalidTtl);
+    }
+    Storage::set_ttl_config(env, &TtlConfig { ttl_days: days });
+    if let Some(mut config) = Storage::get_contract_config(env) {
+        config.ttl_config = TtlConfig { ttl_days: days };
+        Storage::set_contract_config(env, &config);
+    }
     Ok(())
 }
 
@@ -1007,28 +977,26 @@ pub fn resolve_dispute(
 /// ensuring backward compatibility with contracts initialised before a
 /// particular config key existed.
 pub fn get_config(env: &Env) -> ContractConfig {
-    if let Some(config) = Storage::get_contract_config(env) {
-        config
-    } else {
-        ContractConfig {
-            contract_name: soroban_sdk::String::from_str(env, "TrustLink"),
-            contract_version: soroban_sdk::String::from_str(env, ""),
-            contract_description: soroban_sdk::String::from_str(
-                env,
-                "On-chain attestation and verification system for the Stellar blockchain.",
-            ),
-            ttl_config: Storage::get_ttl_config(env).unwrap_or(TtlConfig { ttl_days: 30 }),
-            fee_config: Storage::get_fee_config(env).unwrap_or_else(|| FeeConfig {
-                attestation_fee: 0,
-                fee_collector: env.current_contract_address(),
-                fee_token: None,
-            }),
-            require_registered_claim_type: false,
-            metadata_hash_only: false,
-            max_attestations_per_subject: None,
-            chunk_size: get_chunk_size(env),
-        }
+    let mut config = Storage::get_contract_config(env).unwrap_or_else(|| ContractConfig::default_for(env));
+    if let Some(version) = Storage::get_version(env) {
+        config.contract_version = version;
     }
+    if let Some(fee_config) = Storage::get_fee_config(env) {
+        config.fee_config = fee_config;
+    }
+    if let Some(ttl_config) = Storage::get_ttl_config(env) {
+        config.ttl_config = ttl_config;
+    }
+    if config.contract_description.is_empty() {
+        config.contract_description = String::from_str(
+            env,
+            "On-chain attestation and verification system for the Stellar blockchain.",
+        );
+    }
+    if config.chunk_size == 0 {
+        config.chunk_size = get_chunk_size(env);
+    }
+    config
 }
 
 /// Return static contract metadata (name, version, description).

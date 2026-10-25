@@ -10,12 +10,12 @@ rust-version = "1.81"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-soroban-sdk = "21.0.0"
-# Pin ed25519-dalek to 2.x for compatibility with soroban-env-host 21.2.1 (#1586)
-ed25519-dalek = "2"
+soroban-sdk = "=21.7.7"
+# Pin: soroban-env-host 21.x accepts ed25519-dalek >=2, but 3.0 breaks CryptoRng bounds.
+ed25519-dalek = { version = "=2.2.0", default-features = false, features = ["rand_core"] }
 
 [dev-dependencies]
-soroban-sdk = { version = "21.0.0", features = ["testutils"] }
+soroban-sdk = { version = "=21.7.7", features = ["testutils"] }
 proptest = { version = "=1.2.0", default-features = false, features = ["std"] }
 
 

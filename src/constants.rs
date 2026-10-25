@@ -3,6 +3,9 @@
 /// Default TTL for attestations in days.
 pub const DEFAULT_TTL_DAYS: u32 = 30;
 
+/// Maximum contract TTL in days, aligned with network limits.
+pub const MAX_TTL_DAYS: u32 = 180;
+
 /// Seconds in one day.
 pub const SECS_PER_DAY: u64 = 86_400;
 

@@ -286,6 +286,10 @@ impl TrustLinkContract {
         admin::set_fee(&env, admin, fee, collector, fee_token)
     }
 
+    pub fn set_ttl_days(env: Env, admin: Address, days: u32) -> Result<(), Error> {
+        admin::set_ttl_days(&env, admin, days)
+    }
+
     pub fn set_rate_limit(env: Env, admin: Address, min_issuance_interval: u64) -> Result<(), Error> {
         admin::set_rate_limit(&env, admin, min_issuance_interval)
     }
@@ -1177,45 +1181,6 @@ impl TrustLinkContract {
         Events::template_updated(&env, &issuer, &template_id);
         
         Ok(())
-    }
-
-    pub fn get_contract_metadata(env: Env) -> Result<ContractMetadata, Error> {
-        let version = Storage::get_version(&env).ok_or(Error::NotInitialized)?;
-        Ok(ContractMetadata {
-            name: String::from_str(&env, "TrustLink"),
-            version,
-            description: String::from_str(
-                &env,
-                "On-chain attestation and verification system for the Stellar blockchain.",
-            ),
-        })
-    }
-
-    pub fn get_config(env: Env) -> ContractConfig {
-        // Try to get the stored config, or build one with defaults
-        if let Some(config) = Storage::get_contract_config(&env) {
-            config
-        } else {
-            // Provide defaults for backward compatibility
-            ContractConfig {
-                contract_name: String::from_str(&env, "TrustLink"),
-                contract_version: String::from_str(&env, ""),
-                contract_description: String::from_str(
-                    &env,
-                    "On-chain attestation and verification system for the Stellar blockchain.",
-                ),
-                ttl_config: Storage::get_ttl_config(&env).unwrap_or(TtlConfig { ttl_days: 30 }),
-                fee_config: Storage::get_fee_config(&env).unwrap_or_else(|| FeeConfig {
-                    attestation_fee: 0,
-                    fee_collector: env.current_contract_address(),
-                    fee_token: None,
-                }),
-                require_registered_claim_type: false,
-                metadata_hash_only: false,
-                max_attestations_per_subject: None,
-                chunk_size: admin::get_chunk_size(&env),
-            }
-        }
     }
 
     /// Instantiate an attestation from a template, with optional field overrides.

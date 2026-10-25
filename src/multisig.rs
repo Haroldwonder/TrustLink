@@ -146,6 +146,9 @@ pub fn cosign_attestation(env: &Env, issuer: Address, proposal_id: String) -> Re
     Validation::require_not_paused(env)?;
 
     let mut proposal = Storage::get_multisig_proposal(env, &proposal_id)?;
+    if proposal.cancelled {
+        return Err(Error::ProposalCancelled);
+    }
     if proposal.finalized {
         return Err(Error::ProposalFinalized);
     }

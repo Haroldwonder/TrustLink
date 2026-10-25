@@ -57,6 +57,10 @@ pub enum Error {
     ProposalCancelled = 30,
     /// Attestation is in an invalid state (revoked, deleted, or otherwise cannot be transferred).
     InvalidStatus = 31,
+    /// A generic config value was out of range or invalid.
+    InvalidConfigValue = 52,
+    /// The configured TTL is outside the valid range.
+    InvalidTtl = 53,
     /// Dispute has already been raised for this attestation.
     AlreadyDisputed = 31,
     /// Metadata does not match required format or constraints.
