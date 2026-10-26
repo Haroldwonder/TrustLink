@@ -554,8 +554,9 @@ impl TrustLinkContract {
         claim_type: String,
         source_chain: String,
         source_tx: String,
+        expiration: Option<u64>,
     ) -> Result<String, Error> {
-        attestation::bridge_attestation(&env, bridge, subject, claim_type, source_chain, source_tx)
+        attestation::bridge_attestation(&env, bridge, subject, claim_type, source_chain, source_tx, expiration)
     }
 
     pub fn create_attestations_batch(
@@ -1278,23 +1279,4 @@ impl TrustLinkContract {
         Storage::get_template(&env, &issuer, &template_id).ok_or(Error::NotFound)
     }
 
-    /// Get the tier level for an issuer.
-    ///
-    /// # Parameters
-    /// - `issuer` — issuer address to query.
-    ///
-    /// # Returns
-    /// The issuer's current [`IssuerTier`].
-    ///
-    /// # Errors
-    /// - [`Error::NotFound`] — `issuer` is not registered.
-    ///
-    /// # Examples
-    /// ```ignore
-    /// let tier = client.get_issuer_tier(&issuer_address);
-    /// ```
-    pub fn get_issuer_tier(env: Env, issuer: Address) -> Result<IssuerTier, Error> {
-        let metadata = Storage::get_issuer_metadata(&env, &issuer)?;
-        Ok(metadata.tier)
-    }
 }

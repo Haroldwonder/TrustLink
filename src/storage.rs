@@ -289,7 +289,6 @@ impl Storage {
         env.storage().persistent().set(&key, &true);
         env.storage().persistent().extend_ttl(&key, DEFAULT_INSTANCE_LIFETIME, DEFAULT_INSTANCE_LIFETIME);
 
-        // Initialize issuer metadata with Basic tier
         let metadata = crate::types::IssuerMetadata {
             name: String::from_str(env, ""),
             url: String::from_str(env, ""),
@@ -298,6 +297,9 @@ impl Storage {
         let metadata_key = StorageKey::IssuerMetadata(issuer.clone());
         env.storage().persistent().set(&metadata_key, &metadata);
         env.storage().persistent().extend_ttl(&metadata_key, DEFAULT_INSTANCE_LIFETIME, DEFAULT_INSTANCE_LIFETIME);
+        // Explicitly initialise to Basic so get_issuer_tier always returns Some(...)
+        // for a registered issuer — the Some/None distinction mirrors is_issuer.
+        Self::set_issuer_tier(env, issuer, &crate::types::IssuerTier::Basic);
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
         // Maintain ordered IssuerList
         let mut list = Self::get_issuer_list(env);
@@ -315,6 +317,16 @@ impl Storage {
     pub fn remove_issuer(env: &Env, issuer: &Address) {
         env.storage().persistent().remove(&StorageKey::Issuer(issuer.clone()));
         env.storage().persistent().remove(&StorageKey::IssuerMetadata(issuer.clone()));
+        // Clear tier so a re-registered issuer always starts at Basic.
+        env.storage().persistent().remove(&StorageKey::IssuerTier(issuer.clone()));
+        // Clear rate-limit state so stale timestamps don't carry over.
+        env.storage().persistent().remove(&StorageKey::LastIssuanceTime(issuer.clone()));
+        // Clear whitelist mode; subjects whitelisted for this address are
+        // not deleted here (they are per-subject rows) but become unreachable
+        // because is_issuer returns false. An admin can clean them manually.
+        env.storage().persistent().remove(&StorageKey::IssuerWhitelistMode(issuer.clone()));
+        // IssuerStats and IssuerRevocations are intentionally retained for
+        // reputation history: the counts are still meaningful after removal.
     }
 
     /// Get the issuer metadata (tier).
@@ -323,22 +335,6 @@ impl Storage {
             .persistent()
             .get(&StorageKey::IssuerMetadata(issuer.clone()))
             .ok_or(Error::NotFound)
-    }
-
-    /// Set the issuer tier and refresh TTL.
-    pub fn set_issuer_tier(env: &Env, issuer: &Address, tier: IssuerTier) -> Result<(), Error> {
-        if !Self::is_issuer(env, issuer) {
-            return Err(Error::NotFound);
-        }
-
-        let key = StorageKey::IssuerMetadata(issuer.clone());
-        let mut metadata = Self::get_issuer_metadata(env, issuer)?;
-        metadata.tier = tier;
-
-        env.storage().persistent().set(&key, &metadata);
-        env.storage().persistent().extend_ttl(&key, DEFAULT_INSTANCE_LIFETIME, DEFAULT_INSTANCE_LIFETIME);
-
-        Ok(())
     }
 
     pub fn get_issuer_list(env: &Env) -> Vec<Address> {
