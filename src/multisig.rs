@@ -20,16 +20,16 @@ use crate::constants::SECS_PER_DAY;
 use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::{
-    Attestation, AttestationOrigin, Error, IssuerTier, MultiSigProposal,
+    Attestation, AttestationOrigin, AuditAction, AuditEntry, Error, MultiSigProposal,
 };
 use crate::validation::Validation;
 
 /// Create a new multi-sig attestation proposal.
 ///
 /// The proposer is automatically added as the first signer.  All
-/// `required_signers` must be registered issuers.  If the proposer is a
-/// Premium-tier issuer and `claim_type` is `"ACCREDITED_INVESTOR"`, the
-/// attestation is created immediately without going through multi-sig.
+/// `required_signers` must be registered issuers.  Every signer must be
+/// distinct and the list must not exceed `MAX_MULTISIG_SIGNERS` entries.
+/// The `claim_type` is validated before the proposal is stored.
 ///
 /// The proposal TTL is read from the on-chain configurable setting
 /// (defaults to 7 days); use [`set_multisig_ttl`] to change it.
@@ -37,8 +37,12 @@ use crate::validation::Validation;
 /// # Errors
 /// - [`Error::Unauthorized`] — proposer is not a registered issuer.
 /// - [`Error::ContractPaused`] — contract is paused.
-/// - [`Error::InvalidThreshold`] — `threshold` is 0 or exceeds the number of
-///   required signers.
+/// - [`Error::InvalidClaimType`] — `claim_type` is empty, too long, or not
+///   registered when claim-type registration is required.
+/// - [`Error::InvalidThreshold`] — `threshold` is 0, exceeds the number of
+///   required signers, or `required_signers` contains duplicates or exceeds
+///   `MAX_MULTISIG_SIGNERS`.
+/// - [`Error::LimitExceeded`] — `required_signers` exceeds `MAX_MULTISIG_SIGNERS`.
 pub fn propose_attestation(
     env: &Env,
     proposer: Address,
@@ -52,37 +56,26 @@ pub fn propose_attestation(
     Validation::require_not_paused(env)?;
     crate::attestation::validate_new_attestation_common(env, &proposer, &subject, &claim_type)?;
 
-    // Premium-tier fast-path: skip multi-sig for ACCREDITED_INVESTOR claims.
-    let accredited = String::from_str(env, "ACCREDITED_INVESTOR");
-    if claim_type == accredited {
-        if let Some(IssuerTier::Premium) = Storage::get_issuer_tier(env, &proposer) {
-            let timestamp = env.ledger().timestamp();
-            let attestation_id =
-                Attestation::generate_id(env, &proposer, &subject, &claim_type, timestamp);
-            let attestation = Attestation {
-                id: attestation_id.clone(),
-                issuer: proposer.clone(),
-                subject: subject.clone(),
-                claim_type: claim_type.clone(),
-                timestamp,
-                expiration: None,
-                revoked: false,
-                metadata: None,
-                jurisdiction: None,
-                valid_from: None,
-                origin: AttestationOrigin::Native,
-                source_chain: None,
-                source_tx: None,
-                tags: None,
-                revocation_reason: None,
-                deleted: false,
-                bundle_id: None,
-            };
-            store_attestation(env, &attestation);
-            // Keep the attestation and its indexes live until expiration.
-            Storage::extend_attestation_ttl_for_expiry(env, &attestation);
-            Events::attestation_created(env, &attestation);
-            return Ok(attestation_id);
+    // Validate claim type format and registration.
+    Validation::validate_claim_type(&claim_type)?;
+    Validation::require_registered_claim_type(env, &claim_type)?;
+
+    // Enforce upper bound on the signer list to prevent entry-size and
+    // compute-cost issues in cosign_attestation.
+    let signer_count = required_signers.len();
+    if signer_count > crate::constants::MAX_MULTISIG_SIGNERS {
+        return Err(Error::LimitExceeded);
+    }
+
+    // Reject duplicate signers — a proposal with duplicates can never reach
+    // its threshold via distinct co-signers and inflates signer_count.
+    for i in 0..signer_count {
+        let a = required_signers.get(i).unwrap();
+        for j in (i + 1)..signer_count {
+            let b = required_signers.get(j).unwrap();
+            if a == b {
+                return Err(Error::InvalidThreshold);
+            }
         }
     }
 
@@ -91,7 +84,6 @@ pub fn propose_attestation(
         Validation::require_issuer(env, &signer)?;
     }
 
-    let signer_count = required_signers.len();
     if threshold == 0 || threshold > signer_count {
         return Err(Error::InvalidThreshold);
     }
@@ -179,22 +171,34 @@ pub fn cosign_attestation(env: &Env, issuer: Address, proposal_id: String) -> Re
     Events::multisig_cosigned(env, &proposal_id, &issuer, sig_count, proposal.threshold);
 
     if sig_count >= proposal.threshold {
+        // Re-check that the proposer is still a registered issuer at finalization
+        // time; they may have been deregistered between proposal creation and now.
+        Validation::require_issuer(env, &proposal.proposer)?;
+
         proposal.finalized = true;
         Storage::set_multisig_proposal(env, &proposal);
 
+        // Use the current ledger timestamp so the attestation is not backdated
+        // to proposal creation (which could be days earlier).
         let attestation_id = Attestation::generate_id(
             env,
             &proposal.proposer,
             &proposal.subject,
             &proposal.claim_type,
-            proposal.created_at,
+            current_time,
         );
+
+        // Guard against overwriting a direct attestation whose ID collides.
+        if Storage::has_attestation(env, &attestation_id) {
+            return Err(Error::DuplicateAttestation);
+        }
+
         let attestation = Attestation {
             id: attestation_id.clone(),
             issuer: proposal.proposer.clone(),
             subject: proposal.subject.clone(),
             claim_type: proposal.claim_type.clone(),
-            timestamp: proposal.created_at,
+            timestamp: current_time,
             expiration: None,
             revoked: false,
             deleted: false,
@@ -212,6 +216,15 @@ pub fn cosign_attestation(env: &Env, issuer: Address, proposal_id: String) -> Re
         store_attestation(env, &attestation);
         // Keep the attestation and its indexes live until expiration.
         Storage::extend_attestation_ttl_for_expiry(env, &attestation);
+
+        // Write audit entry (matches direct-creation path).
+        Storage::append_audit_entry(env, &attestation_id, &AuditEntry {
+            action: AuditAction::Created,
+            actor: proposal.proposer.clone(),
+            timestamp: current_time,
+            details: None,
+        });
+
         Events::attestation_created(env, &attestation);
         Events::multisig_activated(env, &proposal_id, &attestation_id);
     } else {

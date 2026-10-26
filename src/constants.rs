@@ -21,6 +21,10 @@ pub const MIN_TTL_THRESHOLD: u32 = 7 * DAY_IN_LEDGERS;
 /// Maximum days for expiring attestations query window (issue #945).
 pub const MAX_EXPIRING_WINDOW_DAYS: u32 = 365;
 
+/// Maximum number of required signers in a single multisig proposal.
+/// Prevents per-entry size overflow and unbounded iteration in cosign_attestation.
+pub const MAX_MULTISIG_SIGNERS: u32 = 20;
+
 /// Issue #1579: Maximum allowed expiration days for a template.
 /// Prevents overflow and unreasonable expiration windows.
 pub const MAX_TEMPLATE_EXPIRATION_DAYS: u32 = 10_950; // ~30 years
