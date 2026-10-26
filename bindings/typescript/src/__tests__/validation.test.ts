@@ -88,11 +88,14 @@ describe("validatePositive", () => {
 });
 
 describe("validateAttestationId", () => {
-  it("accepts a non-empty id", () => {
-    expect(() => validateAttestationId("abc123")).not.toThrow();
+  it("accepts legacy and full SHA-256 IDs", () => {
+    expect(() => validateAttestationId("a".repeat(32))).not.toThrow();
+    expect(() => validateAttestationId("b".repeat(64))).not.toThrow();
   });
 
-  it("rejects an empty id", () => {
+  it("rejects malformed IDs", () => {
     expect(() => validateAttestationId("")).toThrow(TrustLinkError);
+    expect(() => validateAttestationId("abc123")).toThrow(TrustLinkError);
+    expect(() => validateAttestationId("A".repeat(32))).toThrow(TrustLinkError);
   });
 });

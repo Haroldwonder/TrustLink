@@ -32,36 +32,15 @@ pub(crate) mod callback {
 }
 
 use soroban_sdk::{contract, contractimpl, Address, Env, String, Vec};
-use types::{Attestation, AttestationStatus, Error, IssuerTier};
-use storage::Storage;
-use events::Events;
-
-/// The TrustLink smart contract.
-///
-/// Provides a shared attestation infrastructure: admins manage a registry of
-/// trusted issuers, issuers create and revoke attestations, and any caller can
-/// verify claims against the registry.
+use crate::events::Events;
+use crate::storage::Storage;
 use crate::types::{
-    AdminCouncil, AttestationBundle, AttestationRequest, AttestationStatus,
-use crate::types::{
-    Attestation, AttestationBundle, AttestationRequest, AttestationStatus, AuditAction, AuditEntry, ClaimTypeInfo,
-    ContractConfig, ContractMetadata, Endorsement, Error, FeeConfig, GlobalStats, HealthStatus,
-    IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, PendingAdminTransfer, RateLimitConfig, RequestStatus,
-    RevocationList, RevocationListFormat, StorageLimits, TtlConfig, ATTESTATION_REQUEST_TTL_SECS, MULTISIG_PROPOSAL_TTL_SECS,
-    AdminCouncil, Attestation, AttestationRequest, AttestationStatus, AttestationTemplate,
-    AttestationVersionSnapshot, AuditAction, AuditEntry, ClaimTypeInfo, CouncilOperation, CouncilProposal,
-    ContractConfig, ContractMetadata, DecayConfig, Delegation, DisputeRecord, Endorsement, Error,
-    ExpirationHook, FeeConfig, GlobalStats, HealthStatus, IssuerMetadata, IssuerStats, IssuerTier,
-    MultiSigProposal, PendingAdminTransfer, RateLimitConfig, RequestStatus, RevocationList,
-    RevocationListFormat, StorageLimits,
-    TtlConfig, ATTESTATION_REQUEST_TTL_SECS, MULTISIG_PROPOSAL_TTL_SECS, SECS_PER_DAY,
     AdminCouncil, Attestation, AttestationBundle, AttestationRequest, AttestationStatus,
-    AttestationTemplate, AttestationVersionSnapshot, AuditEntry, ClaimTypeConstraints,
-    ContractConfig, ContractMetadata, CouncilOperation, CouncilProposal,
-    DecayConfig, Delegation, DisputeRecord, Endorsement, Error, ExpirationHook, FeeConfig,
-    GlobalStats, HealthStatus, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal,
-    PendingAdminTransfer, RateLimitConfig, RequestStatus, RevocationList, RevocationListFormat,
-    StorageLimits, TtlConfig,
+    AttestationTemplate, AttestationVersionSnapshot, AuditAction, AuditEntry, ClaimTypeConstraints,
+    ClaimTypeInfo, ContractConfig, ContractMetadata, CouncilOperation, CouncilProposal, DecayConfig,
+    Delegation, DisputeRecord, Endorsement, Error, ExpirationHook, FeeConfig, GlobalStats,
+    HealthStatus, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, PendingAdminTransfer,
+    RateLimitConfig, RequestStatus, RevocationList, RevocationListFormat, StorageLimits, TtlConfig,
     ATTESTATION_REQUEST_TTL_SECS, MULTISIG_PROPOSAL_TTL_SECS, SECS_PER_DAY,
 };
 
@@ -743,8 +722,10 @@ impl TrustLinkContract {
         issuer: Address,
         claim_type: Option<String>,
         format: RevocationListFormat,
+        start: u32,
+        limit: u32,
     ) -> Result<RevocationList, Error> {
-        query::export_revocation_list(&env, issuer, claim_type, format)
+        query::export_revocation_list(&env, issuer, claim_type, format, start, limit)
     }
 
     #[must_use]

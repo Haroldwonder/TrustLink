@@ -115,6 +115,19 @@ pub struct ClaimTypeIssuanceKey {
     pub claim_type: String,
 }
 
+#[contracttype]
+#[derive(Clone)]
+struct IssuerHistoryChunkKey {
+    issuer: Address,
+    chunk_index: u32,
+}
+
+#[contracttype]
+#[derive(Clone)]
+struct IssuerHistoryLengthKey {
+    issuer: Address,
+}
+
 /// Bundle of infrequently-changed, contract-wide singleton settings, stored
 /// under a single `StorageKey::MiscConfig` entry to stay within the
 /// `#[contracttype]` enum's 50-variant limit.
@@ -428,6 +441,7 @@ impl Storage {
         list.push_back(attestation_id.clone());
         env.storage().persistent().set(&key, &list);
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
+        ChunkedIndex::append_issuer_history(env, issuer, attestation_id);
     }
 
     /// Append multiple attestation IDs to the issuer index in a single write.
@@ -446,6 +460,7 @@ impl Storage {
         }
         env.storage().persistent().set(&key, &list);
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
+        ChunkedIndex::append_issuer_history_bulk(env, issuer, attestation_ids);
     }
 
     pub fn remove_issuer_attestation(env: &Env, issuer: &Address, attestation_id: &String) {
@@ -1611,32 +1626,104 @@ impl ChunkedIndex {
         paginate(env, &ids, start, limit)
     }
 
+    pub fn append_issuer_history(env: &Env, issuer: &Address, id: &String) {
+        let mut ids = Vec::new(env);
+        ids.push_back(id.clone());
+        Self::append_issuer_history_bulk(env, issuer, &ids);
+    }
+
+    pub fn append_issuer_history_bulk(env: &Env, issuer: &Address, ids: &Vec<String>) {
+        if ids.is_empty() {
+            return;
+        }
+        let length_key = IssuerHistoryLengthKey {
+            issuer: issuer.clone(),
+        };
+        let mut length: u32 = env.storage().persistent().get(&length_key).unwrap_or(0);
+        let history_ids = if length == 0 {
+            let legacy = Storage::get_issuer_attestations(env, issuer);
+            if legacy.is_empty() {
+                ids.clone()
+            } else {
+                legacy
+            }
+        } else {
+            ids.clone()
+        };
+        let chunk_size = get_chunk_size(env);
+        let ttl = get_ttl_lifetime(env);
+
+        for id in history_ids.iter() {
+            let chunk_index = length / chunk_size;
+            let chunk_key = IssuerHistoryChunkKey {
+                issuer: issuer.clone(),
+                chunk_index,
+            };
+            let mut chunk: Vec<String> = env
+                .storage()
+                .persistent()
+                .get(&chunk_key)
+                .unwrap_or(Vec::new(env));
+            chunk.push_back(id);
+            env.storage().persistent().set(&chunk_key, &chunk);
+            env.storage().persistent().extend_ttl(&chunk_key, ttl, ttl);
+            length = length.saturating_add(1);
+        }
+
+        env.storage().persistent().set(&length_key, &length);
+        env.storage().persistent().extend_ttl(&length_key, ttl, ttl);
+    }
+
+    pub fn issuer_history_count(env: &Env, issuer: &Address) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&IssuerHistoryLengthKey {
+                issuer: issuer.clone(),
+            })
+            .unwrap_or(0)
+    }
+
+    pub fn get_issuer_history_page(
+        env: &Env,
+        issuer: &Address,
+        start: u32,
+        limit: u32,
+    ) -> Vec<String> {
+        let mut result = Vec::new(env);
+        let total = Self::issuer_history_count(env, issuer);
+        if start >= total || limit == 0 {
+            return result;
+        }
+
+        let end = start.saturating_add(limit).min(total);
+        let chunk_size = get_chunk_size(env);
+        let mut index = start;
+        while index < end {
+            let chunk_index = index / chunk_size;
+            let chunk = env
+                .storage()
+                .persistent()
+                .get::<_, Vec<String>>(&IssuerHistoryChunkKey {
+                    issuer: issuer.clone(),
+                    chunk_index,
+                })
+                .unwrap_or(Vec::new(env));
+            let chunk_end = (chunk_index + 1).saturating_mul(chunk_size).min(end);
+            while index < chunk_end {
+                if let Some(id) = chunk.get(index % chunk_size) {
+                    result.push_back(id);
+                }
+                index += 1;
+            }
+        }
+        result
+    }
+
     pub fn get_subject_all(env: &Env, subject: &Address) -> Vec<String> {
         Self::get_subject_ids(env, subject)
     }
 
     pub fn get_issuer_all(env: &Env, issuer: &Address) -> Vec<String> {
         Self::get_issuer_ids(env, issuer)
-    }
-}
-
-    // -----------------------------------------------------------------------
-    // Bundle operations
-    // -----------------------------------------------------------------------
-
-    pub fn set_bundle(env: &Env, bundle: &AttestationBundle) {
-        env.storage()
-            .persistent()
-            .set(&StorageKey::Bundle(bundle.id.clone()), bundle);
-        env.storage()
-            .persistent()
-            .extend_ttl(&StorageKey::Bundle(bundle.id.clone()), get_ttl_lifetime(env), get_ttl_lifetime(env));
-    }
-
-    pub fn get_bundle(env: &Env, bundle_id: &String) -> Result<AttestationBundle, Error> {
-        env.storage()
-            .persistent()
-            .get(&StorageKey::Bundle(bundle_id.clone()))
-            .ok_or(Error::NotFound)
     }
 }
