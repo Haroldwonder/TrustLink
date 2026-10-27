@@ -61,6 +61,9 @@ Emitted when an attestation's expiration is extended.
 - **Topics in Event:** `(renewed, issuer)`
 - **Data:** `(attestation_id, new_expiration?)`
 
+Both `renew_attestation` and its `update_expiration` compatibility alias emit
+this event and append a `Renewed` audit entry containing the new expiration.
+
 ### `updated`
 Emitted when an attestation's expiration or status is updated.
 

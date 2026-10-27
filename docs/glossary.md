@@ -16,13 +16,13 @@ Contrast with **issuer** (which creates attestations) and **subject** (which is 
 
 ## Attestation
 
-A signed, on-chain record that a trusted **issuer** has made a **claim** about a **subject** address. An attestation is identified by a deterministic 32-character hex ID derived from the issuer address, subject address, claim type, and creation timestamp.
+A signed, on-chain record that a trusted **issuer** has made a **claim** about a **subject** address. An attestation is identified by a deterministic 32-character lowercase hexadecimal ID derived from the issuer address, subject address, claim type, and creation timestamp. Legacy bridge IDs also use 32 characters; request, multi-signature proposal, and bundle IDs use 64 characters.
 
-An attestation can be in one of four states: **Valid**, **Pending**, **Expired**, or **Revoked**. The state is computed at query time from the stored fields and the current ledger timestamp — it is not stored directly.
+An attestation can be in one of four states: **Valid**, **Pending**, **Expired**, or **Revoked**. The state is computed at query time from the stored fields and the current ledger timestamp — it is not stored directly. Status precedence is **Revoked**, then **Pending**, then **Expired**, then **Valid**; revocation remains final even if `valid_from` is in the future or the expiration has passed.
 
 ```
 {
-  id:           String,          // 32-char hex
+  id:           String,          // 32-char lowercase hex
   issuer:       Address,
   subject:      Address,
   claim_type:   String,          // e.g. "KYC_PASSED"
@@ -42,7 +42,7 @@ An attestation can be in one of four states: **Valid**, **Pending**, **Expired**
 
 ## Attestation ID
 
-A deterministic, collision-resistant 32-character hexadecimal string that uniquely identifies an attestation. Derived from a SHA-256 hash of the issuer address, subject address, claim type, and creation timestamp. Because the same issuer can attest the same claim about the same subject more than once (e.g. after the first attestation expires), the timestamp component ensures a fresh ID on each issuance.
+A deterministic, 32-character lowercase hexadecimal string derived from the first 16 bytes of a SHA-256 hash over the issuer address, subject address, claim type, and creation timestamp. Because the same issuer can attest the same claim about the same subject more than once (e.g. after the first attestation expires), the timestamp component ensures a fresh ID on each issuance. IDs are opaque storage keys and remain stable for compatibility.
 
 ---
 

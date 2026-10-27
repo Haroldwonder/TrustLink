@@ -183,7 +183,9 @@ export function validateAttestationId(id: string): void {
   }
 
   const trimmed = id.trim();
-  if (trimmed.length === 0) {
-    throw new TrustLinkError("Attestation ID cannot be empty");
+  if (!/^(?:[0-9a-f]{32}|[0-9a-f]{64})$/.test(trimmed)) {
+    throw new TrustLinkError(
+      "Attestation ID must be 32 or 64 lowercase hexadecimal characters"
+    );
   }
 }

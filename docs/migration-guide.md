@@ -174,7 +174,7 @@ The tables below document all public entry points currently exposed by the contr
 | `revoke_attestation` | `(issuer: Address, attestation_id: String, reason: Option<String>)` | Mark a single attestation as revoked. |
 | `revoke_attestations_batch` | `(issuer: Address, attestation_ids: Vec<String>, reason: Option<String>) → u32` | Revoke multiple attestations in one transaction. Returns the count revoked. |
 | `renew_attestation` | `(issuer: Address, attestation_id: String, new_expiration: Option<u64>)` | Extend the expiration of an existing attestation. |
-| `update_expiration` | `(issuer: Address, attestation_id: String, new_expiration: Option<u64>)` | Alias for `renew_attestation`. |
+| `update_expiration` | `(issuer: Address, attestation_id: String, new_expiration: Option<u64>)` | Compatibility alias for `renew_attestation`; emits `renewed` and appends a `Renewed` audit entry. |
 | `amend_attestation` | `(issuer: Address, attestation_id: String, new_metadata: Option<String>, new_expiration: Option<u64>)` | Update metadata and/or expiration of an existing attestation. Creates a version snapshot. |
 | `transfer_attestation` | `(admin: Address, attestation_id: String, new_issuer: Address)` | Transfer ownership of an attestation to a different issuer. |
 | `request_deletion` | `(subject: Address, attestation_id: String)` | Subject requests deletion of an attestation about them. |
@@ -210,7 +210,7 @@ The tables below document all public entry points currently exposed by the contr
 | `get_issuer_attestation_count` | `(issuer: Address) → u32` | Return the total attestation count issued by an issuer. |
 | `get_expiring_attestations` | `(subject: Address, within_days: u32, start, limit) → Vec<Attestation>` | Return attestations expiring within the given number of days. |
 | `get_issuer_expiring_attestations` | `(issuer: Address, within_days: u32, start, limit) → Vec<Attestation>` | Same, scoped to an issuer's issued attestations. |
-| `export_revocation_list` | `(issuer: Address, start, limit) → Vec<String>` | Export the list of revoked attestation IDs for an issuer. |
+| `export_revocation_list` | `(issuer: Address, claim_type: Option<String>, format: RevocationListFormat, start: u32, limit: u32) → RevocationList` | Public, paginated export of revoked IDs and counts for attestations currently owned by an issuer. |
 | `get_global_stats` | `() → GlobalStats` | Return network-wide aggregate statistics. |
 
 #### Endorsements
