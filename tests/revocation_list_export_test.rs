@@ -34,7 +34,8 @@ fn test_export_revocation_list_empty() {
     let (_, issuer, _, client) = setup(&env);
 
     // Export should return empty list
-    let list = client.export_revocation_list(&issuer, &None, &RevocationListFormat::SimpleList);
+    let list =
+        client.export_revocation_list(&issuer, &None, &RevocationListFormat::SimpleList, &0, &100);
     let list = list.unwrap();
 
     assert_eq!(list.issuer, issuer);
@@ -63,7 +64,8 @@ fn test_export_revocation_list_with_revocations() {
     client.revoke_attestation(&issuer, &id3, &None);
 
     // Export all revocations
-    let list = client.export_revocation_list(&issuer, &None, &RevocationListFormat::SimpleList);
+    let list =
+        client.export_revocation_list(&issuer, &None, &RevocationListFormat::SimpleList, &0, &100);
     let list = list.unwrap();
 
     assert_eq!(list.issuer, issuer);
@@ -97,7 +99,13 @@ fn test_export_revocation_list_by_claim_type() {
     client.revoke_attestation(&issuer, &id_b1, &None);
 
     // Export only KYC revocations
-    let list = client.export_revocation_list(&issuer, &Some(claim_a), &RevocationListFormat::SimpleList);
+    let list = client.export_revocation_list(
+        &issuer,
+        &Some(claim_a),
+        &RevocationListFormat::SimpleList,
+        &0,
+        &100,
+    );
     let list = list.unwrap();
 
     assert_eq!(list.issuer, issuer);
@@ -126,7 +134,8 @@ fn test_export_revocation_list_all_revoked() {
     let id2 = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
     client.revoke_attestation(&issuer, &id2, &None);
 
-    let list = client.export_revocation_list(&issuer, &None, &RevocationListFormat::SimpleList);
+    let list =
+        client.export_revocation_list(&issuer, &None, &RevocationListFormat::SimpleList, &0, &100);
     let list = list.unwrap();
 
     assert_eq!(list.total_attestation_count, 2);
@@ -145,7 +154,8 @@ fn test_export_revocation_list_no_revoked() {
     client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
     client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
 
-    let list = client.export_revocation_list(&issuer, &None, &RevocationListFormat::SimpleList);
+    let list =
+        client.export_revocation_list(&issuer, &None, &RevocationListFormat::SimpleList, &0, &100);
     let list = list.unwrap();
 
     assert_eq!(list.total_attestation_count, 2);
@@ -167,7 +177,8 @@ fn test_export_revocation_list_format_bitstring() {
     client.revoke_attestation(&issuer, &id2, &None);
 
     // Export with bitstring format
-    let list = client.export_revocation_list(&issuer, &None, &RevocationListFormat::Bitstring);
+    let list =
+        client.export_revocation_list(&issuer, &None, &RevocationListFormat::Bitstring, &0, &100);
     let list = list.unwrap();
 
     assert_eq!(list.total_attestation_count, 2);
@@ -187,7 +198,8 @@ fn test_export_revocation_list_timestamp() {
 
     // Export with delay
     env.ledger().with_mut(|l| l.timestamp = initial_time + 100);
-    let list = client.export_revocation_list(&issuer, &None, &RevocationListFormat::SimpleList);
+    let list =
+        client.export_revocation_list(&issuer, &None, &RevocationListFormat::SimpleList, &0, &100);
     let list = list.unwrap();
 
     assert_eq!(list.generated_at, initial_time + 100);
@@ -201,9 +213,91 @@ fn test_export_revocation_list_unauthorized() {
 
     let other = Address::generate(&env);
 
-    // Other user should not be able to export
-    let result = client.export_revocation_list(&other, &None, &RevocationListFormat::SimpleList);
-    assert!(result.is_err());
+    // Export is a public read, including for unregistered issuers.
+    let list =
+        client.export_revocation_list(&other, &None, &RevocationListFormat::SimpleList, &0, &100);
+    assert!(list.unwrap().revoked_attestation_ids.is_empty());
+}
+
+#[test]
+fn test_export_revocation_list_for_removed_issuer() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, subject, client) = setup(&env);
+    let id = client.create_attestation(&issuer, &subject, &kyc(&env), &None, &None, &None);
+    client.revoke_attestation(&issuer, &id, &None);
+    client.remove_issuer(&admin, &issuer);
+
+    let list = client
+        .export_revocation_list(&issuer, &None, &RevocationListFormat::SimpleList, &0, &100)
+        .unwrap();
+    assert_eq!(list.revoked_attestation_ids.len(), 1);
+    assert_eq!(list.revoked_attestation_ids.get(0), Some(id));
+}
+
+#[test]
+fn test_export_revocation_list_paginates_history() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, subject, client) = setup(&env);
+    let first_id = client.create_attestation(&issuer, &subject, &kyc(&env), &None, &None, &None);
+    let second_id = client.create_attestation(&issuer, &subject, &aml(&env), &None, &None, &None);
+
+    let first_page = client
+        .export_revocation_list(&issuer, &None, &RevocationListFormat::SimpleList, &0, &1)
+        .unwrap();
+    let second_page = client
+        .export_revocation_list(&issuer, &None, &RevocationListFormat::SimpleList, &1, &1)
+        .unwrap();
+
+    assert_eq!(first_page.total_attestation_count, 1);
+    assert_eq!(second_page.total_attestation_count, 1);
+    assert_eq!(first_page.revoked_attestation_ids.len(), 0);
+    assert_eq!(second_page.revoked_attestation_ids.len(), 0);
+    assert_ne!(first_id, second_id);
+}
+
+#[test]
+fn test_export_revocation_list_rejects_oversized_page() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, _, client) = setup(&env);
+
+    let result = client.try_export_revocation_list(
+        &issuer,
+        &None,
+        &RevocationListFormat::SimpleList,
+        &0,
+        &101,
+    );
+    assert_eq!(result, Err(Ok(trustlink::types::Error::LimitExceeded)));
+}
+
+#[test]
+fn test_export_revocation_list_excludes_transferred_attestation_from_old_issuer() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, subject, client) = setup(&env);
+    let new_issuer = Address::generate(&env);
+    client.register_issuer(&admin, &new_issuer);
+    let id = client.create_attestation(&issuer, &subject, &kyc(&env), &None, &None, &None);
+    client.transfer_attestation(&admin, &id, &new_issuer);
+
+    let old_issuer_list = client
+        .export_revocation_list(&issuer, &None, &RevocationListFormat::SimpleList, &0, &100)
+        .unwrap();
+    let new_issuer_list = client
+        .export_revocation_list(
+            &new_issuer,
+            &None,
+            &RevocationListFormat::SimpleList,
+            &0,
+            &100,
+        )
+        .unwrap();
+
+    assert_eq!(old_issuer_list.total_attestation_count, 0);
+    assert_eq!(new_issuer_list.total_attestation_count, 1);
 }
 
 #[test]
@@ -224,7 +318,8 @@ fn test_export_revocation_list_after_deletion() {
     // Delete one (without revoking)
     client.request_deletion(&subject, &id1);
 
-    let list = client.export_revocation_list(&issuer, &None, &RevocationListFormat::SimpleList);
+    let list =
+        client.export_revocation_list(&issuer, &None, &RevocationListFormat::SimpleList, &0, &100);
     let list = list.unwrap();
 
     // Deleted attestations should not be included
@@ -257,14 +352,26 @@ fn test_export_revocation_list_multiple_issuers() {
     let id_b = client.create_attestation(&issuer_b, &subject, &claim_type, &None, &None, &None);
 
     // Export for issuer A
-    let list_a = client.export_revocation_list(&issuer_a, &None, &RevocationListFormat::SimpleList);
+    let list_a = client.export_revocation_list(
+        &issuer_a,
+        &None,
+        &RevocationListFormat::SimpleList,
+        &0,
+        &100,
+    );
     let list_a = list_a.unwrap();
     assert_eq!(list_a.total_attestation_count, 1);
     assert_eq!(list_a.revoked_count, 1);
     assert_eq!(list_a.issuer, issuer_a);
 
     // Export for issuer B
-    let list_b = client.export_revocation_list(&issuer_b, &None, &RevocationListFormat::SimpleList);
+    let list_b = client.export_revocation_list(
+        &issuer_b,
+        &None,
+        &RevocationListFormat::SimpleList,
+        &0,
+        &100,
+    );
     let list_b = list_b.unwrap();
     assert_eq!(list_b.total_attestation_count, 1);
     assert_eq!(list_b.revoked_count, 0);

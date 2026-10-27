@@ -5,8 +5,10 @@
 
 ## Context
 
-Every attestation needs a unique, stable identifier so that callers can
-retrieve, revoke, or reference it later. Two broad approaches exist:
+Every record needs a stable identifier so callers can retrieve or reference it.
+TrustLink currently has two compatible ID formats: legacy attestation and
+bridge IDs use 32 lowercase hexadecimal characters, while request, multi-sig
+proposal, and bundle IDs use 64 lowercase hexadecimal characters.
 
 1. **Sequential counter** — maintain a global `u64` counter in storage,
    increment it on each write, and use the resulting integer as the ID.
@@ -22,18 +24,28 @@ querying the chain.
 
 ## Decision
 
-Attestation IDs are the SHA-256 hash of the XDR-serialised concatenation of
-the four fields that uniquely identify an attestation:
+Attestation IDs are derived from the SHA-256 hash of the XDR-serialised
+concatenation of the four fields that uniquely identify an attestation. The
+first 16 hash bytes are hex-encoded, yielding 32 lowercase hexadecimal
+characters:
 
 ```
-id = SHA-256( issuer_xdr || subject_xdr || claim_type_xdr || timestamp_xdr )
+id = hex(SHA-256(issuer_xdr || subject_xdr || claim_type_xdr || timestamp_be)[0..16])
 ```
 
-The hash is hex-encoded to a 64-character `String` for storage and display.
-Bridge attestations extend the input with `source_chain_xdr || source_tx_xdr`
-to remain unique across chains. Multi-sig proposal IDs use the same scheme
-with a `"multisig:"` byte prefix to prevent collisions with regular
-attestation IDs.
+Bridge IDs use the same truncation after hashing the bridge, subject, claim
+type, source chain, source transaction, and big-endian timestamp. These legacy
+formats are retained because IDs are storage keys and are referenced by
+clients and indexers.
+
+Request, multi-sig proposal, and bundle IDs use `Attestation::hash_payload`:
+SHA-256 over a domain prefix (`req:`, `multisig:`, or `bundle:`), XDR-encoded
+fields, and an XDR-encoded timestamp; the full hash is hex-encoded to 64
+lowercase characters. SDK validators accept both lengths while requiring
+lowercase hexadecimal characters.
+
+Any future change to the attestation ID format must use a versioned migration
+or new ID namespace; existing IDs must remain valid and resolvable.
 
 Implementation: [`src/types.rs`](../../src/types.rs) —
 `Attestation::generate_id`, `Attestation::generate_bridge_id`,
@@ -52,14 +64,14 @@ Implementation: [`src/types.rs`](../../src/types.rs) —
 
 **Negative**
 - Two attestations with identical issuer, subject, claim type, and timestamp
-  collide. The contract rejects the second with `DuplicateAttestation`. In
-  practice this is desirable (prevents replay), but it means an issuer cannot
-  issue the same claim type to the same subject twice within the same ledger
-  second.
-- IDs are opaque 64-character hex strings rather than human-readable numbers,
-  which makes manual debugging slightly harder.
+  collide. The contract rejects the second with `DuplicateAttestation`.
+- Attestation and bridge IDs are truncated to 128 bits, unlike the full 256-bit
+  hash used by other ID families. Existing IDs cannot be changed without a
+  storage and client migration.
 
 **Neutral**
-- ID length is fixed at 64 characters regardless of input size.
-- The XDR serialisation format is stable across Soroban SDK versions for the
-  types used (`Address`, `String`, `u64`).
+- ID length is fixed per record family: 32 characters for attestation and
+  bridge IDs, and 64 characters for request, multi-sig proposal, and bundle
+  IDs.
+- Attestation timestamps use raw big-endian bytes; other ID families use
+  XDR-encoded timestamps.

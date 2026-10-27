@@ -734,6 +734,8 @@ pub fn dispute_attestation(
 /// - `issuer` — the issuer address whose revocations to export
 /// - `claim_type` — optional claim type filter (None = all claim types)
 /// - `format` — the desired output format
+/// - `start` — zero-based offset into the issuer's attestation history
+/// - `limit` — maximum number of history entries to inspect
 ///
 /// # Returns
 /// A `RevocationList` containing:
@@ -742,21 +744,23 @@ pub fn dispute_attestation(
 /// - Unix timestamp when this list was generated
 /// - List of revoked attestation IDs
 /// - Optional bitstring encoding when format is Bitstring
-/// - Total attestation count at time of export
+/// - Attestation count included in this page
 /// - Revoked count
 ///
-/// # Errors
-/// Returns `Error::Unauthorized` if the caller is not the issuer or an admin.
-/// Returns `Error::NotFound` if the issuer is not registered.
+/// This is a public read and accepts both registered and former issuers.
+///
 pub fn export_revocation_list(
     env: &Env,
     issuer: Address,
     claim_type: Option<String>,
     format: RevocationListFormat,
+    start: u32,
+    limit: u32,
 ) -> Result<RevocationList, Error> {
-    // Auth check: caller must be issuer or admin
-    issuer.require_auth();
-    Validation::require_issuer(env, &issuer)?;
+    const MAX_PAGE_SIZE: u32 = 100;
+    if limit == 0 || limit > MAX_PAGE_SIZE {
+        return Err(Error::LimitExceeded);
+    }
 
     let current_time = env.ledger().timestamp();
 
@@ -768,6 +772,9 @@ pub fn export_revocation_list(
 
     for attestation_id in attestation_ids.iter() {
         if let Ok(attestation) = Storage::get_attestation(env, &attestation_id) {
+            if attestation.issuer != issuer {
+                continue;
+            }
             // Skip deleted records
             if attestation.deleted {
                 continue;

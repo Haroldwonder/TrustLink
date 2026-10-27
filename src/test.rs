@@ -2619,10 +2619,51 @@ fn test_audit_log_update_expiration_appends_entry() {
     let log = client.get_audit_log(&id);
 
     assert_eq!(log.len(), 2);
+    let updated_entry = log.get(1).unwrap();
+    assert_eq!(updated_entry.action, crate::types::AuditAction::Renewed);
     assert_eq!(
-        log.get(1).unwrap().action,
-        crate::types::AuditAction::Updated
+        updated_entry.details,
+        Some(soroban_sdk::String::from_str(&env, "5184000"))
     );
+}
+
+#[test]
+fn test_renewal_rejects_deleted_attestations_and_expiry_before_valid_from() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(1_000);
+    let (_, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    let pending_id = client.create_attestation_valid_from(
+        &issuer, &subject, &claim_type, &None, &None, &None, &2_000,
+    );
+    let invalid_expiration = client.try_renew_attestation(&issuer, &pending_id, &Some(2_000));
+    assert_eq!(invalid_expiration, Err(Ok(crate::types::Error::InvalidExpiration)));
+
+    let deleted_subject = Address::generate(&env);
+    let deleted_id = client.create_attestation(&issuer, &deleted_subject, &claim_type, &None, &None, &None);
+    client.request_deletion(&deleted_subject, &deleted_id);
+    let deleted_renewal = client.try_renew_attestation(&issuer, &deleted_id, &Some(3_000));
+    assert_eq!(deleted_renewal, Err(Ok(crate::types::Error::InvalidStatus)));
+}
+
+#[test]
+fn test_issuer_history_page_reads_across_chunk_boundary() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, _, client) = setup(&env);
+    let contract_id = client.address.clone();
+
+    env.as_contract(&contract_id, || {
+        let id = String::from_str(&env, "history-id");
+        for _ in 0..51 {
+            crate::storage::Storage::add_issuer_attestation(&env, &issuer, &id);
+        }
+        let page = crate::storage::ChunkedIndex::get_issuer_history_page(&env, &issuer, 49, 3);
+        assert_eq!(page.len(), 2);
+    });
 }
 
 #[test]
@@ -5926,10 +5967,10 @@ mod valid_from_lifecycle {
         assert!(!client.has_valid_claim(&subject, &claim));
     }
 
-    // ── 9. Revoked pending attestation stays Pending (revoked check is after) ─
+    // ── 9. Revocation takes precedence over pending activation ───────────────
 
     #[test]
-    fn test_pending_takes_priority_over_revoked() {
+    fn test_revoked_takes_priority_over_pending() {
         let env = Env::default();
         env.mock_all_auths();
         env.ledger().set_timestamp(1000);
@@ -5944,11 +5985,11 @@ mod valid_from_lifecycle {
         // Revoke while still pending
         client.revoke_attestation(&issuer, &id, &None);
 
-        // get_status checks valid_from first, so it should still be Pending
+        // Revocation permanently takes precedence over future activation.
         assert_eq!(
             client.get_attestation_status(&id),
-            types::AttestationStatus::Pending,
-            "Pending takes priority over Revoked per get_status ordering"
+            types::AttestationStatus::Revoked,
+            "Revoked takes priority over Pending"
         );
     }
 

@@ -747,19 +747,30 @@ export class TrustLinkClient {
    *
    * @param issuer - The issuer address whose revocations to export
    * @param claimType - Optional claim type filter (null = all claim types)
-   * @param format - The desired output format
+    * @param format - The desired output format
+    * @param start - Zero-based offset into the issuer's attestation history
+    * @param limit - Maximum number of history entries to inspect (1-100)
    * @returns RevocationList with revoked IDs and metadata
    */
   async exportRevocationList(
     issuer: string,
     claimType?: string,
     format: RevocationListFormat = RevocationListFormat.SimpleList,
+    start = 0,
+    limit = 100,
   ): Promise<RevocationList> {
     validateAddress(issuer);
+    validateNonNegative(start, "start");
+    validatePositive(limit, "limit");
+    if (limit > 100) {
+      throw new TrustLinkError("Revocation-list page limit cannot exceed 100");
+    }
     return this.simulate("export_revocation_list", [
       addr(issuer),
       optionVal(claimType !== undefined ? str(claimType) : null),
       nativeToScVal(format, { type: "u32" }),
+      u32(start),
+      u32(limit),
     ]) as Promise<RevocationList>;
   }
 }

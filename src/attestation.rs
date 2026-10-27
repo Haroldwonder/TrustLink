@@ -794,8 +794,16 @@ pub fn renew_attestation(
     if attestation.issuer != issuer {
         return Err(Error::Unauthorized);
     }
+    if attestation.deleted {
+        return Err(Error::InvalidStatus);
+    }
     if attestation.revoked {
         return Err(Error::AlreadyRevoked);
+    }
+    if let (Some(expiration), Some(valid_from)) = (new_expiration, attestation.valid_from) {
+        if expiration <= valid_from {
+            return Err(Error::InvalidExpiration);
+        }
     }
 
     attestation.expiration = new_expiration;
@@ -900,30 +908,7 @@ pub fn update_expiration(
     attestation_id: String,
     new_expiration: Option<u64>,
 ) -> Result<(), Error> {
-    issuer.require_auth();
-    Validation::require_issuer(env, &issuer)?;
-    Validation::require_not_paused(env)?;
-    validate_native_expiration(env, new_expiration)?;
-
-    let mut attestation = Storage::get_attestation(env, &attestation_id)?;
-    if attestation.issuer != issuer {
-        return Err(Error::Unauthorized);
-    }
-    if attestation.revoked {
-        return Err(Error::AlreadyRevoked);
-    }
-
-    attestation.expiration = new_expiration;
-    Storage::set_attestation(env, &attestation);
-    Storage::extend_attestation_ttl_for_expiry(env, &attestation);
-    Events::attestation_renewed(env, &attestation_id, &issuer, new_expiration);
-    Storage::append_audit_entry(env, &attestation_id, &AuditEntry {
-        action: AuditAction::Updated,
-        actor: issuer.clone(),
-        timestamp: env.ledger().timestamp(),
-        details: None,
-    });
-    Ok(())
+    renew_attestation(env, issuer, attestation_id, new_expiration)
 }
 
 pub fn transfer_attestation(

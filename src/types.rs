@@ -648,13 +648,13 @@ impl Attestation {
     /// Compute the current validity state. A pending attestation is not usable,
     /// and revocation permanently takes precedence over expiration.
     pub fn get_status(&self, current_time: u64) -> AttestationStatus {
+        if self.revoked {
+            return AttestationStatus::Revoked;
+        }
         if let Some(valid_from) = self.valid_from {
             if current_time < valid_from {
                 return AttestationStatus::Pending;
             }
-        }
-        if self.revoked {
-            return AttestationStatus::Revoked;
         }
         if let Some(expiration) = self.expiration {
             if current_time >= expiration {
