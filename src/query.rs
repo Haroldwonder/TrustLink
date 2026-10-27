@@ -436,7 +436,9 @@ pub fn get_issuer_attestations(env: &Env, issuer: Address, start: u32, limit: u3
 }
 
 pub fn get_issuer_attestation_count(env: &Env, issuer: Address) -> u32 {
-    Storage::get_issuer_attestations(env, &issuer).len()
+    // Use the chunked index so revoked/deleted attestations that have been
+    // removed from it are not counted (fixes the stale flat-list bug).
+    crate::storage::ChunkedIndex::issuer_count(env, &issuer)
 }
 
 pub fn get_valid_claims(env: &Env, subject: Address) -> Vec<String> {
@@ -601,7 +603,8 @@ pub fn get_issuer_expiring_attestations(
     let current_time = env.ledger().timestamp();
     let window_end = current_time + (days_window as u64) * SECS_PER_DAY;
 
-    let attestation_ids = Storage::get_issuer_attestations(env, &issuer);
+    // Use the chunked index so revoked attestations removed from it are excluded.
+    let attestation_ids = crate::storage::ChunkedIndex::get_issuer_all(env, &issuer);
     let mut filtered = Vec::new(env);
 
     for id in attestation_ids.iter() {
@@ -761,13 +764,9 @@ pub fn export_revocation_list(
 
     let current_time = env.ledger().timestamp();
 
-    // The dedicated history index is chunked; fall back for pre-upgrade records.
-    let attestation_ids = if crate::storage::ChunkedIndex::issuer_history_count(env, &issuer) > 0 {
-        crate::storage::ChunkedIndex::get_issuer_history_page(env, &issuer, start, limit)
-    } else {
-        let legacy_history = Storage::get_issuer_attestations(env, &issuer);
-        crate::storage::paginate(env, &legacy_history, start, limit)
-    };
+    // Use the chunked index so revoked attestations removed from it are not
+    // double-counted in the total (fixes stale flat-list divergence).
+    let attestation_ids = crate::storage::ChunkedIndex::get_issuer_all(env, &issuer);
     let mut revoked_ids: Vec<String> = Vec::new(env);
     let mut total_count: u64 = 0;
 

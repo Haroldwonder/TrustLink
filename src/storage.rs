@@ -464,7 +464,23 @@ impl Storage {
     }
 
     pub fn remove_issuer_attestation(env: &Env, issuer: &Address, attestation_id: &String) {
+        // Remove from the chunked index (primary listing path).
         ChunkedIndex::remove_issuer(env, issuer, attestation_id);
+
+        // Also remove from the legacy flat IssuerAttestations list so that the
+        // per-issuer limit check, get_issuer_attestation_count, and the expiring /
+        // revocation-list queries never count revoked attestations.
+        let key = StorageKey::IssuerAttestations(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        let list = Self::get_issuer_attestations(env, issuer);
+        let mut updated = Vec::new(env);
+        for id in list.iter() {
+            if &id != attestation_id {
+                updated.push_back(id);
+            }
+        }
+        env.storage().persistent().set(&key, &updated);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 
     /// Persist `metadata` for `issuer` and refresh its TTL.

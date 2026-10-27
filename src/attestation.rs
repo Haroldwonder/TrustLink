@@ -313,7 +313,8 @@ pub fn create_attestation_internal(
     check_rate_limit(env, &issuer, &claim_type)?;
 
     let limits = Storage::get_limits(env);
-    let issuer_count = Storage::get_issuer_attestations(env, &issuer).len();
+    // Use ChunkedIndex so revoked attestations no longer inflate the count.
+    let issuer_count = crate::storage::ChunkedIndex::issuer_count(env, &issuer);
     if issuer_count >= limits.max_attestations_per_issuer {
         return Err(Error::LimitExceeded);
     }
@@ -452,11 +453,11 @@ pub fn import_attestation(
     validate_import_timestamps(env, timestamp, expiration)?;
 
     let limits = Storage::get_limits(env);
-    let issuer_count = Storage::get_issuer_attestations(env, &issuer).len();
+    let issuer_count = crate::storage::ChunkedIndex::issuer_count(env, &issuer);
     if issuer_count >= limits.max_attestations_per_issuer {
         return Err(Error::LimitExceeded);
     }
-    
+
     // Check optional per-subject limit from ContractConfig if configured
     if let Some(config) = Storage::get_contract_config(env) {
         if let Some(max_per_subject) = config.max_attestations_per_subject {
@@ -531,7 +532,7 @@ pub fn bridge_attestation(
 
     // Check limits before creating attestation
     let limits = Storage::get_limits(env);
-    let issuer_count = Storage::get_issuer_attestations(env, &bridge).len();
+    let issuer_count = crate::storage::ChunkedIndex::issuer_count(env, &bridge);
     if issuer_count >= limits.max_attestations_per_issuer {
         return Err(Error::LimitExceeded);
     }
@@ -625,7 +626,7 @@ pub fn create_attestations_batch(
 
     let timestamp = env.ledger().timestamp();
     let limits = Storage::get_limits(env);
-    let issuer_count = Storage::get_issuer_attestations(env, &issuer).len();
+    let issuer_count = crate::storage::ChunkedIndex::issuer_count(env, &issuer);
     if issuer_count.saturating_add(subjects.len()) > limits.max_attestations_per_issuer {
         return Err(Error::LimitExceeded);
     }
@@ -1164,7 +1165,7 @@ pub fn create_attestation_as_delegate(
     check_rate_limit(env, &delegator, &claim_type)?;
 
     let limits = Storage::get_limits(env);
-    if Storage::get_issuer_attestations(env, &delegator).len() >= limits.max_attestations_per_issuer {
+    if crate::storage::ChunkedIndex::issuer_count(env, &delegator) >= limits.max_attestations_per_issuer {
         return Err(Error::LimitExceeded);
     }
     if crate::storage::ChunkedIndex::subject_count(env, &subject) >= effective_max_attestations_per_subject(env) {
@@ -1283,7 +1284,7 @@ pub fn simulate_create_attestation(
     check_rate_limit(env, &issuer, &claim_type)?;
 
     let limits = Storage::get_limits(env);
-    let issuer_count = Storage::get_issuer_attestations(env, &issuer).len();
+    let issuer_count = crate::storage::ChunkedIndex::issuer_count(env, &issuer);
     if issuer_count >= limits.max_attestations_per_issuer {
         return Err(Error::LimitExceeded);
     }
@@ -1333,7 +1334,7 @@ pub fn create_attestation_bundle(
 
     let timestamp = env.ledger().timestamp();
     let limits = Storage::get_limits(env);
-    let issuer_count = Storage::get_issuer_attestations(env, &issuer).len();
+    let issuer_count = crate::storage::ChunkedIndex::issuer_count(env, &issuer);
     if issuer_count.saturating_add(subjects.len()) > limits.max_attestations_per_issuer {
         return Err(Error::LimitExceeded);
     }
