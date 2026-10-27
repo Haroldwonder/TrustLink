@@ -162,9 +162,13 @@ pub struct GlobalStats {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HealthStatus {
     pub initialized: bool,
-    pub admin_set: bool,
-    pub issuer_count: u64,
+    /// True when the contract is paused and rejecting writes.
+    pub paused: bool,
+    /// Live count from the IssuerList (not the drifting GlobalStats counter).
+    pub issuer_count: u32,
+    pub bridge_count: u32,
     pub total_attestations: u64,
+    pub version: soroban_sdk::String,
 }
 
 /// TTL configuration.

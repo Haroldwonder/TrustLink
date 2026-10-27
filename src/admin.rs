@@ -26,7 +26,7 @@ pub fn initialize(env: &Env, admin: Address, ttl_days: Option<u32>) -> Result<()
     let mut council: AdminCouncil = Vec::new(env);
     council.push_back(admin.clone());
     Storage::set_admin_council(env, &council);
-    Storage::set_version(env, &String::from_str(env, "1.0.0"));
+    Storage::set_version(env, &String::from_str(env, env!("CARGO_PKG_VERSION")));
     Storage::set_fee_config(env, &FeeConfig { attestation_fee: 0, fee_collector: admin.clone(), fee_token: None });
     Storage::set_ttl_config(env, &TtlConfig { ttl_days: days });
     Events::admin_initialized(env, &admin, env.ledger().timestamp());
@@ -791,11 +791,17 @@ pub fn get_version(env: &Env) -> Result<String, Error> {
 pub fn health_check(env: &Env) -> crate::types::HealthStatus {
     let initialized = Storage::has_admin(env);
     let stats = Storage::get_global_stats(env);
+    let issuer_count = Storage::get_issuer_list(env).len();
+    let bridge_count = Storage::get_bridge_list(env).len();
+    let version = Storage::get_version(env)
+        .unwrap_or_else(|| soroban_sdk::String::from_str(env, ""));
     crate::types::HealthStatus {
         initialized,
-        admin_set: initialized,
-        issuer_count: stats.total_issuers,
+        paused: Storage::is_paused(env),
+        issuer_count,
+        bridge_count,
         total_attestations: stats.total_attestations,
+        version,
     }
 }
 

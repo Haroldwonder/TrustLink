@@ -35,7 +35,7 @@ impl MockBridgeContract {
         let client = TrustLinkContractClient::new(&env, &trustlink_contract);
         let bridge = env.current_contract_address();
 
-        client.bridge_attestation(&bridge, &subject, &claim_type, &source_chain, &source_tx)
+        client.bridge_attestation(&bridge, &subject, &claim_type, &source_chain, &source_tx, &None)
     }
 }
 
@@ -1025,7 +1025,7 @@ fn test_bridge_attestation_requires_registered_bridge() {
     client.initialize(&admin, &None);
 
     let result =
-        client.try_bridge_attestation(&bridge, &subject, &claim_type, &source_chain, &source_tx);
+        client.try_bridge_attestation(&bridge, &subject, &claim_type, &source_chain, &source_tx, &None);
 
     assert_eq!(result, Err(Ok(types::Error::Unauthorized)));
 }
@@ -1043,7 +1043,7 @@ fn test_bridge_attestation_stores_source_reference_and_marks_bridged() {
     let source_tx = String::from_str(&env, "0xabc123");
 
     client.register_bridge(&admin, &bridge);
-    let id = client.bridge_attestation(&bridge, &subject, &claim_type, &source_chain, &source_tx);
+    let id = client.bridge_attestation(&bridge, &subject, &claim_type, &source_chain, &source_tx, &None);
 
     let attestation = client.get_attestation(&id);
     assert_eq!(attestation.issuer, bridge);
@@ -1065,7 +1065,7 @@ fn test_bridge_attestation_rejects_source_chain_too_long() {
     let source_tx = String::from_str(&env, "0xabc123");
 
     client.register_bridge(&admin, &bridge);
-    let result = client.try_bridge_attestation(&bridge, &subject, &claim_type, &source_chain, &source_tx);
+    let result = client.try_bridge_attestation(&bridge, &subject, &claim_type, &source_chain, &source_tx, &None);
 
     assert_eq!(result, Err(Ok(types::Error::MetadataTooLong)));
 }
@@ -1086,7 +1086,7 @@ fn test_bridge_attestation_rejects_source_tx_too_long() {
     ); // 129 chars
 
     client.register_bridge(&admin, &bridge);
-    let result = client.try_bridge_attestation(&bridge, &subject, &claim_type, &source_chain, &source_tx);
+    let result = client.try_bridge_attestation(&bridge, &subject, &claim_type, &source_chain, &source_tx, &None);
 
     assert_eq!(result, Err(Ok(types::Error::MetadataTooLong)));
 }
@@ -1104,7 +1104,7 @@ fn test_bridge_attestation_rejects_empty_source_chain() {
     let source_tx = String::from_str(&env, "0xabc123");
 
     client.register_bridge(&admin, &bridge);
-    let result = client.try_bridge_attestation(&bridge, &subject, &claim_type, &source_chain, &source_tx);
+    let result = client.try_bridge_attestation(&bridge, &subject, &claim_type, &source_chain, &source_tx, &None);
 
     assert_eq!(result, Err(Ok(types::Error::InvalidSourceReference)));
 }
@@ -1122,7 +1122,7 @@ fn test_bridge_attestation_rejects_empty_source_tx() {
     let source_tx = String::from_str(&env, "");
 
     client.register_bridge(&admin, &bridge);
-    let result = client.try_bridge_attestation(&bridge, &subject, &claim_type, &source_chain, &source_tx);
+    let result = client.try_bridge_attestation(&bridge, &subject, &claim_type, &source_chain, &source_tx, &None);
 
     assert_eq!(result, Err(Ok(types::Error::InvalidSourceReference)));
 }
@@ -1140,7 +1140,7 @@ fn test_bridge_attestation_emits_event() {
     let source_tx = String::from_str(&env, "0xabc123");
 
     client.register_bridge(&admin, &bridge);
-    client.bridge_attestation(&bridge, &subject, &claim_type, &source_chain, &source_tx);
+    client.bridge_attestation(&bridge, &subject, &claim_type, &source_chain, &source_tx, &None);
 
     let events = env.events().all();
     let (_, topics, data) = events.last().unwrap();
@@ -2837,8 +2837,9 @@ fn test_health_check_before_initialization() {
     let status = client.health_check();
 
     assert!(!status.initialized);
-    assert!(!status.admin_set);
+    assert!(!status.paused);
     assert_eq!(status.issuer_count, 0);
+    assert_eq!(status.bridge_count, 0);
     assert_eq!(status.total_attestations, 0);
 }
 
@@ -2851,8 +2852,9 @@ fn test_health_check_after_operations() {
     // After init + 1 issuer registered by setup()
     let status = client.health_check();
     assert!(status.initialized);
-    assert!(status.admin_set);
+    assert!(!status.paused);
     assert_eq!(status.issuer_count, 1);
+    assert_eq!(status.bridge_count, 0);
     assert_eq!(status.total_attestations, 0);
 
     // Create two attestations
@@ -4918,7 +4920,7 @@ mod pause_tests {
         client.register_bridge(&admin, &bridge);
         client.pause(&admin);
 
-        let result = client.try_bridge_attestation(&bridge, &subject, &claim, &chain, &tx);
+        let result = client.try_bridge_attestation(&bridge, &subject, &claim, &chain, &tx, &None);
         assert_eq!(result, Err(Ok(Error::ContractPaused)));
         assert_eq!(client.get_subject_attestations(&subject, &0, &10).len(), 0);
     }
@@ -12715,7 +12717,7 @@ fn test_issuer_tier_initialized_to_basic() {
     client.register_issuer(&admin, &issuer);
 
     let tier = client.get_issuer_tier(&issuer);
-    assert_eq!(tier, types::IssuerTier::Basic);
+    assert_eq!(tier, Some(types::IssuerTier::Basic));
 }
 
 #[test]
@@ -12732,11 +12734,11 @@ fn test_set_issuer_tier() {
 
     client.set_issuer_tier(&admin, &issuer, types::IssuerTier::Premium);
     let tier = client.get_issuer_tier(&issuer);
-    assert_eq!(tier, types::IssuerTier::Premium);
+    assert_eq!(tier, Some(types::IssuerTier::Premium));
 
     client.set_issuer_tier(&admin, &issuer, types::IssuerTier::Advanced);
     let tier = client.get_issuer_tier(&issuer);
-    assert_eq!(tier, types::IssuerTier::Advanced);
+    assert_eq!(tier, Some(types::IssuerTier::Advanced));
 }
 
 #[test]
@@ -12778,8 +12780,7 @@ fn test_set_issuer_tier_unauthorized() {
 }
 
 #[test]
-#[should_panic(expected = "Error(Contract, #4)")]
-fn test_get_issuer_tier_not_found() {
+fn test_get_issuer_tier_unregistered_returns_none() {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -12790,6 +12791,141 @@ fn test_get_issuer_tier_not_found() {
     client.initialize(&admin);
     // Don't register the issuer
 
-    // Trying to get tier for unregistered issuer should panic NotFound
-    client.get_issuer_tier(&issuer);
+    // get_issuer_tier returns None for an address with no stored tier.
+    assert_eq!(client.get_issuer_tier(&issuer), None);
+}
+
+// ── Issue #1509: bridge revocation and expiry ─────────────────────────────────
+
+#[test]
+fn test_bridge_can_revoke_its_own_attestation() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let source_chain = String::from_str(&env, "ethereum");
+    let source_tx = String::from_str(&env, "0xabc123");
+
+    client.register_bridge(&admin, &bridge);
+    let id = client.bridge_attestation(&bridge, &subject, &claim_type, &source_chain, &source_tx, &None);
+
+    // Bridge should be able to revoke its own bridged attestation
+    client.revoke_attestation(&bridge, &id, &None);
+    let attestation = client.get_attestation(&id);
+    assert!(attestation.revoked);
+}
+
+#[test]
+fn test_bridged_attestation_stores_expiration() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let source_chain = String::from_str(&env, "ethereum");
+    let source_tx = String::from_str(&env, "0xdef456");
+    let expiry: u64 = env.ledger().timestamp() + 86_400 * 30; // 30 days
+
+    client.register_bridge(&admin, &bridge);
+    let id = client.bridge_attestation(&bridge, &subject, &claim_type, &source_chain, &source_tx, &Some(expiry));
+
+    let attestation = client.get_attestation(&id);
+    assert_eq!(attestation.expiration, Some(expiry));
+}
+
+#[test]
+fn test_bridged_attestation_without_expiration_is_none() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let source_chain = String::from_str(&env, "ethereum");
+    let source_tx = String::from_str(&env, "0xghi789");
+
+    client.register_bridge(&admin, &bridge);
+    let id = client.bridge_attestation(&bridge, &subject, &claim_type, &source_chain, &source_tx, &None);
+
+    let attestation = client.get_attestation(&id);
+    assert_eq!(attestation.expiration, None);
+}
+
+// ── Issue #1512: remove_issuer clears tier ────────────────────────────────────
+
+#[test]
+fn test_reregistered_issuer_starts_at_basic_tier() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, issuer, client) = setup(&env);
+
+    // Elevate to Premium
+    client.set_issuer_tier(&admin, &issuer, types::IssuerTier::Premium);
+    assert_eq!(client.get_issuer_tier(&issuer), Some(types::IssuerTier::Premium));
+
+    // Remove the issuer
+    client.remove_issuer(&admin, &issuer);
+
+    // Re-register — IssuerTier key is cleared so it starts at Basic again.
+    client.register_issuer(&admin, &issuer);
+    assert_eq!(client.get_issuer_tier(&issuer), Some(types::IssuerTier::Basic));
+}
+
+// ── Issue #1520: version derives from CARGO_PKG_VERSION ──────────────────────
+
+#[test]
+fn test_initialized_version_equals_cargo_pkg_version() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let (_, client) = create_test_contract(&env);
+    client.initialize(&admin, &None);
+
+    let version = client.get_version();
+    let expected = String::from_str(&env, env!("CARGO_PKG_VERSION"));
+    assert_eq!(version, expected);
+}
+
+// ── Issue #1521: health_check returns paused and accurate issuer_count ────────
+
+#[test]
+fn test_health_check_reflects_paused_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+
+    let status = client.health_check();
+    assert!(!status.paused);
+
+    client.pause(&admin);
+    let status = client.health_check();
+    assert!(status.paused);
+
+    client.unpause(&admin);
+    let status = client.health_check();
+    assert!(!status.paused);
+}
+
+#[test]
+fn test_health_check_issuer_count_reflects_removal() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, issuer, client) = setup(&env);
+
+    let status = client.health_check();
+    assert_eq!(status.issuer_count, 1);
+
+    client.remove_issuer(&admin, &issuer);
+    let status = client.health_check();
+    assert_eq!(status.issuer_count, 0);
 }

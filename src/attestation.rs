@@ -523,12 +523,14 @@ pub fn bridge_attestation(
     claim_type: String,
     source_chain: String,
     source_tx: String,
+    expiration: Option<u64>,
 ) -> Result<String, Error> {
     bridge.require_auth();
     Validation::require_bridge(env, &bridge)?;
     Validation::require_not_paused(env)?;
     validate_new_attestation_common(env, &bridge, &subject, &claim_type)?;
     validate_source_reference(&source_chain, &source_tx)?;
+    validate_native_expiration(env, expiration)?;
 
     // Check limits before creating attestation
     let limits = Storage::get_limits(env);
@@ -567,7 +569,7 @@ pub fn bridge_attestation(
         subject,
         claim_type,
         timestamp,
-        expiration: None,
+        expiration,
         revoked: false,
         deleted: false,
         metadata: None,
@@ -736,7 +738,10 @@ pub fn revoke_attestation(
 ) -> Result<(), Error> {
     issuer.require_auth();
     Validation::require_not_paused(env)?;
-    Validation::require_issuer(env, &issuer)?;
+    // Allow both registered issuers and registered bridges to revoke
+    // attestations they created — bridges could not previously revoke their
+    // own bridged attestations because require_issuer rejected them.
+    Validation::require_authorized_creator(env, &issuer)?;
     validate_reason(&reason)?;
 
     let mut attestation = Storage::get_attestation(env, &attestation_id)?;
