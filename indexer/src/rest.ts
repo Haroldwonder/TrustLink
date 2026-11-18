@@ -285,8 +285,12 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
     };
   }>("/admin/webhook-failures", async (req, reply) => {
     const { status, eventType, limit: limitStr, offset: offsetStr, sort } = req.query;
+    if (offsetStr !== undefined && !/^\d+$/.test(offsetStr)) {
+      reply.code(400);
+      return { error: "Invalid offset: must be a non-negative integer" };
+    }
     const limit = Math.min(parseInt(limitStr ?? "50", 10) || 50, 200);
-    const offset = parseInt(offsetStr ?? "0", 10) || 0;
+    const offset = offsetStr === undefined ? 0 : parseInt(offsetStr, 10);
     const orderBy = sort === "asc" ? "asc" : "desc";
 
     const where: Record<string, unknown> = {};
