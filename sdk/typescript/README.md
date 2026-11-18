@@ -474,6 +474,34 @@ try {
 
 ## Examples
 
+### Webhook Signature Verification
+
+Receivers can verify inbound webhooks from the TrustLink indexer using constant-time HMAC-SHA256 comparison:
+
+```typescript
+import { verifyWebhookSignature } from "@trustlink/sdk";
+import express from "express";
+
+const app = express();
+
+// Ensure raw body is preserved for signature verification
+app.post("/webhook", express.raw({ type: "application/json" }), (req, res) => {
+  const isValid = verifyWebhookSignature(
+    process.env.WEBHOOK_SECRET!,
+    req.body,
+    req.headers
+  );
+
+  if (!isValid) {
+    return res.status(401).send("Invalid webhook signature");
+  }
+
+  const payload = JSON.parse(req.body.toString("utf8"));
+  console.log("Verified event received:", payload.event);
+  res.sendStatus(200);
+});
+```
+
 ### Integration with React
 
 ```typescript

@@ -243,6 +243,45 @@ except TrustLinkError as e:
     print(f"SDK error: {e}")
 ```
 
+## Webhook Signature Verification
+
+TrustLink indexers and notification dispatchers sign outbound webhooks using HMAC-SHA256, sending the 64-character hexadecimal signature in the `x-trustlink-signature` header.
+
+Use `verify_webhook_signature` to prevent spoofing and timing attacks via constant-time signature comparison:
+
+```python
+from fastapi import FastAPI, Request, HTTPException
+from trustlink import verify_webhook_signature
+
+app = FastAPI()
+WEBHOOK_SECRET = "whsec_your_webhook_shared_secret"
+
+@app.post("/webhooks/trustlink")
+async def handle_trustlink_webhook(request: Request):
+    raw_body = await request.body()
+    is_valid = verify_webhook_signature(
+        secret=WEBHOOK_SECRET,
+        raw_body=raw_body,
+        headers=request.headers,
+    )
+    if not is_valid:
+        raise HTTPException(status_code=401, detail="Invalid signature")
+
+    payload = await request.json()
+    print("Received verified event:", payload.get("event"))
+    return {"status": "ok"}
+```
+
+Direct signature string verification is also supported:
+
+```python
+is_valid = verify_webhook_signature(
+    secret=WEBHOOK_SECRET,
+    raw_body=raw_body_bytes_or_str,
+    headers=signature_hex_string,
+)
+```
+
 ## License
 
 MIT

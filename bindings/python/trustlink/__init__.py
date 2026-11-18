@@ -47,6 +47,10 @@ from .bundle_helpers import (
     get_bundle_summary,
     group_attestations_by_bundle,
 )
+from .webhooks import (
+    TRUSTLINK_SIGNATURE_HEADER,
+    verify_webhook_signature,
+)
 
 __version__ = "0.1.0"
 __all__ = [
@@ -89,4 +93,6 @@ __all__ = [
     "verify_bundle_issuer",
     "get_bundle_summary",
     "group_attestations_by_bundle",
+    "TRUSTLINK_SIGNATURE_HEADER",
+    "verify_webhook_signature",
 ]

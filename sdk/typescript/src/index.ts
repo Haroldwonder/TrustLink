@@ -78,3 +78,11 @@ export type {
   TrustLinkVcExtension,
   ToVerifiableCredentialOptions,
 } from "./verifiableCredential.js";
+export {
+  verifyWebhookSignature,
+  TRUSTLINK_SIGNATURE_HEADER,
+} from "./webhooks.js";
+export type {
+  WebhookHeaders,
+  VerifyWebhookSignatureOptions,
+} from "./webhooks.js";
