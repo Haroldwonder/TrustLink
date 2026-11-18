@@ -192,6 +192,9 @@ const client = new TrustLinkClient({
 // Check a single claim type
 await client.hasValidClaim(subject, "KYC_PASSED");
 
+// Batch check multiple subjects for a claim type in a single contract call
+const results = await client.hasValidClaimBatch([subject1, subject2], "KYC_PASSED");
+
 // Check claim from a specific issuer
 await client.hasValidClaimFromIssuer(subject, "KYC_PASSED", issuerAddress);
 

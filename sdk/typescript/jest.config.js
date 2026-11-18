@@ -11,7 +11,7 @@ export default {
       "ts-jest",
       {
         useESM: true,
-        tsconfig: "tsconfig.json",
+        tsconfig: { module: "node16", moduleResolution: "node16", target: "es2020", esModuleInterop: true },
       },
     ],
   },
