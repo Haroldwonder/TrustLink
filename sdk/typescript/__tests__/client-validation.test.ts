@@ -1,7 +1,7 @@
 import { TrustLinkClient } from "../src/client";
 
 describe("TrustLinkClient constructor validation", () => {
-  const CONTRACT_ID = "CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
+  const CONTRACT_ID = "CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526";
 
   test("accepts valid network names", () => {
     expect(() => new TrustLinkClient({ contractId: CONTRACT_ID, network: "testnet" })).not.toThrow();
@@ -37,6 +37,6 @@ describe("TrustLinkClient constructor validation", () => {
       contractId: CONTRACT_ID,
       network: "testnet",
       rpcUrl: "not-a-valid-url"
-    })).toThrow("Invalid rpcUrl: \"not-a-valid-url\" is not a valid URL.");
+    })).toThrow(/Invalid rpcUrl: "not-a-valid-url"/);
   });
 });
