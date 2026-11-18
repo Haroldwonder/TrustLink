@@ -26,6 +26,7 @@ These examples show how to interact with TrustLink from JavaScript/Node.js backe
 | [**anchor-integration/**](anchor-integration/) | Stellar anchor KYC flow | Sequence diagrams and anchor integration patterns |
 | [**issuer-cli/**](issuer-cli/) | Issuer command-line tool | Creating, managing, and revoking attestations |
 | [**freelance-reputation/**](freelance-reputation/) | Marketplace reputation scoring | Endorsement-weighted reputation systems |
+| [**attestation-requests/**](attestation-requests/) | Attestation request lifecycle | Pull-model request flow: request, fulfill, reject, cancel, expiry & cleanup |
 
 ### Reference Applications
 

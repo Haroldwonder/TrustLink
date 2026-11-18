@@ -1,0 +1,14 @@
+{
+  "name": "trustlink-attestation-requests-example",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Runnable example demonstrating TrustLink attestation request lifecycle: request, review, fulfill, reject, cancel, and cleanup",
+  "type": "module",
+  "scripts": {
+    "start": "node flow.ts",
+    "test": "node --test test/flow.test.mjs"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^13.3.0"
+  }
+}
