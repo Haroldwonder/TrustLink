@@ -1,3 +1,4 @@
+import { jest } from "@jest/globals";
 import { scValToNative } from "@stellar/stellar-sdk";
 import { TrustLinkClient } from "../src/client";
 
@@ -9,7 +10,7 @@ describe("TrustLinkClient.getDelegation", () => {
   const CLAIM_TYPE = "KYC_PASSED";
 
   let client: TrustLinkClient;
-  let simulateSpy: jest.SpyInstance;
+  let simulateSpy: ReturnType<typeof jest.spyOn>;
 
   beforeEach(() => {
     client = new TrustLinkClient({ contractId: CONTRACT_ID, network: "testnet" });

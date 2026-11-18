@@ -16,11 +16,11 @@ import {
 describe("Validation functions", () => {
   describe("validateAddress", () => {
     test("accepts valid Stellar addresses (G...)", () => {
-      expect(() => validateAddress("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN")).not.toThrow();
+      expect(() => validateAddress("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA")).not.toThrow();
     });
 
     test("accepts valid contract addresses (C...)", () => {
-      expect(() => validateAddress("CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABCD")).not.toThrow();
+      expect(() => validateAddress("CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")).not.toThrow();
     });
 
     test("rejects invalid address format", () => {

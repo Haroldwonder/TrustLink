@@ -16,7 +16,6 @@ import type {
   AttestationRequest,
   AttestationStatus,
   AuditEntry,
-  ClaimTypeInfo,
   ContractConfig,
   ContractMetadata,
   Delegation,
@@ -28,7 +27,6 @@ import type {
   IssuerStats,
   IssuerTier,
   MultiSigProposal,
-  Network,
   SubjectDataExport,
   Template,
   TrustLinkClientOptions,
@@ -153,34 +151,7 @@ export class TrustLinkClient {
     }, this.retryOptions, this.breaker);
   }
 
-  /**
-   * Build and simulate a write-adjacent call using a given source account,
-   * returning the raw SimulateTransactionResponse for the caller to sign and
-   * submit. Uses the same retry + circuit-breaker path as `simulate()` so
-   * transient RPC failures are handled consistently.
-   *
-   * NOTE: Only the *simulation* is retried here. The actual transaction
-   * submission is left to the caller, which prevents double-submission on retry.
-   */
-  private async simulateForSigning(
-    source: string,
-    method: string,
-    ...args: xdr.ScVal[]
-  ): Promise<SorobanRpc.Api.SimulateTransactionResponse> {
-    return withRetry(async () => {
-      const account = new Account(source, "0");
-      const tx = new TransactionBuilder(account, {
-        fee: BASE_FEE,
-        networkPassphrase: this.networkPassphrase,
-      })
-        .addOperation(this.contract.call(method, ...args))
-        .setTimeout(30)
-        .build();
-      return this.server.simulateTransaction(tx);
-    }, this.retryOptions, this.breaker);
-  }
-
-  private addr(address: string): xdr.ScVal {
+    private addr(address: string): xdr.ScVal {
     return Address.fromString(address).toScVal();
   }
 
@@ -190,10 +161,6 @@ export class TrustLinkClient {
 
   private u32(value: number): xdr.ScVal {
     return nativeToScVal(value, { type: "u32" });
-  }
-
-  private u64(value: bigint): xdr.ScVal {
-    return nativeToScVal(value, { type: "u64" });
   }
 
   private optU64(value: bigint | null | undefined): xdr.ScVal {
@@ -736,6 +703,31 @@ export class TrustLinkClient {
     return this.simulate(
       "has_valid_claim",
       this.addr(subject),
+      this.str(claimType)
+    );
+  }
+
+  /**
+   * Checks if multiple subjects have a valid claim for a given claim type in a single batch call.
+   * @param subjects - Array of Stellar addresses to check.
+   * @param claimType - The claim type to check.
+   * @returns Array of booleans corresponding to each subject in order.
+   * @throws {InvalidAddressError} If any address format is invalid.
+   * @throws {InvalidClaimTypeError} If the claim type format is invalid.
+   * @throws {TypeError} If subjects is not an array.
+   * @throws {NotInitializedError} If the contract has not been initialized.
+   * @throws {TrustLinkError} For other contract errors.
+   */
+  async hasValidClaimBatch(subjects: string[], claimType: string): Promise<boolean[]> {
+    if (!Array.isArray(subjects)) {
+      throw new TypeError("subjects must be an array");
+    }
+    subjects.forEach((s) => validateAddress(s));
+    validateClaimType(claimType);
+    const subjectsVal = xdr.ScVal.scvVec(subjects.map((s) => this.addr(s)));
+    return this.simulate<boolean[]>(
+      "has_valid_claim_batch",
+      subjectsVal,
       this.str(claimType)
     );
   }
