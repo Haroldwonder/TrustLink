@@ -474,6 +474,39 @@ try {
 
 ## Examples
 
+### Subscribing to Attestation Changes (`watchSubject`)
+
+Frontends that display user credentials can react immediately when an attestation is created, revoked, or renewed. The `watchSubject` helper connects to the indexer's GraphQL WebSocket subscriptions, handles reconnects automatically, and gracefully falls back to polling Soroban RPC events if WebSockets are unavailable:
+
+```typescript
+import { TrustLinkClient } from "@trustlink/sdk";
+
+const client = new TrustLinkClient({
+  contractId: "C...",
+  network: "testnet",
+});
+
+// Subscribe to credential updates
+const unsubscribe = client.watchSubject(
+  userAddress,
+  (event) => {
+    console.log(`Attestation event [${event.type}]:`, event.claimType, event.attestationId);
+    if (event.type === "created") {
+      refreshCredentials();
+    } else if (event.type === "revoked") {
+      showRevocationNotice();
+    }
+  },
+  {
+    graphqlUrl: "wss://indexer.trustlink.io/graphql", // Optional: fallback to RPC polling if down
+    pollingIntervalMs: 5000,
+  }
+);
+
+// Unsubscribe when component unmounts
+// unsubscribe();
+```
+
 ### Integration with React
 
 ```typescript
