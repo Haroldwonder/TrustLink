@@ -78,3 +78,11 @@ export type {
   TrustLinkVcExtension,
   ToVerifiableCredentialOptions,
 } from "./verifiableCredential.js";
+export { watchSubject } from "./watchSubject.js";
+export type {
+  SubjectEventType,
+  SubjectAttestationEvent,
+  SubjectWatchCallback,
+  WatchSubjectOptions,
+  UnsubscribeFunction,
+} from "./watchSubject.js";

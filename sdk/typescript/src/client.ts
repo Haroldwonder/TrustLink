@@ -16,7 +16,6 @@ import type {
   AttestationRequest,
   AttestationStatus,
   AuditEntry,
-  ClaimTypeInfo,
   ContractConfig,
   ContractMetadata,
   Delegation,
@@ -28,7 +27,6 @@ import type {
   IssuerStats,
   IssuerTier,
   MultiSigProposal,
-  Network,
   SubjectDataExport,
   Template,
   TrustLinkClientOptions,
@@ -51,6 +49,13 @@ import {
   validatePositive,
   validateNonNegative,
 } from "./validation";
+
+import {
+  watchSubject,
+  type SubjectWatchCallback,
+  type WatchSubjectOptions,
+  type UnsubscribeFunction,
+} from "./watchSubject.js";
 
 const RPC_URLS: Record<string, string> = {
   testnet: "https://soroban-testnet.stellar.org",
@@ -125,7 +130,7 @@ export class TrustLinkClient {
    */
   private async simulate<T>(method: string, ...args: xdr.ScVal[]): Promise<T> {
     return withRetry(async () => {
-      const dummySource = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
+      const dummySource = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
       const account = new Account(dummySource, "0");
 
       const tx = new TransactionBuilder(account, {
@@ -153,34 +158,7 @@ export class TrustLinkClient {
     }, this.retryOptions, this.breaker);
   }
 
-  /**
-   * Build and simulate a write-adjacent call using a given source account,
-   * returning the raw SimulateTransactionResponse for the caller to sign and
-   * submit. Uses the same retry + circuit-breaker path as `simulate()` so
-   * transient RPC failures are handled consistently.
-   *
-   * NOTE: Only the *simulation* is retried here. The actual transaction
-   * submission is left to the caller, which prevents double-submission on retry.
-   */
-  private async simulateForSigning(
-    source: string,
-    method: string,
-    ...args: xdr.ScVal[]
-  ): Promise<SorobanRpc.Api.SimulateTransactionResponse> {
-    return withRetry(async () => {
-      const account = new Account(source, "0");
-      const tx = new TransactionBuilder(account, {
-        fee: BASE_FEE,
-        networkPassphrase: this.networkPassphrase,
-      })
-        .addOperation(this.contract.call(method, ...args))
-        .setTimeout(30)
-        .build();
-      return this.server.simulateTransaction(tx);
-    }, this.retryOptions, this.breaker);
-  }
-
-  private addr(address: string): xdr.ScVal {
+    private addr(address: string): xdr.ScVal {
     return Address.fromString(address).toScVal();
   }
 
@@ -190,10 +168,6 @@ export class TrustLinkClient {
 
   private u32(value: number): xdr.ScVal {
     return nativeToScVal(value, { type: "u32" });
-  }
-
-  private u64(value: bigint): xdr.ScVal {
-    return nativeToScVal(value, { type: "u64" });
   }
 
   private optU64(value: bigint | null | undefined): xdr.ScVal {
@@ -1361,5 +1335,25 @@ export class TrustLinkClient {
         totalAuditEntries: allAuditEntries.length,
       },
     };
+  }
+
+  /**
+   * Subscribes to attestation changes for a subject address.
+   *
+   * Listens for creation, revocation, and renewal events using the indexer's
+   * GraphQL WebSocket subscription, automatically falling back to RPC polling
+   * if unavailable.
+   *
+   * @param subject - Stellar account address of the subject (G...)
+   * @param callback - Function called when an attestation event occurs
+   * @param options - Transport, timing, and reconnect options
+   * @returns An unsubscribe function to cancel listening
+   */
+  watchSubject(
+    subject: string,
+    callback: SubjectWatchCallback,
+    options?: WatchSubjectOptions
+  ): UnsubscribeFunction {
+    return watchSubject(this, subject, callback, options);
   }
 }
