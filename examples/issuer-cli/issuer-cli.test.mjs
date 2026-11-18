@@ -146,7 +146,7 @@ describe("parseCsv", () => {
     assert.equal(rows.length, 1);
     assert.equal(rows[0].claim_type, "KYC_PASSED");
     assert.equal(rows[0].expiry_days, 365);
-    assert.equal(rows[0].metadata, '{"tier":"gold"}');
+    assert.equal(rows[0].metadata, "{tier:gold}");
   });
 
   it("skips rows with an empty address", () => {
@@ -224,9 +224,8 @@ describe("parseActionName", () => {
     assert.equal(parseActionName(42), "42");
   });
 
-  it("handles an empty array by returning 'undefined' string", () => {
-    // Array.length === 0, so raw[0] is undefined → String(undefined)
-    assert.equal(parseActionName([]), "undefined");
+  it("handles an empty array by returning empty string", () => {
+    assert.equal(parseActionName([]), "");
   });
 });
 
@@ -305,5 +304,360 @@ describe("args index helpers", () => {
     // Edge case: same flag name used as a value
     const argv = ["--format", "json", "--output", "--format"];
     assert.equal(getFlagValue(argv, "--format"), "json");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// export attestations (Issue #1755)
+// ---------------------------------------------------------------------------
+
+function escapeCsvField(val) {
+  if (val === null || val === undefined) return "";
+  const str = String(val);
+  if (/[",\n\r]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+function formatAttestationsCsv(attestations) {
+  const header = "id,issuer,subject,claimType,timestamp,expiration,isRevoked,revocationReason,metadata";
+  const rows = attestations.map((att) => {
+    const isRevoked =
+      att.isRevoked != null
+        ? Boolean(att.isRevoked)
+        : att.revoked != null
+        ? Boolean(att.revoked)
+        : false;
+
+    return [
+      escapeCsvField(att.id ?? ""),
+      escapeCsvField(att.issuer ?? ""),
+      escapeCsvField(att.subject ?? ""),
+      escapeCsvField(att.claimType ?? att.claim_type ?? ""),
+      escapeCsvField(att.timestamp != null ? String(att.timestamp) : ""),
+      escapeCsvField(att.expiration != null ? String(att.expiration) : ""),
+      escapeCsvField(isRevoked),
+      escapeCsvField(att.revocationReason ?? att.revocation_reason ?? ""),
+      escapeCsvField(att.metadata ?? ""),
+    ].join(",");
+  });
+  return [header, ...rows].join("\n");
+}
+
+async function fetchIssuerAttestationsRest(baseUrl, issuerAddr, limit = 100, fetchFn = fetch) {
+  const attestations = [];
+  let cursor = null;
+
+  while (true) {
+    const url = new URL(`${baseUrl}/issuers/${encodeURIComponent(issuerAddr)}/attestations`);
+    url.searchParams.set("limit", String(limit));
+    if (cursor) {
+      url.searchParams.set("after", cursor);
+    }
+
+    const res = await fetchFn(url.toString(), {
+      headers: { Accept: "application/json" },
+    });
+
+    if (!res.ok) {
+      throw new Error(`Indexer request failed: ${res.status} ${res.statusText}`);
+    }
+
+    const data = await res.json();
+    const items = Array.isArray(data) ? data : (data.items || []);
+    attestations.push(...items);
+
+    if (data.nextCursor) {
+      cursor = data.nextCursor;
+    } else {
+      break;
+    }
+  }
+
+  return attestations;
+}
+
+describe("export command - escapeCsvField", () => {
+  it("returns empty string for null and undefined", () => {
+    assert.equal(escapeCsvField(null), "");
+    assert.equal(escapeCsvField(undefined), "");
+  });
+
+  it("returns simple strings unchanged", () => {
+    assert.equal(escapeCsvField("hello"), "hello");
+    assert.equal(escapeCsvField("GABC123"), "GABC123");
+  });
+
+  it("converts numbers, booleans, and bigints to strings", () => {
+    assert.equal(escapeCsvField(123), "123");
+    assert.equal(escapeCsvField(true), "true");
+    assert.equal(escapeCsvField(false), "false");
+    assert.equal(escapeCsvField(1700000000n), "1700000000");
+  });
+
+  it("wraps and escapes strings with commas", () => {
+    assert.equal(escapeCsvField("hello, world"), '"hello, world"');
+  });
+
+  it("escapes quotes with double-quotes", () => {
+    assert.equal(escapeCsvField('hello "world"'), '"hello ""world"""');
+  });
+
+  it("wraps strings containing newlines", () => {
+    assert.equal(escapeCsvField("line 1\nline 2"), '"line 1\nline 2"');
+    assert.equal(escapeCsvField("line 1\r\nline 2"), '"line 1\r\nline 2"');
+  });
+});
+
+describe("export command - formatAttestationsCsv", () => {
+  it("generates CSV header when attestation list is empty", () => {
+    const csv = formatAttestationsCsv([]);
+    assert.equal(
+      csv,
+      "id,issuer,subject,claimType,timestamp,expiration,isRevoked,revocationReason,metadata"
+    );
+  });
+
+  it("formats single attestation correctly", () => {
+    const attestations = [
+      {
+        id: "att_001",
+        issuer: "GISSUER123",
+        subject: "GSUBJECT456",
+        claimType: "KYC_PASSED",
+        timestamp: "1700000000",
+        expiration: "1731532800",
+        isRevoked: false,
+        revocationReason: null,
+        metadata: '{"tier":"gold"}',
+      },
+    ];
+
+    const csv = formatAttestationsCsv(attestations);
+    const lines = csv.split("\n");
+    assert.equal(lines.length, 2);
+    assert.equal(
+      lines[0],
+      "id,issuer,subject,claimType,timestamp,expiration,isRevoked,revocationReason,metadata"
+    );
+    assert.equal(
+      lines[1],
+      'att_001,GISSUER123,GSUBJECT456,KYC_PASSED,1700000000,1731532800,false,,"{""tier"":""gold""}"'
+    );
+  });
+
+  it("handles revoked attestations with reason and snake_case fallbacks", () => {
+    const attestations = [
+      {
+        id: "att_002",
+        issuer: "GISSUER123",
+        subject: "GSUBJECT789",
+        claim_type: "SANCTIONS_CHECK",
+        timestamp: 1710000000,
+        expiration: null,
+        revoked: true,
+        revocation_reason: "OFAC match, verified",
+        metadata: null,
+      },
+    ];
+
+    const csv = formatAttestationsCsv(attestations);
+    const lines = csv.split("\n");
+    assert.equal(lines.length, 2);
+    assert.equal(
+      lines[1],
+      'att_002,GISSUER123,GSUBJECT789,SANCTIONS_CHECK,1710000000,,true,"OFAC match, verified",'
+    );
+  });
+
+  it("formats multiple records in order", () => {
+    const attestations = [
+      {
+        id: "att_1",
+        issuer: "GISSUER",
+        subject: "GSUB1",
+        claimType: "KYC",
+        timestamp: "100",
+        expiration: "200",
+        isRevoked: false,
+      },
+      {
+        id: "att_2",
+        issuer: "GISSUER",
+        subject: "GSUB2",
+        claimType: "AML",
+        timestamp: "150",
+        expiration: "250",
+        isRevoked: true,
+        revocationReason: "Manual",
+      },
+    ];
+
+    const csv = formatAttestationsCsv(attestations);
+    const lines = csv.split("\n");
+    assert.equal(lines.length, 3);
+    assert.equal(lines[1], "att_1,GISSUER,GSUB1,KYC,100,200,false,,");
+    assert.equal(lines[2], "att_2,GISSUER,GSUB2,AML,150,250,true,Manual,");
+  });
+});
+
+describe("export command - fetchIssuerAttestationsRest", () => {
+  it("fetches single page when nextCursor is null", async () => {
+    const mockAttestations = [
+      { id: "att_1", issuer: "GABC", subject: "GXYZ", claimType: "KYC" },
+    ];
+
+    const mockFetch = async (url) => {
+      const parsedUrl = new URL(url);
+      assert.equal(parsedUrl.pathname, "/issuers/GABC/attestations");
+      assert.equal(parsedUrl.searchParams.get("limit"), "50");
+      assert.equal(parsedUrl.searchParams.get("after"), null);
+
+      return {
+        ok: true,
+        json: async () => ({
+          items: mockAttestations,
+          nextCursor: null,
+        }),
+      };
+    };
+
+    const result = await fetchIssuerAttestationsRest(
+      "https://indexer.example.com",
+      "GABC",
+      50,
+      mockFetch
+    );
+
+    assert.equal(result.length, 1);
+    assert.deepEqual(result, mockAttestations);
+  });
+
+  it("paginates through multiple pages using nextCursor", async () => {
+    const page1 = [
+      { id: "att_1", claimType: "KYC" },
+      { id: "att_2", claimType: "KYC" },
+    ];
+    const page2 = [
+      { id: "att_3", claimType: "AML" },
+    ];
+
+    const calls = [];
+
+    const mockFetch = async (url) => {
+      const parsedUrl = new URL(url);
+      calls.push({
+        pathname: parsedUrl.pathname,
+        limit: parsedUrl.searchParams.get("limit"),
+        after: parsedUrl.searchParams.get("after"),
+      });
+
+      if (!parsedUrl.searchParams.get("after")) {
+        return {
+          ok: true,
+          json: async () => ({
+            items: page1,
+            nextCursor: "att_2",
+          }),
+        };
+      }
+
+      if (parsedUrl.searchParams.get("after") === "att_2") {
+        return {
+          ok: true,
+          json: async () => ({
+            items: page2,
+            nextCursor: null,
+          }),
+        };
+      }
+
+      throw new Error(`Unexpected cursor: ${parsedUrl.searchParams.get("after")}`);
+    };
+
+    const result = await fetchIssuerAttestationsRest(
+      "https://indexer.example.com",
+      "GISSUER_PAGINATED",
+      2,
+      mockFetch
+    );
+
+    assert.equal(result.length, 3);
+    assert.equal(calls.length, 2);
+    assert.deepEqual(calls[0], {
+      pathname: "/issuers/GISSUER_PAGINATED/attestations",
+      limit: "2",
+      after: null,
+    });
+    assert.deepEqual(calls[1], {
+      pathname: "/issuers/GISSUER_PAGINATED/attestations",
+      limit: "2",
+      after: "att_2",
+    });
+    assert.deepEqual(result, [...page1, ...page2]);
+  });
+
+  it("handles responses formatted as raw array", async () => {
+    const rawArray = [
+      { id: "att_legacy_1", claimType: "KYC" },
+    ];
+
+    const mockFetch = async () => ({
+      ok: true,
+      json: async () => rawArray,
+    });
+
+    const result = await fetchIssuerAttestationsRest(
+      "https://indexer.example.com",
+      "GISSUER",
+      100,
+      mockFetch
+    );
+
+    assert.equal(result.length, 1);
+    assert.deepEqual(result, rawArray);
+  });
+
+  it("throws descriptive error on HTTP failures", async () => {
+    const mockFetch = async () => ({
+      ok: false,
+      status: 404,
+      statusText: "Not Found",
+    });
+
+    await assert.rejects(
+      () =>
+        fetchIssuerAttestationsRest(
+          "https://indexer.example.com",
+          "GNOTFOUND",
+          50,
+          mockFetch
+        ),
+      /Indexer request failed: 404 Not Found/
+    );
+  });
+});
+
+describe("export command - flag parsing", () => {
+  function getFlagValue(argv, flag) {
+    const idx = argv.indexOf(flag);
+    return idx >= 0 ? argv[idx + 1] : null;
+  }
+
+  it("parses export command flags correctly", () => {
+    const argv = ["export", "--issuer", "GABC123", "--format", "csv", "--output", "out.csv", "--limit", "200"];
+    assert.equal(getFlagValue(argv, "--issuer"), "GABC123");
+    assert.equal(getFlagValue(argv, "--format"), "csv");
+    assert.equal(getFlagValue(argv, "--output"), "out.csv");
+    assert.equal(getFlagValue(argv, "--limit"), "200");
+  });
+
+  it("normalizes indexer base url by stripping trailing slash and /graphql", () => {
+    const normalize = (url) => url.replace(/\/graphql\/?$/, "").replace(/\/+$/, "");
+    assert.equal(normalize("http://localhost:3000/graphql"), "http://localhost:3000");
+    assert.equal(normalize("http://localhost:3000/graphql/"), "http://localhost:3000");
+    assert.equal(normalize("http://localhost:3000/"), "http://localhost:3000");
+    assert.equal(normalize("http://localhost:3000"), "http://localhost:3000");
   });
 });
