@@ -216,6 +216,7 @@ pub fn store_attestation(env: &Env, attestation: &Attestation) {
     crate::storage::ChunkedIndex::add_subject(env, &attestation.subject, &attestation.id);
     Storage::add_issuer_attestation(env, &attestation.issuer, &attestation.id);
     crate::storage::ChunkedIndex::add_issuer(env, &attestation.issuer, &attestation.id);
+    Storage::add_issuer_claim_type(env, &attestation.issuer, &attestation.claim_type);
     let mut stats = Storage::get_issuer_stats(env, &attestation.issuer);
     stats.total_issued += 1;
     Storage::set_issuer_stats(env, &attestation.issuer, &stats);
@@ -709,6 +710,7 @@ pub fn create_attestations_batch(
     // Single write: issuer index (replaces N add_issuer_attestation calls).
     Storage::add_issuer_attestations_bulk(env, &issuer, &new_issuer_ids);
     crate::storage::ChunkedIndex::add_issuer_bulk(env, &issuer, &new_issuer_ids);
+    Storage::add_issuer_claim_type(env, &issuer, &claim_type);
 
     // The issuer chunks above were written after the per-attestation extensions,
     // so extend them now to cover the full expiration window.

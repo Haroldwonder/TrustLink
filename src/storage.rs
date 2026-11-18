@@ -32,6 +32,7 @@ pub enum StorageKey {
     Attestation(String),
     SubjectAttestations(Address),
     IssuerAttestations(Address),
+    IssuerClaimTypes(Address),
     SubjectAttestationChunk(Address, u32),
     IssuerAttestationChunk(Address, u32),
     ClaimType(String),
@@ -428,6 +429,31 @@ impl Storage {
 
     pub fn get_issuer_attestations(env: &Env, issuer: &Address) -> Vec<String> {
         env.storage().persistent().get(&StorageKey::IssuerAttestations(issuer.clone())).unwrap_or(Vec::new(env))
+    }
+
+    pub fn get_issuer_claim_types(env: &Env, issuer: &Address) -> Vec<String> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::IssuerClaimTypes(issuer.clone()))
+            .unwrap_or_else(|| Vec::new(env))
+    }
+
+    pub fn add_issuer_claim_type(env: &Env, issuer: &Address, claim_type: &String) {
+        let key = StorageKey::IssuerClaimTypes(issuer.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut list = Self::get_issuer_claim_types(env, issuer);
+        let mut exists = false;
+        for existing in list.iter() {
+            if existing == *claim_type {
+                exists = true;
+                break;
+            }
+        }
+        if !exists {
+            list.push_back(claim_type.clone());
+            env.storage().persistent().set(&key, &list);
+            env.storage().persistent().extend_ttl(&key, ttl, ttl);
+        }
     }
 
     pub fn add_issuer_attestation(env: &Env, issuer: &Address, attestation_id: &String) {
