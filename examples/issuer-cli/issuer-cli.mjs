@@ -15,7 +15,7 @@
 import {
   Contract,
   Networks,
-  SorobanRpc,
+  rpc as SorobanRpc,
   TransactionBuilder,
   Keypair,
   nativeToScVal,
@@ -24,6 +24,7 @@ import {
 } from "@stellar/stellar-sdk";
 import * as fs from "fs";
 import * as path from "path";
+import { fileURLToPath } from "url";
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -638,6 +639,128 @@ async function exportAuditTrail() {
 }
 
 // ---------------------------------------------------------------------------
+// export (Attestations to CSV / JSON)
+// ---------------------------------------------------------------------------
+
+function escapeCsvField(val) {
+  if (val === null || val === undefined) return "";
+  const str = String(val);
+  if (/[",\n\r]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+function formatAttestationsCsv(attestations) {
+  const header = "id,issuer,subject,claimType,timestamp,expiration,isRevoked,revocationReason,metadata";
+  const rows = attestations.map((att) => {
+    const isRevoked =
+      att.isRevoked != null
+        ? Boolean(att.isRevoked)
+        : att.revoked != null
+        ? Boolean(att.revoked)
+        : false;
+
+    return [
+      escapeCsvField(att.id ?? ""),
+      escapeCsvField(att.issuer ?? ""),
+      escapeCsvField(att.subject ?? ""),
+      escapeCsvField(att.claimType ?? att.claim_type ?? ""),
+      escapeCsvField(att.timestamp != null ? String(att.timestamp) : ""),
+      escapeCsvField(att.expiration != null ? String(att.expiration) : ""),
+      escapeCsvField(isRevoked),
+      escapeCsvField(att.revocationReason ?? att.revocation_reason ?? ""),
+      escapeCsvField(att.metadata ?? ""),
+    ].join(",");
+  });
+  return [header, ...rows].join("\n");
+}
+
+async function fetchIssuerAttestationsRest(baseUrl, issuerAddr, limit = 100, fetchFn = fetch) {
+  const attestations = [];
+  let cursor = null;
+
+  while (true) {
+    const url = new URL(`${baseUrl}/issuers/${encodeURIComponent(issuerAddr)}/attestations`);
+    url.searchParams.set("limit", String(limit));
+    if (cursor) {
+      url.searchParams.set("after", cursor);
+    }
+
+    const res = await fetchFn(url.toString(), {
+      headers: { Accept: "application/json" },
+    });
+
+    if (!res.ok) {
+      throw new Error(`Indexer request failed: ${res.status} ${res.statusText}`);
+    }
+
+    const data = await res.json();
+    const items = Array.isArray(data) ? data : (data.items || []);
+    attestations.push(...items);
+
+    if (data.nextCursor) {
+      cursor = data.nextCursor;
+    } else {
+      break;
+    }
+  }
+
+  return attestations;
+}
+
+async function exportAttestations() {
+  required(config.indexerUrl, "INDEXER_URL");
+
+  const issuerIdx = args.indexOf("--issuer");
+  const formatIdx = args.indexOf("--format");
+  const outputIdx = args.indexOf("--output");
+  const limitIdx = args.indexOf("--limit");
+
+  const issuerAddr = issuerIdx !== -1 ? args[issuerIdx + 1] : null;
+  const format = formatIdx !== -1 ? args[formatIdx + 1]?.toLowerCase() : "csv";
+  const outputFile = outputIdx !== -1 ? args[outputIdx + 1] : null;
+  const limit = limitIdx !== -1 ? parseInt(args[limitIdx + 1], 10) : 100;
+
+  if (!issuerAddr) {
+    console.error(
+      "Usage: issuer-cli export --issuer <address> [--format csv|json] [--output <file>] [--limit <n>]"
+    );
+    console.error("Example: issuer-cli export --issuer GABC... --format csv --output attestations.csv");
+    process.exit(1);
+  }
+
+  if (format !== "csv" && format !== "json") {
+    console.error("Invalid format: must be 'csv' or 'json'");
+    process.exit(1);
+  }
+
+  const baseUrl = config.indexerUrl.replace(/\/graphql\/?$/, "").replace(/\/+$/, "");
+
+  console.log(`\nExporting attestations for issuer: ${issuerAddr}`);
+  console.log(`Format: ${format.toUpperCase()}`);
+  console.log(`Fetching attestations from indexer (${baseUrl})...`);
+
+  const attestations = await fetchIssuerAttestationsRest(baseUrl, issuerAddr, limit);
+  console.log(`Found ${attestations.length} attestation(s).`);
+
+  let output;
+  if (format === "csv") {
+    output = formatAttestationsCsv(attestations);
+  } else {
+    output = JSON.stringify(attestations, null, 2);
+  }
+
+  if (outputFile) {
+    fs.writeFileSync(outputFile, output, "utf8");
+    console.log(`✓ Written ${attestations.length} attestations to ${outputFile}`);
+  } else {
+    console.log(output);
+    console.log(`\n✓ Exported ${attestations.length} attestations`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // CSV helpers
 // ---------------------------------------------------------------------------
 
@@ -914,6 +1037,10 @@ Commands:
     Queries attestations from the indexer and fetches audit log entries from
     the contract. Output is JSON (default) or CSV.
 
+  export --issuer <address> [--format csv|json] [--output <file>] [--limit <n>]
+    Export all attestations issued by an address in CSV (default) or JSON format
+    using the indexer /issuers/:address/attestations endpoint with pagination.
+
   bulk-create --file subjects.csv --claim-type <type> [--expiry <days>]
     Batch-create attestations from a CSV file. The CSV must have an 'address'
     column; optional per-row columns: claim_type, expiry_days, metadata.
@@ -947,6 +1074,8 @@ Examples:
   issuer-cli list-proposals
   issuer-cli import GBRPYHIL... KYC_PASSED --source-ref "external-id-123" --expiry 365
   issuer-cli export-audit-trail --issuer GABC... --from 2024-01-01 --to 2024-12-31 --format csv --output audit.csv
+  issuer-cli export --issuer GABC... --format csv --output attestations.csv
+  issuer-cli export --issuer GABC... --format json
   issuer-cli bulk-create --file subjects.csv --claim-type KYC_PASSED --expiry 365
   issuer-cli template create --id kyc-standard --claim-type KYC_PASSED
   issuer-cli template list
@@ -992,6 +1121,9 @@ async function main() {
       case "export-audit-trail":
         await exportAuditTrail();
         break;
+      case "export":
+        await exportAttestations();
+        break;
       case "bulk-create":
         await bulkCreate();
         break;
@@ -1009,4 +1141,17 @@ async function main() {
   }
 }
 
-main();
+export {
+  escapeCsvField,
+  formatAttestationsCsv,
+  fetchIssuerAttestationsRest,
+  exportAttestations,
+  parseCsvLine,
+  parseCsv,
+  parseActionName,
+  main,
+};
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  main();
+}

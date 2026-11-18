@@ -10,6 +10,7 @@ A simple command-line tool for issuers to manage attestations without writing co
 - **Revoke attestations**: Revoke existing attestations with optional reason
 - **Bump TTL**: Permissionlessly extend an attestation's TTL (and related indexes) until its expiration — intended for a keeper job
 - **List issued**: View all attestations issued by this issuer with pagination
+- **Export attestations**: Export all attestations for an issuer to CSV or JSON with automatic pagination
 - **Check claims**: Verify if a subject has a valid claim from this issuer
 
 ## Prerequisites
@@ -34,7 +35,7 @@ export RPC_URL="https://soroban-testnet.stellar.org"
 export NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
 export TRUSTLINK_CONTRACT_ID="CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCN8"
 export ISSUER_SECRET="S..."
-export INDEXER_URL="https://your-indexer.example.com/graphql"  # required for export-audit-trail
+export INDEXER_URL="https://your-indexer.example.com"  # required for export and export-audit-trail
 ```
 
 ## Usage
@@ -315,6 +316,80 @@ Optional flags:
 |------|---------|-------------|
 | `--format csv\|json` | `json` | Output format |
 | `--output <file>` | stdout | Write output to a file instead of stdout |
+
+### Export Attestations
+
+Exports an offline report of all attestations issued by an issuer address to CSV (default) or JSON.
+Queries the indexer REST API endpoint (`GET /issuers/:address/attestations`) and automatically follows cursor pagination until all pages are retrieved.
+
+Requires `INDEXER_URL` to be set (accepts indexer REST base URL or GraphQL URL).
+
+```bash
+node issuer-cli.mjs export \
+  --issuer <address> \
+  [--format csv|json] \
+  [--output <file>] \
+  [--limit <n>]
+```
+
+Examples:
+
+```bash
+# Export to CSV (default) and write to a file
+node issuer-cli.mjs export \
+  --issuer GABC... \
+  --format csv \
+  --output attestations.csv
+
+# Export to stdout as JSON
+node issuer-cli.mjs export \
+  --issuer GABC... \
+  --format json
+
+# Export with custom batch size per page
+node issuer-cli.mjs export \
+  --issuer GABC... \
+  --limit 200 \
+  --output attestations.csv
+```
+
+Output (CSV):
+```csv
+id,issuer,subject,claimType,timestamp,expiration,isRevoked,revocationReason,metadata
+0xabc123...,GABC...,GXYZ...,KYC_PASSED,1700000000,1731532800,false,,"{""tier"":""gold""}"
+0xdef456...,GABC...,GXYZ...,AML_CLEARED,1705000000,,true,"OFAC review",
+```
+
+Output (JSON):
+```json
+[
+  {
+    "id": "0xabc123...",
+    "issuer": "GABC...",
+    "subject": "GXYZ...",
+    "claimType": "KYC_PASSED",
+    "timestamp": "1700000000",
+    "expiration": "1731532800",
+    "isRevoked": false,
+    "revocationReason": null,
+    "metadata": "{\"tier\":\"gold\"}"
+  }
+]
+```
+
+Required flags:
+
+| Flag | Description |
+|------|-------------|
+| `--issuer <address>` | Stellar address of the issuer whose attestations to export |
+
+Optional flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--format csv\|json` | `csv` | Output format (`csv` or `json`) |
+| `--output <file>` | stdout | Write output to a file instead of stdout |
+| `--limit <n>` | `100` | Number of attestations to fetch per page request |
 
 ## Help
 
