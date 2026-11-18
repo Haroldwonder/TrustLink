@@ -104,4 +104,6 @@ pub enum Error {
     ConflictError = 50,
     /// Issue #1567: Attestation cannot be disputed (revoked, expired, etc.).
     InvalidAttestation = 51,
+    /// Claim type has been deprecated; new attestations cannot be issued for it.
+    ClaimTypeDeprecated = 54,
 }
