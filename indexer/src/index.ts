@@ -188,6 +188,11 @@ async function main() {
       wsServer.handleUpgrade(req, socket, head, (ws) => {
         wsServer.emit("connection", ws, req);
       });
+    } else {
+      // Reject WebSocket upgrade requests for any path other than /graphql.
+      // Without this the socket stays open indefinitely, leaking file descriptors.
+      socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+      socket.destroy();
     }
   });
 

@@ -555,15 +555,7 @@ impl Events {
     pub fn claim_type_constraints_updated(env: &Env, claim_type: &String, constraints: &Option<crate::types::ClaimTypeConstraints>) {
         env.events().publish(
             (TOPIC_CLM_CONS, claim_type.clone()),
-            constraints,
+            constraints.clone(),
         );
     }
 }
-
-    pub fn bundle_created(env: &Env, bundle_id: &String, issuer: &Address, count: usize) {
-        const TOPIC_BUNDLE: Symbol = symbol_short!("bundled");
-        env.events().publish(
-            (TOPIC_BUNDLE, issuer.clone()),
-            (bundle_id.clone(), count),
-        );
-    }

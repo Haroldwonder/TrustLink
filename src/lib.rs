@@ -227,19 +227,6 @@ impl TrustLinkContract {
     // Whitelist mode
     // -----------------------------------------------------------------------
 
-    pub fn add_to_whitelist(env: Env, issuer: Address, subject: Address) -> Result<(), Error> {
-        admin::add_to_whitelist(&env, issuer, subject)
-    }
-
-    pub fn remove_from_whitelist(env: Env, issuer: Address, subject: Address) -> Result<(), Error> {
-        admin::remove_from_whitelist(&env, issuer, subject)
-    }
-
-    #[must_use]
-    pub fn is_whitelisted(env: Env, issuer: Address, subject: Address) -> bool {
-        admin::is_whitelisted(&env, issuer, subject)
-    }
-
     #[must_use]
     pub fn is_whitelist_enabled(env: Env, issuer: Address) -> bool {
         admin::is_whitelist_enabled(&env, issuer)
@@ -636,25 +623,6 @@ impl TrustLinkContract {
     }
 
     // -----------------------------------------------------------------------
-    // Bundles
-    // -----------------------------------------------------------------------
-
-    pub fn create_attestation_bundle(
-        env: Env,
-        issuer: Address,
-        subjects: Vec<Address>,
-        claim_type: String,
-        expiration: Option<u64>,
-    ) -> Result<String, Error> {
-        attestation::create_attestation_bundle(&env, issuer, subjects, claim_type, expiration)
-    }
-
-    #[must_use]
-    pub fn is_bundle_valid(env: Env, bundle_id: String) -> Result<bool, Error> {
-        attestation::is_bundle_valid(&env, bundle_id)
-    }
-
-    // -----------------------------------------------------------------------
     // Query
     // -----------------------------------------------------------------------
 
@@ -827,8 +795,8 @@ impl TrustLinkContract {
         query::get_dispute(&env, attestation_id)
     }
 
-    pub fn resolve_dispute(env: Env, resolver: Address, attestation_id: String) -> Result<(), Error> {
-        admin::resolve_dispute(&env, resolver, attestation_id)
+    pub fn resolve_dispute(env: Env, resolver: Address, attestation_id: String, resolution_note: Option<String>) -> Result<(), Error> {
+        admin::resolve_dispute(&env, resolver, attestation_id, resolution_note)
     }
 
     // -----------------------------------------------------------------------
@@ -906,75 +874,11 @@ impl TrustLinkContract {
         request::cleanup_expired_requests(&env, issuer)
     }
 
-    /// Set the TTL (time-to-live) for multisig proposals.
-    ///
-    /// Controls how long a multisig proposal remains valid before expiring.
-    /// The TTL is specified in days and applies only to proposals created
-    /// after this call; existing proposals retain their original expiration.
-    ///
-    /// Default: 7 days.
-    ///
-    /// # Parameters
-    /// - `admin` — current administrator address (must authorize).
-    /// - `days` — TTL in days (1-365, subject to bounds validation once added).
-    ///
-    /// # Errors
-    /// - [`Error::Unauthorized`] — `admin` is not the registered administrator.
-    pub fn set_multisig_ttl(env: Env, admin: Address, days: u32) -> Result<(), Error> {
-        admin.require_auth();
-        Validation::require_admin(&env, &admin)?;
-        Storage::set_multisig_ttl(&env, days);
-        Ok(())
-    }
+    // -----------------------------------------------------------------------
+    // Attestation Templates
+    // -----------------------------------------------------------------------
 
-    /// Cancel an unfinalized multisig proposal.
-    ///
-    /// Only the original proposer may cancel. Cancelled proposals are excluded
-    /// from future `cosign_attestation` calls (returns `ProposalExpired`).
-    ///
-    /// # Errors
-    /// - [`Error::NotFound`] — proposal does not exist.
-    /// - [`Error::Unauthorized`] — caller is not the original proposer.
-    /// - [`Error::ProposalFinalized`] — proposal has already been finalized.
-    /// - [`Error::ProposalCancelled`] — proposal is already cancelled.
-    pub fn cancel_multisig_proposal(
-        env: Env,
-        proposer: Address,
-        proposal_id: String,
-    ) -> Result<(), Error> {
-        proposer.require_auth();
-        Validation::require_not_paused(&env)?;
-
-        let mut proposal = Storage::get_multisig_proposal(&env, &proposal_id)?;
-
-        if proposal.proposer != proposer {
-            return Err(Error::Unauthorized);
-        }
-
-        if proposal.finalized {
-            return Err(Error::ProposalFinalized);
-        }
-
-        if proposal.cancelled {
-            return Err(Error::ProposalCancelled);
-        }
-
-        proposal.cancelled = true;
-        Storage::set_multisig_proposal(&env, &proposal);
-        Events::multisig_cancelled(&env, &proposal_id, &proposer);
-        Ok(())
-    }
-
-    /// List open (unfinalized, unexpired, uncancelled) proposals for a subject.
-    ///
-    /// Returns a paginated slice of proposals where `finalized == false`,
-    /// `cancelled == false`, and `expires_at > now`.
-    ///
-    /// # Parameters
-    /// - `subject` — the subject address whose proposals to query.
-    /// - `start` — zero-based offset into the filtered list.
-    /// - `limit` — maximum number of proposals to return.
-    pub fn list_open_proposals(
+    pub fn create_attestation_from_template(
         env: Env,
         issuer: Address,
         template_id: String,

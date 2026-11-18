@@ -705,3 +705,16 @@ jobs:
         run: |
           npm --prefix conformance install
           npm --prefix conformance test
+
+  # Issue #1686: single named status check that branch protection can require.
+  # Requires both "Check compilation" (check) and "Build and Test" (ci) to pass
+  # before a PR may be merged to main. Add this job name to the branch
+  # protection required-status-checks list in GitHub repository settings.
+  merge-gate:
+    name: Merge Gate
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    needs: [check, ci]
+    steps:
+      - name: All required checks passed
+        run: echo "check and ci jobs passed — merge gate satisfied"
