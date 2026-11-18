@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "TypeScript bindings for the TrustLink on-chain attestation contract",
   "main": "dist/index.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "types": "dist/index.d.ts",
   "files": [
     "dist"
