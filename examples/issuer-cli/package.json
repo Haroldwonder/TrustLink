@@ -6,6 +6,9 @@
   "bin": {
     "issuer-cli": "./issuer-cli.mjs"
   },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "start": "node issuer-cli.mjs",
     "test": "node --test issuer-cli.test.mjs"

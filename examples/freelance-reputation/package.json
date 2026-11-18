@@ -2,6 +2,9 @@
   "name": "trustlink-freelance-reputation-example",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "description": "Freelance marketplace reputation example combining TrustLink endorsements and IssuerTier",
   "type": "module",
   "scripts": {
