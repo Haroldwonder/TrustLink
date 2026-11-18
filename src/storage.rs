@@ -4,14 +4,11 @@
 
 use crate::constants::{DAY_IN_LEDGERS, DEFAULT_INSTANCE_LIFETIME, MAX_AUDIT_LOG_ENTRIES, MAX_VERSION_HISTORY};
 use crate::types::{
-    Attestation, AttestationBundle, AttestationRequest, AuditEntry, ClaimTypeInfo, Endorsement, Error, ExpirationHook,
-    FeeConfig, GlobalStats, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal,
+    AdminCouncil, Attestation, AttestationBundle, AttestationRequest, AttestationTemplate,
+    AttestationVersionSnapshot, AuditEntry, ClaimTypeConstraints, ClaimTypeInfo, CouncilProposal,
+    DecayConfig, Delegation, DisputeRecord, Endorsement, Error, ExpirationHook, FeeConfig,
+    GlobalStats, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, PendingAdminTransfer,
     RateLimitConfig, StorageLimits, TtlConfig,
-    AdminCouncil, Attestation, AttestationRequest, AttestationTemplate, AttestationVersionSnapshot,
-    AuditEntry, ClaimTypeConstraints, ClaimTypeInfo, CouncilProposal, DecayConfig, Delegation,
-    DisputeRecord, Endorsement, Error, ExpirationHook, FeeConfig, GlobalStats, IssuerMetadata,
-    IssuerStats, IssuerTier, MultiSigProposal, PendingAdminTransfer, RateLimitConfig,
-    StorageLimits, TtlConfig,
 };
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
@@ -340,14 +337,6 @@ impl Storage {
         env.storage().persistent().remove(&StorageKey::IssuerWhitelistMode(issuer.clone()));
         // IssuerStats and IssuerRevocations are intentionally retained for
         // reputation history: the counts are still meaningful after removal.
-    }
-
-    /// Get the issuer metadata (tier).
-    pub fn get_issuer_metadata(env: &Env, issuer: &Address) -> Result<IssuerMetadata, Error> {
-        env.storage()
-            .persistent()
-            .get(&StorageKey::IssuerMetadata(issuer.clone()))
-            .ok_or(Error::NotFound)
     }
 
     pub fn get_issuer_list(env: &Env) -> Vec<Address> {
