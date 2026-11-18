@@ -329,6 +329,7 @@ await client.getValidClaimCount(subject);         // non-revoked, non-expired on
 ```typescript
 await client.isIssuer(address);
 await client.getIssuerStats(issuer);       // { total_issued: bigint }
+await client.getIssuerClaimTypes(issuer);  // string[] (unique claim types issued by this issuer)
 await client.getIssuerTier(issuer);        // "Basic" | "Verified" | "Premium" | null
 await client.getIssuerMetadata(issuer);    // { name, url, description } | null
 await client.isBridge(address);

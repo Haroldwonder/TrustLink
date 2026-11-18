@@ -66,20 +66,5 @@
   },
   "peerDependencies": {
     "@stellar/stellar-sdk": ">=12.0.0"
-  },
-  "jest": {
-    "preset": "ts-jest",
-    "testEnvironment": "node",
-    "testMatch": [
-      "**/__tests__/**/*.test.ts"
-    ],
-    "globals": {
-      "ts-jest": {
-        "tsconfig": {
-          "module": "commonjs",
-          "esModuleInterop": true
-        }
-      }
-    }
   }
 }

@@ -12929,3 +12929,45 @@ fn test_health_check_issuer_count_reflects_removal() {
     let status = client.health_check();
     assert_eq!(status.issuer_count, 0);
 }
+
+#[test]
+fn test_get_issuer_claim_types() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_admin, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    // Initially empty
+    let types = client.get_issuer_claim_types(&issuer);
+    assert_eq!(types.len(), 0);
+
+    // Create first attestation for KYC_PASSED
+    let kyc_claim = String::from_str(&env, "KYC_PASSED");
+    client.create_attestation(&issuer, &subject, &kyc_claim, &None, &None);
+
+    let types = client.get_issuer_claim_types(&issuer);
+    assert_eq!(types.len(), 1);
+    assert_eq!(types.get(0).unwrap(), kyc_claim);
+
+    // Create second attestation with same KYC_PASSED claim (should not duplicate)
+    let subject2 = Address::generate(&env);
+    client.create_attestation(&issuer, &subject2, &kyc_claim, &None, &None);
+
+    let types = client.get_issuer_claim_types(&issuer);
+    assert_eq!(types.len(), 1);
+
+    // Create third attestation with different claim type ACCREDITED_INVESTOR
+    let acc_claim = String::from_str(&env, "ACCREDITED_INVESTOR");
+    client.create_attestation(&issuer, &subject, &acc_claim, &None, &None);
+
+    let types = client.get_issuer_claim_types(&issuer);
+    assert_eq!(types.len(), 2);
+    assert!(types.contains(&kyc_claim));
+    assert!(types.contains(&acc_claim));
+
+    // Another issuer should have independent claim types
+    let issuer2 = Address::generate(&env);
+    let types2 = client.get_issuer_claim_types(&issuer2);
+    assert_eq!(types2.len(), 0);
+}

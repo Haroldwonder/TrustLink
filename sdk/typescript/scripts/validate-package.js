@@ -7,8 +7,9 @@
  * Run with: node scripts/validate-package.js
  */
 
-const fs = require('fs');
-const path = require('path');
+import fs from 'fs';
+import path from 'path';
+import { execSync } from 'child_process';
 
 const REQUIRED_FILES = [
   'package.json',
@@ -108,7 +109,7 @@ function validatePackage() {
   // Check package size
   console.log('\n📏 Checking package size...');
   try {
-    const { execSync } = require('child_process');
+    
     const packOutput = execSync('npm pack --dry-run --silent', { encoding: 'utf8' });
     const lines = packOutput.trim().split('\n');
     const sizeLine = lines.find(line => line.includes('package size:'));

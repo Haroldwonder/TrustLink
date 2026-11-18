@@ -16,7 +16,6 @@ import type {
   AttestationRequest,
   AttestationStatus,
   AuditEntry,
-  ClaimTypeInfo,
   ContractConfig,
   ContractMetadata,
   Delegation,
@@ -28,7 +27,6 @@ import type {
   IssuerStats,
   IssuerTier,
   MultiSigProposal,
-  Network,
   SubjectDataExport,
   Template,
   TrustLinkClientOptions,
@@ -153,33 +151,6 @@ export class TrustLinkClient {
     }, this.retryOptions, this.breaker);
   }
 
-  /**
-   * Build and simulate a write-adjacent call using a given source account,
-   * returning the raw SimulateTransactionResponse for the caller to sign and
-   * submit. Uses the same retry + circuit-breaker path as `simulate()` so
-   * transient RPC failures are handled consistently.
-   *
-   * NOTE: Only the *simulation* is retried here. The actual transaction
-   * submission is left to the caller, which prevents double-submission on retry.
-   */
-  private async simulateForSigning(
-    source: string,
-    method: string,
-    ...args: xdr.ScVal[]
-  ): Promise<SorobanRpc.Api.SimulateTransactionResponse> {
-    return withRetry(async () => {
-      const account = new Account(source, "0");
-      const tx = new TransactionBuilder(account, {
-        fee: BASE_FEE,
-        networkPassphrase: this.networkPassphrase,
-      })
-        .addOperation(this.contract.call(method, ...args))
-        .setTimeout(30)
-        .build();
-      return this.server.simulateTransaction(tx);
-    }, this.retryOptions, this.breaker);
-  }
-
   private addr(address: string): xdr.ScVal {
     return Address.fromString(address).toScVal();
   }
@@ -190,10 +161,6 @@ export class TrustLinkClient {
 
   private u32(value: number): xdr.ScVal {
     return nativeToScVal(value, { type: "u32" });
-  }
-
-  private u64(value: bigint): xdr.ScVal {
-    return nativeToScVal(value, { type: "u64" });
   }
 
   private optU64(value: bigint | null | undefined): xdr.ScVal {
@@ -329,6 +296,17 @@ export class TrustLinkClient {
   async getIssuerStats(issuer: string): Promise<IssuerStats> {
     validateAddress(issuer);
     return this.simulate("get_issuer_stats", this.addr(issuer));
+  }
+
+  /**
+   * Returns the list of unique claim types issued by a specific issuer.
+   * @param issuer - Stellar address of the issuer.
+   * @returns Array of claim type strings.
+   * @throws {InvalidAddressError} If the address format is invalid.
+   */
+  async getIssuerClaimTypes(issuer: string): Promise<string[]> {
+    validateAddress(issuer);
+    return this.simulate("get_issuer_claim_types", this.addr(issuer));
   }
 
   /**

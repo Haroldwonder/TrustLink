@@ -201,6 +201,12 @@ impl TrustLinkContract {
         admin::get_issuer_stats(&env, issuer)
     }
 
+    /// Returns the unique set of claim types issued by a specific issuer.
+    #[must_use]
+    pub fn get_issuer_claim_types(env: Env, issuer: Address) -> Vec<String> {
+        Storage::get_issuer_claim_types(&env, &issuer)
+    }
+
     #[must_use]
     pub fn is_issuer(env: Env, address: Address) -> bool {
         admin::is_issuer(&env, address)
