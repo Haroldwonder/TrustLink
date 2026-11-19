@@ -210,7 +210,7 @@ pub fn create_attestation_bundle(
             },
         );
         // Keep this attestation and its subject-side indexes live until expiration.
-        Storage::extend_attestation_ttl_for_expiry(env, attestation);
+        Storage::extend_attestation_ttl_for_expiry(env, &attestation);
         // Emit individual attestation_created event (for backward compatibility)
         crate::events::Events::attestation_created(env, &attestation);
     }
