@@ -30,6 +30,10 @@ model Attestation {
   @@index([claimType])
   @@index([subject, claimType])
   @@index([timestamp])
+  // Composite indexes for efficient paginated queries with ORDER BY (timestamp DESC, id DESC)
+  // Without these, Postgres must sort all rows for a busy subject/issuer on each page
+  @@index([subject, timestamp, id])
+  @@index([issuer, timestamp, id])
 }
 
 model AuditEntry {
