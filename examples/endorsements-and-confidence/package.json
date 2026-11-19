@@ -1,0 +1,14 @@
+{
+  "name": "trustlink-endorsements-confidence-example",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Runnable example demonstrating TrustLink endorsements, dynamic confidence score calculation, and decay configuration",
+  "type": "module",
+  "scripts": {
+    "start": "node flow.mjs",
+    "test": "node --test test/flow.test.mjs"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^13.3.0"
+  }
+}
