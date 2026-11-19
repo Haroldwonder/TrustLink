@@ -1,0 +1,16 @@
+[package]
+name = "nft-marketplace-example"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+soroban-sdk = "21.0.0"
+
+[dev-dependencies]
+soroban-sdk = { version = "21.0.0", features = ["testutils"] }
+# Pin dalek 2.x: soroban-env-host allows >=2.0.0, but 3.x breaks CryptoRng with rand_chacha 0.3.
+ed25519-dalek = "=2.2.0"

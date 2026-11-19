@@ -57,7 +57,7 @@ The `publish-release` workflow:
 
 1. Checks out the release tag
 2. Builds the WASM contract
-3. Optimizes it with `soroban contract optimize`
+3. Optimizes it with `stellar contract optimize`
 4. Attaches both binaries to the GitHub Release:
    - `trustlink.wasm` (unoptimized)
    - `trustlink.optimized.wasm` (optimized for production)
@@ -77,6 +77,7 @@ See [CONTRIBUTING.md — Commit Message Conventions](CONTRIBUTING.md#commit-mess
 ```
 
 **Types:**
+
 - `feat` — new feature (minor bump)
 - `fix` — bug fix (patch bump)
 - `docs` — documentation
@@ -99,13 +100,13 @@ Closes #42
 
 ## Version Bumping Rules
 
-| Commits | Version Change | Example |
-|---------|---|---|
-| `feat` only | Minor | 0.1.0 → 0.2.0 |
-| `fix` only | Patch | 0.1.0 → 0.1.1 |
-| `feat` + `fix` | Minor | 0.1.0 → 0.2.0 |
-| `docs`, `test`, `chore` only | No release | — |
-| `BREAKING CHANGE` footer | Major | 0.1.0 → 1.0.0 |
+| Commits                      | Version Change | Example       |
+| ---------------------------- | -------------- | ------------- |
+| `feat` only                  | Minor          | 0.1.0 → 0.2.0 |
+| `fix` only                   | Patch          | 0.1.0 → 0.1.1 |
+| `feat` + `fix`               | Minor          | 0.1.0 → 0.2.0 |
+| `docs`, `test`, `chore` only | No release     | —             |
+| `BREAKING CHANGE` footer     | Major          | 0.1.0 → 1.0.0 |
 
 ## Workflows
 
@@ -114,6 +115,7 @@ Closes #42
 **Trigger:** Push to `main`
 
 **Actions:**
+
 1. Analyzes commits since last release
 2. Creates or updates a Release PR
 3. Outputs `release_created` and `tag_name` for downstream workflows
@@ -125,13 +127,15 @@ Closes #42
 **Trigger:** GitHub Release published
 
 **Actions:**
+
 1. Checks out the release tag
 2. Builds WASM contract
-3. Optimizes WASM with `soroban contract optimize`
+3. Optimizes WASM with `stellar contract optimize`
 4. Uploads both binaries to the release
 5. Creates a summary in the GitHub Actions log
 
 **Artifacts:**
+
 - `trustlink.wasm` — Unoptimized WASM binary
 - `trustlink.optimized.wasm` — Optimized for production deployment
 
@@ -140,6 +144,7 @@ Closes #42
 **Trigger:** Pull request opened or updated
 
 **Actions:**
+
 1. Validates PR title follows conventional commits format
 2. Ensures commit messages are properly formatted
 3. Blocks merge if validation fails
@@ -224,6 +229,7 @@ This runs `tests/test_changelog_preview.sh`, which exercises the script in isola
 If you need to manually trigger a release:
 
 1. **Create a release PR manually:**
+
    ```bash
    git checkout -b release/v0.2.0
    # Update Cargo.toml version
@@ -234,6 +240,7 @@ If you need to manually trigger a release:
    ```
 
 2. **Create a git tag:**
+
    ```bash
    git tag -a v0.2.0 -m "Release v0.2.0"
    git push origin v0.2.0
@@ -306,6 +313,7 @@ soroban contract deploy \
 **Cause:** `publish-release` workflow failed.
 
 **Solution:**
+
 1. Check the workflow run at https://github.com/TrustLink/TrustLink/actions
 2. Review logs for build errors
 3. Manually build and attach artifacts if needed
@@ -321,6 +329,7 @@ soroban contract deploy \
 ### `release-please-config.json`
 
 Configures Release Please behavior:
+
 - `release-type: rust` — Use Rust-specific versioning
 - `changelog-path: CHANGELOG.md` — Where to write the changelog
 - `version-file: Cargo.toml` — Which file to update with the version
@@ -347,4 +356,3 @@ GitHub Actions workflow that validates commit message format on PRs.
 - [Semantic Versioning](https://semver.org/)
 - [Release Please Documentation](https://github.com/googleapis/release-please)
 - [Soroban Contract Optimization](https://soroban.stellar.org/docs/learn/storing-data)
-

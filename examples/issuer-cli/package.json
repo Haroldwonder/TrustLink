@@ -7,7 +7,8 @@
     "issuer-cli": "./issuer-cli.mjs"
   },
   "scripts": {
-    "start": "node issuer-cli.mjs"
+    "start": "node issuer-cli.mjs",
+    "test": "node --test issuer-cli.test.mjs"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^12.0.0"

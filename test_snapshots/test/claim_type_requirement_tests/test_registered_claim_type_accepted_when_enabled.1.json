@@ -142,7 +142,7 @@
                   "symbol": "Attestation"
                 },
                 {
-                  "string": "9e46660c4e1dfad1c441ceb369bf9d9ae2ab51d35aa66119a960519b619787ec"
+                  "string": "5464c24dbb1a2b9bad3a3bf619bcfd28"
                 }
               ]
             },
@@ -162,13 +162,19 @@
                       "symbol": "Attestation"
                     },
                     {
-                      "string": "9e46660c4e1dfad1c441ceb369bf9d9ae2ab51d35aa66119a960519b619787ec"
+                      "string": "5464c24dbb1a2b9bad3a3bf619bcfd28"
                     }
                   ]
                 },
                 "durability": "persistent",
                 "val": {
                   "map": [
+                    {
+                      "key": {
+                        "symbol": "bundle_id"
+                      },
+                      "val": "void"
+                    },
                     {
                       "key": {
                         "symbol": "claim_type"
@@ -196,7 +202,7 @@
                         "symbol": "id"
                       },
                       "val": {
-                        "string": "9e46660c4e1dfad1c441ceb369bf9d9ae2ab51d35aa66119a960519b619787ec"
+                        "string": "5464c24dbb1a2b9bad3a3bf619bcfd28"
                       }
                     },
                     {
@@ -304,7 +310,7 @@
                   "symbol": "AuditLog"
                 },
                 {
-                  "string": "9e46660c4e1dfad1c441ceb369bf9d9ae2ab51d35aa66119a960519b619787ec"
+                  "string": "5464c24dbb1a2b9bad3a3bf619bcfd28"
                 }
               ]
             },
@@ -324,7 +330,7 @@
                       "symbol": "AuditLog"
                     },
                     {
-                      "string": "9e46660c4e1dfad1c441ceb369bf9d9ae2ab51d35aa66119a960519b619787ec"
+                      "string": "5464c24dbb1a2b9bad3a3bf619bcfd28"
                     }
                   ]
                 },
@@ -572,7 +578,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "9e46660c4e1dfad1c441ceb369bf9d9ae2ab51d35aa66119a960519b619787ec"
+                      "string": "5464c24dbb1a2b9bad3a3bf619bcfd28"
                     }
                   ]
                 }
@@ -621,7 +627,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "9e46660c4e1dfad1c441ceb369bf9d9ae2ab51d35aa66119a960519b619787ec"
+                      "string": "5464c24dbb1a2b9bad3a3bf619bcfd28"
                     }
                   ]
                 }
@@ -818,7 +824,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "9e46660c4e1dfad1c441ceb369bf9d9ae2ab51d35aa66119a960519b619787ec"
+                      "string": "5464c24dbb1a2b9bad3a3bf619bcfd28"
                     }
                   ]
                 }
@@ -867,7 +873,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "9e46660c4e1dfad1c441ceb369bf9d9ae2ab51d35aa66119a960519b619787ec"
+                      "string": "5464c24dbb1a2b9bad3a3bf619bcfd28"
                     }
                   ]
                 }
@@ -916,7 +922,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "9e46660c4e1dfad1c441ceb369bf9d9ae2ab51d35aa66119a960519b619787ec"
+                      "string": "5464c24dbb1a2b9bad3a3bf619bcfd28"
                     }
                   ]
                 }
@@ -978,6 +984,14 @@
                           "map": [
                             {
                               "key": {
+                                "symbol": "chunk_size"
+                              },
+                              "val": {
+                                "u32": 50
+                              }
+                            },
+                            {
+                              "key": {
                                 "symbol": "contract_description"
                               },
                               "val": {
@@ -1032,6 +1046,20 @@
                                     "val": "void"
                                   }
                                 ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "max_attestations_per_subject"
+                              },
+                              "val": "void"
+                            },
+                            {
+                              "key": {
+                                "symbol": "metadata_hash_only"
+                              },
+                              "val": {
+                                "bool": false
                               }
                             },
                             {
@@ -1723,7 +1751,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "9e46660c4e1dfad1c441ceb369bf9d9ae2ab51d35aa66119a960519b619787ec"
+                  "string": "5464c24dbb1a2b9bad3a3bf619bcfd28"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -1758,7 +1786,7 @@
               }
             ],
             "data": {
-              "string": "9e46660c4e1dfad1c441ceb369bf9d9ae2ab51d35aa66119a960519b619787ec"
+              "string": "5464c24dbb1a2b9bad3a3bf619bcfd28"
             }
           }
         }

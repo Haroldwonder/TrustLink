@@ -1,3 +1,4 @@
+{{- if .Values.main.enabled | default false }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -6,7 +7,7 @@ metadata:
     {{- include "trustlink-indexer.labels" . | nindent 4 }}
     app-version: stable
 spec:
-  replicas: {{ .Values.main.replicaCount | default .Values.replicaCount }}
+  replicas: {{ .Values.main.replicaCount | default .Values.replicaCount | default 1 }}
   selector:
     matchLabels:
       {{- include "trustlink-indexer.selectorLabels" . | nindent 6 }}
@@ -25,6 +26,9 @@ spec:
         - name: http
           containerPort: {{ .Values.port }}
           protocol: TCP
+        - name: graphql
+          containerPort: {{ .Values.gqlPort }}
+          protocol: TCP
         env:
         - name: RPC_URL
           value: {{ .Values.rpcUrl }}
@@ -34,11 +38,15 @@ spec:
           value: "{{ .Values.genesisLedger }}"
         - name: PORT
           value: "{{ .Values.port }}"
+        - name: GQL_PORT
+          value: "{{ .Values.gqlPort }}"
         - name: DATABASE_URL
           valueFrom:
             secretKeyRef:
-              name: {{ include "trustlink-indexer.fullname" . }}-db
-              key: database-url
+              name: {{ include "trustlink-indexer.fullname" . }}
+              key: DATABASE_URL
+        - name: REDIS_URL
+          value: {{ .Values.redisUrl | quote }}
         startupProbe:
           {{- toYaml .Values.startupProbe | nindent 10 }}
         livenessProbe:
@@ -47,3 +55,4 @@ spec:
           {{- toYaml .Values.readinessProbe | nindent 10 }}
         resources:
           {{- toYaml .Values.resources | nindent 10 }}
+{{- end }}

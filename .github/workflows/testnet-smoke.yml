@@ -3,13 +3,14 @@ name: Testnet Smoke Test
 on:
   push:
     branches:
-      - 'release/**'
+      - 'main'
   workflow_dispatch:
 
 jobs:
   smoke-test:
     name: Deploy and smoke-test on Stellar testnet
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     env:

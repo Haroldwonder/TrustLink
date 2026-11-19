@@ -13,7 +13,9 @@ The following versions of TrustLink currently receive security updates:
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-TrustLink supports GitHub's [private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing/privately-reporting-a-security-vulnerability). Use the **"Report a vulnerability"** button on the [Security Advisories](../../security/advisories/new) page of this repository, or email **security@trustlink.io**.
+TrustLink supports GitHub's [private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing/privately-reporting-a-security-vulnerability). Use the **"Report a vulnerability"** button on the [Security Advisories](../../security/advisories/new) page of this repository.
+
+If the **"Report a vulnerability"** button is not available on the Advisories tab, private vulnerability reporting has not been enabled for this repository yet. In that case, please open a minimal, non-sensitive issue titled **"Security contact request"** (without any vulnerability details) and a maintainer will enable private reporting and follow up with you directly.
 
 ### What to include
 
@@ -25,7 +27,7 @@ TrustLink supports GitHub's [private vulnerability reporting](https://docs.githu
 
 ### Disclosure process
 
-1. **Submit** your report via private advisory or email.
+1. **Submit** your report via a private security advisory.
 2. **Acknowledgement** — you will receive a confirmation within **48 hours**.
 3. **Triage** — the team evaluates severity using the CVSS scoring framework within **5 business days**.
 4. **Remediation** — patches for `HIGH` and `CRITICAL` severity findings are targeted for release within **30 days** of confirmation. Lower-severity issues are addressed in the next scheduled release.
@@ -60,7 +62,6 @@ The following are **out of scope**:
 
 ## Contact
 
-- **Email:** security@trustlink.io
 - **GitHub Private Advisory:** [Submit here](../../security/advisories/new)
 
 For general questions that are not security-sensitive, open a [GitHub Discussion](../../discussions) or a regular issue.

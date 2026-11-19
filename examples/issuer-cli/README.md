@@ -8,6 +8,7 @@ A simple command-line tool for issuers to manage attestations without writing co
 - **Bulk-create**: Batch-issue attestations to many subjects from a CSV file
 - **Template management**: Create, list, and delete attestation templates
 - **Revoke attestations**: Revoke existing attestations with optional reason
+- **Bump TTL**: Permissionlessly extend an attestation's TTL (and related indexes) until its expiration — intended for a keeper job
 - **List issued**: View all attestations issued by this issuer with pagination
 - **Check claims**: Verify if a subject has a valid claim from this issuer
 
@@ -33,6 +34,7 @@ export RPC_URL="https://soroban-testnet.stellar.org"
 export NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
 export TRUSTLINK_CONTRACT_ID="CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCN8"
 export ISSUER_SECRET="S..."
+export INDEXER_URL="https://your-indexer.example.com/graphql"  # required for export-audit-trail
 ```
 
 ## Usage
@@ -89,6 +91,31 @@ Output:
    Reason: User requested removal
 ✓ Attestation revoked
 ```
+
+### Bump an Attestation's TTL (Keeper Job)
+
+Attestation records and their indexes use a default ledger TTL (30 days by default). For long-lived attestations (e.g. a one-year KYC), the TTL must be periodically re-extended, because the host silently clamps any single persistent extension beyond the network's `max_entry_ttl` (roughly 6 months on mainnet). The `bump-ttl` command is **permissionless** — any account can submit it, so it is designed to be run by a keeper job on a periodic schedule.
+
+```bash
+node issuer-cli.mjs bump-ttl <attestation_id>
+```
+
+Example:
+
+```bash
+# Bump TTL so the attestation stays live until its expiration
+node issuer-cli.mjs bump-ttl att_abc123def456
+```
+
+Output:
+
+```
+⏰ Bumping TTL for attestation...
+   ID: att_abc123def456
+✓ TTL bumped for att_abc123def456
+```
+
+**Recommended keeper cadence:** run `bump-ttl` for each long-lived attestation at least once every 30 days (or the configured `ttl_days`), and well before the attestation's expiration. See `docs/storage-layout.md` for the TTL clamp details.
 
 ### List Issued Attestations
 
@@ -220,6 +247,74 @@ Output:
 ```
 Attestation imported. TX: ghi789...
 ```
+
+### Export Audit Trail
+
+Exports a regulator-ready audit trail for all attestations issued by a given
+address over a date range. The command queries attestation records from the
+configured GraphQL indexer and fetches the on-chain audit log for each one,
+then writes the result as JSON (default) or CSV.
+
+Requires `INDEXER_URL` to be set.
+
+```bash
+node issuer-cli.mjs export-audit-trail \
+  --issuer <address> \
+  --from <ISO-date> \
+  --to <ISO-date> \
+  [--format csv|json] \
+  [--output <file>]
+```
+
+Examples:
+
+```bash
+# Export to stdout as JSON
+node issuer-cli.mjs export-audit-trail \
+  --issuer GABC... --from 2024-01-01 --to 2024-12-31
+
+# Export to a CSV file
+node issuer-cli.mjs export-audit-trail \
+  --issuer GABC... --from 2024-01-01 --to 2024-12-31 \
+  --format csv --output audit.csv
+```
+
+Output (JSON):
+```json
+[
+  {
+    "issuer": "GABC...",
+    "attestation_id": "att_abc123",
+    "claim_type": "KYC_PASSED",
+    "subject": "GXYZ...",
+    "action": "Created",
+    "actor": "GABC...",
+    "timestamp": "2024-03-15T09:22:04.000Z",
+    "details": ""
+  }
+]
+```
+
+Output (CSV):
+```
+issuer,attestation_id,claim_type,subject,action,actor,timestamp,details
+GABC...,att_abc123,KYC_PASSED,GXYZ...,Created,GABC...,2024-03-15T09:22:04.000Z,
+```
+
+Required flags:
+
+| Flag | Description |
+|------|-------------|
+| `--issuer <address>` | Stellar address of the issuer |
+| `--from <ISO-date>` | Start of date range (e.g. `2024-01-01`) |
+| `--to <ISO-date>` | End of date range (e.g. `2024-12-31`) |
+
+Optional flags:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--format csv\|json` | `json` | Output format |
+| `--output <file>` | stdout | Write output to a file instead of stdout |
 
 ## Help
 

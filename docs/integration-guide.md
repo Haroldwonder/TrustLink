@@ -4,6 +4,69 @@ This guide walks through integrating TrustLink into your dApp — whether you're
 
 For definitions of terms used throughout this guide (attestation, issuer, subject, bridge, claim type, etc.), see the [Glossary](./glossary.md).
 
+---
+
+## Which TypeScript package do I need?
+
+TrustLink ships two TypeScript packages and the split often confuses newcomers. Here is the short answer:
+
+| I want to… | Use |
+|---|---|
+| Call the contract from a **frontend, backend service, or dApp** | **[`@trustlink/sdk`](../sdk/typescript/README.md)** |
+| Write a custom tool that needs **raw low-level contract bindings** or auto-completion on every contract method | **[`@trustlink/contract`](../bindings/typescript/README.md)** |
+
+### `@trustlink/sdk` — the recommended choice for most integrators
+
+Located at `sdk/typescript/`. Published as [`@trustlink/sdk`](https://www.npmjs.com/package/@trustlink/sdk).
+
+This is the **full-featured, ergonomic SDK** intended for application developers. It wraps the raw contract calls with:
+
+- Friendly camelCase method names (`hasValidClaim`, `getAttestation`, …)
+- `async`/`await` helpers that handle transaction building and simulation for you
+- Pagination helpers (`iterateSubjectAttestations`, `iterateIssuerAttestations`) that handle multi-page fetches transparently
+- Typed error constants (`TrustLinkError.NotFound`, …)
+- React integration examples
+
+```bash
+npm install @trustlink/sdk @stellar/stellar-sdk
+```
+
+```typescript
+import { TrustLinkClient } from "@trustlink/sdk";
+
+const client = new TrustLinkClient({ contractId: "C...", network: "testnet" });
+const hasKyc = await client.hasValidClaim(subject, "KYC_PASSED");
+```
+
+### `@trustlink/contract` — auto-generated low-level bindings
+
+Located at `bindings/typescript/`. Published as [`@trustlink/contract`](https://www.npmjs.com/package/@trustlink/contract).
+
+These bindings are **auto-generated** from the contract ABI by the Stellar CLI (`make bindings`). They expose every contract method at the XDR level with snake_case names matching the on-chain function signatures exactly. Use this package when:
+
+- You are building tooling that must stay in sync with the raw contract interface (e.g. a CLI that regenerates bindings after contract upgrades).
+- You need a method or type that `@trustlink/sdk` does not yet expose.
+- You are writing tests that assert exact XDR round-trips.
+
+```bash
+npm install @trustlink/contract @stellar/stellar-sdk
+```
+
+```typescript
+import { Client } from "@trustlink/contract";
+
+const client = new Client({ rpcUrl: "https://soroban-testnet.stellar.org", contractId: "C..." });
+const result = await client.has_valid_claim({ subject: "G...", claim_type: "KYC_PASSED" });
+```
+
+### Why do two packages exist?
+
+The split reflects the read/write surface of the contract. `@trustlink/contract` was generated first to provide 1-to-1 coverage of every contract method. `@trustlink/sdk` was layered on top to give frontend and backend developers a friendlier API without requiring knowledge of XDR or Soroban transaction mechanics.
+
+A tracked issue exists to unify the two packages into a single `@trustlink/sdk` that subsumes `@trustlink/contract`. Until that work is complete, `@trustlink/sdk` is the recommended choice for **all new integrations** that don't have a specific reason to use the raw bindings.
+
+---
+
 ## Testnet Contract
 
 A deployed TrustLink instance is available on Stellar Testnet for immediate testing:
@@ -175,13 +238,140 @@ pub fn safe_verify(
 
 ## 3. JavaScript / TypeScript Integration
 
-### Installation
+### Which Package Should I Use?
+
+The repository ships **two separate TypeScript packages** that both export a
+class named `TrustLinkClient`. They serve different purposes and are
+intentionally kept separate:
+
+| | `@trustlink/sdk` | `@trustlink/bindings` |
+|---|---|---|
+| **npm install** | `npm install @trustlink/sdk` | `npm install @trustlink/bindings` |
+| **Source path** | `sdk/typescript/` | `bindings/typescript/` |
+| **Purpose** | Read-heavy frontends, dApps, dashboards | Server-side signers, scripts, raw access |
+| **Retry / circuit-breaker** | ✅ Automatic on all reads | ✗ |
+| **Pagination helpers** | ✅ `iterateSubjectAttestations` etc. | ✗ |
+| **Write operations** | Simulation only — returns raw tx for external signing | ✅ Full sign+submit with `Keypair` |
+| **Class name** | `TrustLinkClient` | `TrustLinkClient` |
+
+**Decision guide:**
+
+- Building a **frontend / React app / dApp** that reads claims and shows
+  verification status → use **`@trustlink/sdk`**. It handles retry, circuit
+  breaking, and pagination automatically.
+
+- Building a **backend service or script** that creates, revokes, or manages
+  attestations (and holds a secret key) → use **`@trustlink/bindings`**. It
+  exposes every write entry point and handles the full sign-and-submit
+  lifecycle.
+
+- Need **both reads and writes** in the same codebase (e.g. an admin portal
+  that displays stats and creates attestations)? Install both packages. To
+  avoid naming collisions, alias one:
+
+  ```typescript
+  import { TrustLinkClient as ReadClient } from "@trustlink/sdk";
+  import { TrustLinkClient as WriteClient } from "@trustlink/bindings";
+  ```
+
+> If neither package exposes the specific entry point you need, you can always
+> fall back to the raw `@stellar/stellar-sdk` approach shown at the end of
+> this section.
+
+---
+
+### Using `@trustlink/sdk` (Reads / Frontend)
+
+```bash
+npm install @trustlink/sdk
+```
+
+```typescript
+import { TrustLinkClient } from "@trustlink/sdk";
+
+const client = new TrustLinkClient({
+  contractId: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCN8",
+  network: "testnet",
+});
+
+// Check if a wallet has a valid KYC attestation (auto-retried on transient failures)
+const hasKyc = await client.hasValidClaim(
+  "GABC...XYZ",
+  "KYC_PASSED"
+);
+console.log("Has valid KYC:", hasKyc);
+
+// Fetch a single attestation
+const att = await client.getAttestation(attestationId);
+console.log(att.claim_type, att.revoked, att.expiration);
+
+// Paginate without writing a loop yourself
+for await (const attestation of client.iterateSubjectAttestations("GABC...")) {
+  console.log(attestation.id, attestation.claim_type);
+}
+
+// OR-logic: any of these claim types
+const canTrade = await client.hasAnyClaim("GABC...", [
+  "KYC_PASSED",
+  "ACCREDITED_INVESTOR",
+]);
+
+// AND-logic: all required
+const canBorrowLarge = await client.hasAllClaims("GABC...", [
+  "KYC_PASSED",
+  "AML_CLEARED",
+]);
+```
+
+---
+
+### Using `@trustlink/bindings` (Writes / Backend)
+
+```bash
+npm install @trustlink/bindings
+```
+
+```typescript
+import { TrustLinkClient } from "@trustlink/bindings";
+import { Keypair } from "@stellar/stellar-sdk";
+
+const client = new TrustLinkClient({
+  contractId: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCN8",
+  rpcUrl: "https://soroban-testnet.stellar.org",
+});
+
+const issuer = Keypair.fromSecret(process.env.ISSUER_SECRET!);
+
+// Create an attestation (signs and submits)
+const oneYear = BigInt(Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60);
+const attestationId = await client.createAttestation(
+  issuer,
+  "GBRPYHIL...",   // subject
+  "KYC_PASSED",
+  oneYear,
+  JSON.stringify({ provider: "acme-kyc" })
+);
+console.log("Created:", attestationId);
+
+// Revoke
+await client.revokeAttestation(issuer, attestationId, "Account closed");
+
+// Admin operations
+const admin = Keypair.fromSecret(process.env.ADMIN_SECRET!);
+await client.registerIssuer(admin, issuer.publicKey());
+```
+
+---
+
+### Raw `@stellar/stellar-sdk` Approach (Advanced)
+
+If you need direct control over transaction building — or you're integrating
+with a wallet that provides its own signing flow — you can bypass both packages
+and call the contract directly:
 
 ```bash
 npm install @stellar/stellar-sdk
 ```
-
-### Setup
 
 ```typescript
 import {
@@ -192,154 +382,71 @@ import {
   Keypair,
   nativeToScVal,
   scValToNative,
-  xdr,
+  BASE_FEE,
 } from "@stellar/stellar-sdk";
 
-const RPC_URL = "https://soroban-testnet.stellar.org";
-const CONTRACT_ID = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCN8";
-const NETWORK_PASSPHRASE = Networks.TESTNET;
+const server = new SorobanRpc.Server("https://soroban-testnet.stellar.org");
+const contract = new Contract("CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCN8");
 
-const server = new SorobanRpc.Server(RPC_URL);
-```
-
-### Check if a Wallet Has a Valid Claim
-
-```typescript
-async function hasValidClaim(
-  subjectAddress: string,
-  claimType: string
-): Promise<boolean> {
-  const contract = new Contract(CONTRACT_ID);
-
-  const operation = contract.call(
+// ── Read: simulate has_valid_claim ────────────────────────────────────────────
+const dummyAccount = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
+const readTx = new TransactionBuilder(
+  new (await import("@stellar/stellar-sdk")).Account(dummyAccount, "0"),
+  { fee: BASE_FEE, networkPassphrase: Networks.TESTNET }
+)
+  .addOperation(contract.call(
     "has_valid_claim",
-    nativeToScVal(subjectAddress, { type: "address" }),
-    nativeToScVal(claimType, { type: "string" })
-  );
+    nativeToScVal("GABC...XYZ", { type: "address" }),
+    nativeToScVal("KYC_PASSED", { type: "string" })
+  ))
+  .setTimeout(30)
+  .build();
 
-  const account = await server.getAccount(subjectAddress);
-  const tx = new TransactionBuilder(account, {
-    fee: "100",
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(operation)
-    .setTimeout(30)
-    .build();
-
-  const simResult = await server.simulateTransaction(tx);
-
-  if (SorobanRpc.Api.isSimulationError(simResult)) {
-    throw new Error(`Simulation failed: ${simResult.error}`);
-  }
-
-  const result = simResult.result?.retval;
-  return result ? scValToNative(result) : false;
+const simResult = await server.simulateTransaction(readTx);
+if (SorobanRpc.Api.isSimulationError(simResult)) {
+  throw new Error(`Simulation failed: ${simResult.error}`);
 }
+const hasKyc: boolean = scValToNative(simResult.result!.retval);
 
-// Usage
-const isKYCd = await hasValidClaim(
-  "GABC...XYZ",
-  "KYC_PASSED"
-);
-console.log("Has valid KYC:", isKYCd);
-```
+// ── Write: create_attestation ─────────────────────────────────────────────────
+const issuerKeypair = Keypair.fromSecret("S...");
+const account = await server.getAccount(issuerKeypair.publicKey());
 
-### Fetch an Attestation
-
-```typescript
-async function getAttestation(
-  callerKeypair: Keypair,
-  attestationId: string
-): Promise<Record<string, unknown>> {
-  const contract = new Contract(CONTRACT_ID);
-
-  const operation = contract.call(
-    "get_attestation",
-    nativeToScVal(attestationId, { type: "string" })
-  );
-
-  const account = await server.getAccount(callerKeypair.publicKey());
-  const tx = new TransactionBuilder(account, {
-    fee: "100",
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(operation)
-    .setTimeout(30)
-    .build();
-
-  const simResult = await server.simulateTransaction(tx);
-
-  if (SorobanRpc.Api.isSimulationError(simResult)) {
-    throw new Error(`Simulation failed: ${simResult.error}`);
-  }
-
-  const retval = simResult.result?.retval;
-  if (!retval) throw new Error("No result returned");
-
-  return scValToNative(retval);
-}
-```
-
-### Create an Attestation (Issuer)
-
-```typescript
-async function createAttestation(
-  issuerKeypair: Keypair,
-  subjectAddress: string,
-  claimType: string,
-  expirationTimestamp?: number
-): Promise<string> {
-  const contract = new Contract(CONTRACT_ID);
-
-  const expirationArg = expirationTimestamp
-    ? xdr.ScVal.scvVec([nativeToScVal(expirationTimestamp, { type: "u64" })])
-    : xdr.ScVal.scvVoid();
-
-  const operation = contract.call(
+let writeTx = new TransactionBuilder(account, {
+  fee: BASE_FEE,
+  networkPassphrase: Networks.TESTNET,
+})
+  .addOperation(contract.call(
     "create_attestation",
     nativeToScVal(issuerKeypair.publicKey(), { type: "address" }),
-    nativeToScVal(subjectAddress, { type: "address" }),
-    nativeToScVal(claimType, { type: "string" }),
-    expirationArg
-  );
+    nativeToScVal("GBRPYHIL...",              { type: "address" }),
+    nativeToScVal("KYC_PASSED",               { type: "string" }),
+    nativeToScVal(null),                      // no expiration
+    nativeToScVal(null),                      // no metadata
+    nativeToScVal(null)                       // no tags
+  ))
+  .setTimeout(30)
+  .build();
 
-  const account = await server.getAccount(issuerKeypair.publicKey());
-  let tx = new TransactionBuilder(account, {
-    fee: "100",
-    networkPassphrase: NETWORK_PASSPHRASE,
-  })
-    .addOperation(operation)
-    .setTimeout(30)
-    .build();
-
-  const simResult = await server.simulateTransaction(tx);
-  if (SorobanRpc.Api.isSimulationError(simResult)) {
-    throw new Error(`Simulation failed: ${simResult.error}`);
-  }
-
-  tx = SorobanRpc.assembleTransaction(tx, simResult).build();
-  tx.sign(issuerKeypair);
-
-  const sendResult = await server.sendTransaction(tx);
-  if (sendResult.status === "ERROR") {
-    throw new Error(`Transaction failed: ${sendResult.errorResult}`);
-  }
-
-  // Poll for confirmation
-  let getResult = await server.getTransaction(sendResult.hash);
-  while (getResult.status === SorobanRpc.Api.GetTransactionStatus.NOT_FOUND) {
-    await new Promise((r) => setTimeout(r, 1000));
-    getResult = await server.getTransaction(sendResult.hash);
-  }
-
-  if (getResult.status === SorobanRpc.Api.GetTransactionStatus.FAILED) {
-    throw new Error("Transaction failed on-chain");
-  }
-
-  const retval = getResult.returnValue;
-  return retval ? scValToNative(retval) : "";
+const writeSimResult = await server.simulateTransaction(writeTx);
+if (SorobanRpc.Api.isSimulationError(writeSimResult)) {
+  throw new Error(`Simulation failed: ${writeSimResult.error}`);
 }
+writeTx = SorobanRpc.assembleTransaction(writeTx, writeSimResult).build();
+writeTx.sign(issuerKeypair);
+
+const sendResult = await server.sendTransaction(writeTx);
+// Poll for confirmation…
+let getResult = await server.getTransaction(sendResult.hash);
+while (getResult.status === "NOT_FOUND") {
+  await new Promise((r) => setTimeout(r, 1500));
+  getResult = await server.getTransaction(sendResult.hash);
+}
+if (getResult.status !== "SUCCESS") throw new Error("Transaction failed");
+const attestationId: string = scValToNative(getResult.returnValue!);
 ```
+
+---
 
 ### Error Handling in TypeScript
 
@@ -368,7 +475,7 @@ function parseTrustLinkError(error: unknown): string {
 
 // Usage
 try {
-  await createAttestation(issuerKeypair, subject, "KYC_PASSED");
+  await client.createAttestation(issuer, subject, "KYC_PASSED");
 } catch (err) {
   console.error("TrustLink error:", parseTrustLinkError(err));
 }

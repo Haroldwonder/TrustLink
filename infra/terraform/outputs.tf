@@ -1,6 +1,11 @@
 output "alb_dns_name" {
-  description = "DNS name of the Application Load Balancer (GraphQL endpoint)"
+  description = "DNS name of the Application Load Balancer"
   value       = aws_lb.this.dns_name
+}
+
+output "graphql_endpoint" {
+  description = "GraphQL HTTP and WebSocket endpoint"
+  value       = "http://${aws_lb.this.dns_name}:${var.gql_port}/graphql"
 }
 
 output "rds_endpoint" {

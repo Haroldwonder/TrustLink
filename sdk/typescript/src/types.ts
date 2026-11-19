@@ -2,6 +2,10 @@
  * TypeScript types mirroring the TrustLink Soroban contract data structures.
  */
 
+// Error code table is generated from src/errors.rs — do not hand-edit this import.
+// Run `node scripts/generate-error-codes.mjs` (or `make generate`) to regenerate.
+import { ERROR_CODES } from "./generated/error-codes";
+
 export interface Attestation {
   id: string;
   issuer: string;
@@ -271,46 +275,57 @@ export class InvalidSourceReferenceError extends TrustLinkError {
   constructor() { super(44, "InvalidSourceReference"); }
 }
 
-const ERROR_BY_CODE: Record<number, new () => TrustLinkError> = {
-  1: AlreadyInitializedError,
-  2: NotInitializedError,
-  3: UnauthorizedError,
-  4: NotFoundError,
-  5: DuplicateAttestationError,
-  6: AlreadyRevokedError,
-  7: ExpiredError,
-  8: InvalidValidFromError,
-  9: InvalidExpirationError,
-  10: MetadataTooLongError,
-  11: InvalidTimestampError,
-  12: InvalidFeeError,
-  13: FeeTokenRequiredError,
-  14: TooManyTagsError,
-  15: TagTooLongError,
-  16: InvalidThresholdError,
-  17: NotRequiredSignerError,
-  18: AlreadySignedError,
-  19: ProposalFinalizedError,
-  20: ProposalExpiredError,
-  21: ReasonTooLongError,
-  22: CannotEndorseOwnError,
-  23: AlreadyEndorsedError,
-  24: ContractPausedError,
-  25: SubjectNotWhitelistedError,
-  26: InvalidClaimTypeError,
-  27: InvalidJurisdictionError,
-  28: RateLimitedError,
-  29: LimitExceededError,
-  30: ProposalCancelledError,
-  44: InvalidSourceReferenceError,
+/**
+ * Named error class registry — typed classes keyed by error name.
+ * Named classes give call-sites `instanceof` checking while the
+ * code→name mapping is authoritative in the generated ERROR_CODES table.
+ */
+const NAMED_ERROR_CLASSES: Record<string, new () => TrustLinkError> = {
+  AlreadyInitialized: AlreadyInitializedError,
+  NotInitialized: NotInitializedError,
+  Unauthorized: UnauthorizedError,
+  NotFound: NotFoundError,
+  DuplicateAttestation: DuplicateAttestationError,
+  AlreadyRevoked: AlreadyRevokedError,
+  Expired: ExpiredError,
+  InvalidValidFrom: InvalidValidFromError,
+  InvalidExpiration: InvalidExpirationError,
+  MetadataTooLong: MetadataTooLongError,
+  InvalidTimestamp: InvalidTimestampError,
+  InvalidFee: InvalidFeeError,
+  FeeTokenRequired: FeeTokenRequiredError,
+  TooManyTags: TooManyTagsError,
+  TagTooLong: TagTooLongError,
+  InvalidThreshold: InvalidThresholdError,
+  NotRequiredSigner: NotRequiredSignerError,
+  AlreadySigned: AlreadySignedError,
+  ProposalFinalized: ProposalFinalizedError,
+  ProposalExpired: ProposalExpiredError,
+  ReasonTooLong: ReasonTooLongError,
+  CannotEndorseOwn: CannotEndorseOwnError,
+  AlreadyEndorsed: AlreadyEndorsedError,
+  ContractPaused: ContractPausedError,
+  SubjectNotWhitelisted: SubjectNotWhitelistedError,
+  InvalidClaimType: InvalidClaimTypeError,
+  InvalidJurisdiction: InvalidJurisdictionError,
+  RateLimited: RateLimitedError,
+  LimitExceeded: LimitExceededError,
+  ProposalCancelled: ProposalCancelledError,
+  InvalidSourceReference: InvalidSourceReferenceError,
 };
 
-const ERROR_BY_NAME: Record<string, new () => TrustLinkError> = Object.fromEntries(
-  Object.values(ERROR_BY_CODE).map((Cls) => {
-    const instance = new Cls();
-    return [instance.name, Cls];
-  })
+/**
+ * Build the code→class lookup from the generated ERROR_CODES table so that
+ * any future code/name added to src/errors.rs will be picked up automatically
+ * after re-running `make generate`.
+ */
+const ERROR_BY_CODE: Record<number, new () => TrustLinkError> = Object.fromEntries(
+  Object.entries(ERROR_CODES)
+    .filter(([, name]) => name in NAMED_ERROR_CLASSES)
+    .map(([code, name]) => [Number(code), NAMED_ERROR_CLASSES[name]])
 );
+
+const ERROR_BY_NAME: Record<string, new () => TrustLinkError> = NAMED_ERROR_CLASSES;
 
 /**
  * Parse a contract simulation error string into a typed TrustLinkError.
@@ -326,6 +341,22 @@ export function parseTrustLinkError(errorMessage: string): TrustLinkError | null
     if (errorMessage.includes(name)) return new Cls();
   }
   return null;
+}
+
+/** Return the canonical error name for a numeric contract error code, or null. */
+export function classifyErrorCode(code: number): string | null {
+  const Cls = ERROR_BY_CODE[code];
+  if (!Cls) return null;
+  return new Cls().name;
+}
+
+/** All known contract error codes mapped by this SDK (code → name). */
+export function knownErrorCodes(): Record<number, string> {
+  const out: Record<number, string> = {};
+  for (const [code, Cls] of Object.entries(ERROR_BY_CODE)) {
+    out[Number(code)] = new Cls().name;
+  }
+  return out;
 }
 
 /**
@@ -362,7 +393,7 @@ export type Network = "testnet" | "mainnet" | "local";
 
 export interface TrustLinkClientOptions {
   contractId: string;
-  network: Network | string;
+  network: Network;
   rpcUrl?: string;
   retry?: import("./resilience").RetryOptions;
   circuitBreaker?: import("./resilience").CircuitBreakerOptions;

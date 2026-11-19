@@ -228,35 +228,6 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "DecayConfig"
-                            }
-                          ]
-                        },
-                        "val": {
-                          "map": [
-                            {
-                              "key": {
-                                "symbol": "half_life_days"
-                              },
-                              "val": {
-                                "u32": 45
-                              }
-                            },
-                            {
-                              "key": {
-                                "symbol": "revocation_weight"
-                              },
-                              "val": {
-                                "u32": 30
-                              }
-                            }
-                          ]
-                        }
-                      },
-                      {
-                        "key": {
-                          "vec": [
-                            {
                               "symbol": "FeeConfig"
                             }
                           ]
@@ -323,6 +294,118 @@
                               },
                               "val": {
                                 "u64": 0
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "key": {
+                          "vec": [
+                            {
+                              "symbol": "MiscConfig"
+                            }
+                          ]
+                        },
+                        "val": {
+                          "map": [
+                            {
+                              "key": {
+                                "symbol": "council_timelock_delay"
+                              },
+                              "val": {
+                                "u64": 0
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "decay_config"
+                              },
+                              "val": {
+                                "map": [
+                                  {
+                                    "key": {
+                                      "symbol": "half_life_days"
+                                    },
+                                    "val": {
+                                      "u32": 45
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "revocation_weight"
+                                    },
+                                    "val": {
+                                      "u32": 30
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "decay_config_set"
+                              },
+                              "val": {
+                                "bool": true
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "multisig_ttl_days"
+                              },
+                              "val": {
+                                "u32": 7
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "rate_limit_config"
+                              },
+                              "val": {
+                                "map": [
+                                  {
+                                    "key": {
+                                      "symbol": "min_issuance_interval"
+                                    },
+                                    "val": {
+                                      "u64": 0
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "rate_limit_config_set"
+                              },
+                              "val": {
+                                "bool": false
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "storage_limits"
+                              },
+                              "val": {
+                                "map": [
+                                  {
+                                    "key": {
+                                      "symbol": "max_attestations_per_issuer"
+                                    },
+                                    "val": {
+                                      "u32": 10000
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "max_attestations_per_subject"
+                                    },
+                                    "val": {
+                                      "u32": 100
+                                    }
+                                  }
+                                ]
                               }
                             }
                           ]

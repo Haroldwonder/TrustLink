@@ -96,7 +96,7 @@
                   "symbol": "Attestation"
                 },
                 {
-                  "string": "df820a1a5e61eaa4cae80d5350f82b0faaa9a1dbc52514a09f1044fae24c048c"
+                  "string": "d49aa16c7c2c64952515501720931e03"
                 }
               ]
             },
@@ -116,13 +116,19 @@
                       "symbol": "Attestation"
                     },
                     {
-                      "string": "df820a1a5e61eaa4cae80d5350f82b0faaa9a1dbc52514a09f1044fae24c048c"
+                      "string": "d49aa16c7c2c64952515501720931e03"
                     }
                   ]
                 },
                 "durability": "persistent",
                 "val": {
                   "map": [
+                    {
+                      "key": {
+                        "symbol": "bundle_id"
+                      },
+                      "val": "void"
+                    },
                     {
                       "key": {
                         "symbol": "claim_type"
@@ -150,7 +156,7 @@
                         "symbol": "id"
                       },
                       "val": {
-                        "string": "df820a1a5e61eaa4cae80d5350f82b0faaa9a1dbc52514a09f1044fae24c048c"
+                        "string": "d49aa16c7c2c64952515501720931e03"
                       }
                     },
                     {
@@ -258,7 +264,7 @@
                   "symbol": "AuditLog"
                 },
                 {
-                  "string": "df820a1a5e61eaa4cae80d5350f82b0faaa9a1dbc52514a09f1044fae24c048c"
+                  "string": "d49aa16c7c2c64952515501720931e03"
                 }
               ]
             },
@@ -278,7 +284,7 @@
                       "symbol": "AuditLog"
                     },
                     {
-                      "string": "df820a1a5e61eaa4cae80d5350f82b0faaa9a1dbc52514a09f1044fae24c048c"
+                      "string": "d49aa16c7c2c64952515501720931e03"
                     }
                   ]
                 },
@@ -421,7 +427,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "df820a1a5e61eaa4cae80d5350f82b0faaa9a1dbc52514a09f1044fae24c048c"
+                      "string": "d49aa16c7c2c64952515501720931e03"
                     }
                   ]
                 }
@@ -470,7 +476,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "df820a1a5e61eaa4cae80d5350f82b0faaa9a1dbc52514a09f1044fae24c048c"
+                      "string": "d49aa16c7c2c64952515501720931e03"
                     }
                   ]
                 }
@@ -667,7 +673,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "df820a1a5e61eaa4cae80d5350f82b0faaa9a1dbc52514a09f1044fae24c048c"
+                      "string": "d49aa16c7c2c64952515501720931e03"
                     }
                   ]
                 }
@@ -716,7 +722,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "df820a1a5e61eaa4cae80d5350f82b0faaa9a1dbc52514a09f1044fae24c048c"
+                      "string": "d49aa16c7c2c64952515501720931e03"
                     }
                   ]
                 }
@@ -765,7 +771,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "df820a1a5e61eaa4cae80d5350f82b0faaa9a1dbc52514a09f1044fae24c048c"
+                      "string": "d49aa16c7c2c64952515501720931e03"
                     }
                   ]
                 }
@@ -1276,7 +1282,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "df820a1a5e61eaa4cae80d5350f82b0faaa9a1dbc52514a09f1044fae24c048c"
+                  "string": "d49aa16c7c2c64952515501720931e03"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -1311,7 +1317,7 @@
               }
             ],
             "data": {
-              "string": "df820a1a5e61eaa4cae80d5350f82b0faaa9a1dbc52514a09f1044fae24c048c"
+              "string": "d49aa16c7c2c64952515501720931e03"
             }
           }
         }

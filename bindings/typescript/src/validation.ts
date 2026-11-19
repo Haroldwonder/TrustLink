@@ -56,11 +56,13 @@ export class InvalidNumericValueError extends TrustLinkError {
 
 // ─── Validation Helpers ─────────────────────────────────────────────────────
 
-// Stellar address pattern: starts with G, followed by 56 base32 chars
-const STELLAR_ADDRESS_REGEX = /^G[A-Z0-9]{55}$/i;
+// Stellar address pattern: starts with G, followed by 56 chars from the
+// Stellar base32 alphabet (A-Z and 2-7). Case-sensitive to match strkey rules.
+const STELLAR_ADDRESS_REGEX = /^G[A-Z2-7]{55}$/;
 
-// Contract address pattern: starts with C, followed by 56 base32 chars
-const CONTRACT_ADDRESS_REGEX = /^C[A-Z0-9]{55}$/i;
+// Contract address pattern: starts with C, followed by 56 chars from the
+// Stellar base32 alphabet (A-Z and 2-7). Case-sensitive to match strkey rules.
+const CONTRACT_ADDRESS_REGEX = /^C[A-Z2-7]{55}$/;
 
 /**
  * Validates a Stellar address format (G... address).
@@ -181,7 +183,9 @@ export function validateAttestationId(id: string): void {
   }
 
   const trimmed = id.trim();
-  if (trimmed.length === 0) {
-    throw new TrustLinkError("Attestation ID cannot be empty");
+  if (!/^(?:[0-9a-f]{32}|[0-9a-f]{64})$/.test(trimmed)) {
+    throw new TrustLinkError(
+      "Attestation ID must be 32 or 64 lowercase hexadecimal characters"
+    );
   }
 }

@@ -5,6 +5,8 @@ import * as zlib from "zlib";
 import { createReadStream, createWriteStream } from "fs";
 import { createHash } from "crypto";
 import { pipeline } from "stream/promises";
+import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { Storage as GcsStorage } from "@google-cloud/storage";
 
 /**
  * Archival service for TrustLink indexer
@@ -123,7 +125,7 @@ export class EventArchivalService {
 
           console.log(
             `[ARCHIVAL] Batch ${groupIdx + 1}: archived ledgers ${minLedger}–${maxLedger} ` +
-              `(${events.length} events, compressed: ${(batch.compressedSize / 1024 / 1024).toFixed(2)} MB)`,
+              `(${events.length} events, compressed: ${(Number(batch.compressedSize) / 1024 / 1024).toFixed(2)} MB)`,
           );
         } catch (err) {
           console.error(
@@ -305,15 +307,12 @@ export class EventArchivalService {
 
     const compressedSize = BigInt(fs.statSync(finalFile).size);
 
-    // Move to final destination (local filesystem only for now)
-    // For S3/GCS, integrate with AWS SDK or google-cloud-storage
+    // Move to final destination
     if (!archivePath.startsWith("s3://") && !archivePath.startsWith("gs://")) {
       fs.renameSync(finalFile, fullPath);
     } else {
-      // TODO: Implement S3/GCS upload
-      console.warn(
-        `[ARCHIVAL] S3/GCS upload not yet implemented; archived to temp: ${finalFile}`,
-      );
+      await this.uploadToCloudStorage(fullPath, finalFile);
+      fs.unlinkSync(finalFile);
     }
 
     return {
@@ -349,13 +348,12 @@ export class EventArchivalService {
       createdAt: Date;
     }>
   > {
-    // TODO: Implement S3/GCS download
+    let content: Buffer;
     if (archivePath.startsWith("s3://") || archivePath.startsWith("gs://")) {
-      throw new Error("S3/GCS restore not yet implemented");
+      content = await this.downloadFromCloudStorage(archivePath);
+    } else {
+      content = fs.readFileSync(archivePath);
     }
-
-    // Read local file
-    let content = fs.readFileSync(archivePath);
 
     // Decompress if gzipped
     if (archivePath.endsWith(".gz")) {
@@ -393,12 +391,72 @@ export class EventArchivalService {
   }
 
   /**
+   * Parse an s3:// or gs:// archive path into bucket and object key
+   */
+  private parseCloudUrl(url: string): { bucket: string; key: string } {
+    const withoutScheme = url.replace(/^(s3|gs):\/\//, "");
+    const [bucket, ...rest] = withoutScheme.split("/");
+    return { bucket, key: rest.join("/") };
+  }
+
+  /**
+   * Upload a local file to S3 or GCS, based on the archivePath scheme
+   */
+  private async uploadToCloudStorage(
+    archivePath: string,
+    localFilePath: string,
+  ): Promise<void> {
+    const { bucket, key } = this.parseCloudUrl(archivePath);
+
+    if (archivePath.startsWith("s3://")) {
+      const client = new S3Client({});
+      await client.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: key,
+          Body: fs.readFileSync(localFilePath),
+        }),
+      );
+    } else if (archivePath.startsWith("gs://")) {
+      const storage = new GcsStorage();
+      await storage.bucket(bucket).upload(localFilePath, { destination: key });
+    } else {
+      throw new Error(`Unsupported cloud archive path: ${archivePath}`);
+    }
+  }
+
+  /**
+   * Download an archived file from S3 or GCS, based on the archivePath scheme
+   */
+  private async downloadFromCloudStorage(archivePath: string): Promise<Buffer> {
+    const { bucket, key } = this.parseCloudUrl(archivePath);
+
+    if (archivePath.startsWith("s3://")) {
+      const client = new S3Client({});
+      const response = await client.send(
+        new GetObjectCommand({ Bucket: bucket, Key: key }),
+      );
+      const chunks: Buffer[] = [];
+      for await (const chunk of response.Body as AsyncIterable<Buffer>) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      return Buffer.concat(chunks);
+    } else if (archivePath.startsWith("gs://")) {
+      const storage = new GcsStorage();
+      const [contents] = await storage.bucket(bucket).file(key).download();
+      return contents;
+    }
+
+    throw new Error(`Unsupported cloud archive path: ${archivePath}`);
+  }
+
+  /**
    * Group events by ledger range for archival
    */
-  private groupEventsByLedger(
-    events: Array<{ ledger: number; [key: string]: unknown }>,
+  private groupEventsByLedger<T extends { ledger: number }>(
+    events: T[],
     batchSize: number,
-  ): Array<Array<(typeof events)[0]>> {
+  ): T[][] {
     const groups: Array<Array<(typeof events)[0]>> = [];
     let currentGroup: Array<(typeof events)[0]> = [];
 

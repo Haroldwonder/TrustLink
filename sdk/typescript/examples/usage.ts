@@ -104,26 +104,6 @@ async function main() {
     console.log(`  ${ct}: ${desc}`);
   }
 
-  // ── Tier-gated claim verification (Issue #531) ──────────────────────────
-  console.log("\n=== Tier-Gated Claim Verification ===");
-
-  // Check if the subject holds a KYC_PASSED claim issued by a Verified or
-  // higher-tier issuer. Useful for applications that require a minimum level
-  // of trust in the attestation source.
-  const hasVerifiedKyc = await client.hasValidClaimFromTier(
-    USER_ADDRESS,
-    "KYC_PASSED",
-    "Verified"
-  );
-  console.log(`Has KYC_PASSED from Verified+ issuer: ${hasVerifiedKyc}`);
-
-  const hasPremiumKyc = await client.hasValidClaimFromTier(
-    USER_ADDRESS,
-    "KYC_PASSED",
-    "Premium"
-  );
-  console.log(`Has KYC_PASSED from Premium issuer: ${hasPremiumKyc}`);
-
   // ── Claim type analytics (Issue #532) ────────────────────────────────────
   console.log("\n=== Claim Type Analytics ===");
 

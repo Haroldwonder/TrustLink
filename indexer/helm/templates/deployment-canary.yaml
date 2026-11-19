@@ -1,4 +1,4 @@
-{{- if .Values.canary.enabled }}
+{{- if .Values.canary.enabled | default false }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -9,7 +9,7 @@ metadata:
   annotations:
     description: "Canary deployment for gradual rollout testing"
 spec:
-  replicas: {{ .Values.canary.replicaCount }}
+  replicas: {{ .Values.canary.replicaCount | default .Values.replicaCount | default 1 }}
   selector:
     matchLabels:
       {{- include "trustlink-indexer.selectorLabels" . | nindent 6 }}
@@ -32,6 +32,9 @@ spec:
         - name: http
           containerPort: {{ .Values.port }}
           protocol: TCP
+        - name: graphql
+          containerPort: {{ .Values.gqlPort }}
+          protocol: TCP
         env:
         - name: RPC_URL
           value: {{ .Values.rpcUrl }}
@@ -41,11 +44,15 @@ spec:
           value: "{{ .Values.genesisLedger }}"
         - name: PORT
           value: "{{ .Values.port }}"
+        - name: GQL_PORT
+          value: "{{ .Values.gqlPort }}"
         - name: DATABASE_URL
           valueFrom:
             secretKeyRef:
-              name: {{ include "trustlink-indexer.fullname" . }}-db-canary
-              key: database-url
+              name: {{ include "trustlink-indexer.fullname" . }}
+              key: DATABASE_URL
+        - name: REDIS_URL
+          value: {{ .Values.redisUrl | quote }}
         - name: CANARY_DEPLOYMENT
           value: "true"
         startupProbe:

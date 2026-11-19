@@ -27,6 +27,7 @@ jobs:
   publish-sdk:
     name: Build and Publish TypeScript SDK
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository

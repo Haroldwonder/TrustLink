@@ -78,7 +78,7 @@ import {
 
 // ── Config ──────────────────────────────────────────────────────────────────
 const RPC_URL    = "https://soroban-testnet.stellar.org";
-const CONTRACT   = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCN8";
+const CONTRACT   = "CAK7PYYSWWQH6ML3ZPO4OB2EIONODOEESE3MIV3YGFDMHEU4EUOBUJQN";
 const PASSPHRASE = Networks.TESTNET;
 
 const ISSUER_SECRET  = "SXXX...";          // stellar keys show issuer --secret

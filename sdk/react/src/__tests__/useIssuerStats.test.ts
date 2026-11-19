@@ -62,3 +62,53 @@ describe("useIssuerStats", () => {
     expect(fetchStats).toHaveBeenLastCalledWith("GISSUER2");
   });
 });
+
+describe("useIssuerStats — fetch-loop regression (Issue #1321)", () => {
+  it("fetches once with a new inline arrow on every render", async () => {
+    const fetchStats = vi.fn().mockResolvedValue(mockStats);
+
+    const { result, rerender } = renderHook(() =>
+      useIssuerStats("GISSUER", (issuer) => fetchStats(issuer))
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    rerender();
+    rerender();
+
+    expect(fetchStats).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-fetches when the issuer changes", async () => {
+    // `issuer` is a genuine input and stays a dependency — removing the fetcher
+    // from the deps must not also disable this.
+    const fetchStats = vi.fn().mockResolvedValue(mockStats);
+
+    const { result, rerender } = renderHook(
+      ({ issuer }: { issuer: string }) =>
+        useIssuerStats(issuer, (addr) => fetchStats(addr)),
+      { initialProps: { issuer: "GONE" } }
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    rerender({ issuer: "GTWO" });
+
+    await waitFor(() => expect(fetchStats).toHaveBeenCalledTimes(2));
+    expect(fetchStats).toHaveBeenLastCalledWith("GTWO");
+  });
+
+  it("does not re-fetch when the issuer is unchanged", async () => {
+    const fetchStats = vi.fn().mockResolvedValue(mockStats);
+
+    const { result, rerender } = renderHook(
+      ({ issuer }: { issuer: string }) =>
+        useIssuerStats(issuer, (addr) => fetchStats(addr)),
+      { initialProps: { issuer: "GSAME" } }
+    );
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    rerender({ issuer: "GSAME" });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(fetchStats).toHaveBeenCalledTimes(1);
+  });
+});

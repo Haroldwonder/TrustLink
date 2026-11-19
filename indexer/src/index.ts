@@ -1,19 +1,24 @@
 import { initTracing, getTracer } from "./tracing";
 initTracing(); // must be first — instruments http, pg, etc.
 
+import { randomUUID } from "crypto";
 import { PrismaClient } from "@prisma/client";
 import { createServer, IncomingMessage, ServerResponse } from "http";
-import Fastify from "fastify";
 import { ApolloServer, HeaderMap } from "@apollo/server";
 import { makeExecutableSchema } from "@graphql-tools/schema";
 import { WebSocketServer } from "ws";
 import { useServer } from "graphql-ws/use/ws";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { startIndexer, getLastLedger, reindex } from "./indexer";
+import { validate } from "graphql";
+import depthLimit from "graphql-depth-limit";
+import { createComplexityLimitRule } from "graphql-query-complexity";
+import { startIndexer } from "./indexer";
 import { buildResolvers } from "./graphql";
-import { getMetrics } from "./metrics";
 import Redis from "ioredis";
+import { isAuthorized } from "./auth";
+import { logger, requestLogger } from "./logger";
+import { buildRestServer } from "./rest";
 
 const db = new PrismaClient();
 
@@ -27,6 +32,14 @@ if (redis) {
   });
 }
 
+const logger = {
+  info: (...args: unknown[]) => console.log(...args),
+  error: (...args: unknown[]) => console.error(...args),
+  debug: (...args: unknown[]) => console.debug(...args),
+};
+
+const requestLogger = (correlationId: string) => logger;
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -34,6 +47,15 @@ function readBody(req: IncomingMessage): Promise<string> {
     req.on("end", () => resolve(body));
     req.on("error", reject);
   });
+}
+
+function isAuthorized(req: IncomingMessage): boolean {
+  const apiKey = req.headers["x-api-key"] as string | undefined;
+  const expectedKey = process.env.API_KEY;
+  if (!expectedKey) {
+    return true;
+  }
+  return apiKey === expectedKey;
 }
 
 async function main() {
@@ -257,6 +279,7 @@ async function main() {
     }
   );
 
+  const fastify = buildRestServer(db);
   const REST_PORT = Number(process.env.PORT ?? 3000);
   await fastify.listen({ port: REST_PORT, host: "0.0.0.0" });
 
@@ -382,6 +405,11 @@ async function main() {
       wsServer.handleUpgrade(req, socket, head, (ws) => {
         wsServer.emit("connection", ws, req);
       });
+    } else {
+      // Reject WebSocket upgrade requests for any path other than /graphql.
+      // Without this the socket stays open indefinitely, leaking file descriptors.
+      socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+      socket.destroy();
     }
   });
 

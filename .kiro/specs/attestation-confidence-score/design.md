@@ -2,233 +2,131 @@
 
 ## Overview
 
-This feature adds a numeric confidence score (0–100) to the `Attestation` struct, allowing issuers to express the assurance level of each attestation they create. A new query function `has_claim_with_min_confidence` lets verifiers filter claims by a minimum confidence threshold.
+TrustLink provides a dynamic confidence scoring system (`get_confidence_score`) that evaluates the credibility of an attestation on-demand. Rather than storing a static score on the attestation struct, the score is computed dynamically based on:
 
-The change is purely additive: existing callers of `create_attestation` that omit the confidence argument receive a default of `100`, preserving all current behavior. The `has_valid_claim` function is unchanged.
+1. **Issuer Trust Tier**: Base points determined by the issuer's assigned `IssuerTier` (`Basic`: 30, `Verified`: 60, `Premium`: 90). Unassigned issuers default to `Basic` (30).
+2. **Attestation Endorsements**: +2 points per endorsement from authorized endorsers (capped at +10 points).
+3. **Inactivity Decay**: A linear time-decay penalty halving the score every `half_life_days` of issuer inactivity.
+4. **Revocation Ratio Decay**: A penalty proportional to the issuer's historical revocation rate (`revocations / total_issued`), weighted by `revocation_weight`.
+
+The resulting score is an integer between 0 and 100 (or `None` if the attestation does not exist).
 
 ## Architecture
 
-The feature touches four layers of the TrustLink contract:
-
 ```mermaid
 flowchart TD
-    A[Caller] -->|create_attestation\n+ confidence: Option<u8>| B[lib.rs - TrustLinkContract]
-    A -->|has_claim_with_min_confidence| B
-    B -->|validate_confidence| C[validation.rs - Validation]
-    B -->|set/get Attestation| D[storage.rs - Storage]
-    D -->|Attestation struct\n+ confidence: u8| E[types.rs - Attestation]
+    A[Caller] -->|get_confidence_score attestation_id| B[lib.rs - TrustLinkContract]
+    B -->|admin::get_confidence_score| C[admin.rs]
+    C -->|Storage::get_attestation| D[storage.rs]
+    C -->|Storage::get_issuer_tier| D
+    C -->|Storage::get_endorsements| D
+    C -->|Storage::get_decay_config| D
+    C -->|Storage::get_last_issuance_time| D
+    C -->|Storage::get_issuer_stats & revocations| D
+    C -->|compute base + decay factors| E[Result: Option u32]
 ```
-
-The confidence value flows in at creation time, is validated before any fee is charged or storage is written, stored inside the `Attestation` record, and read back during the new query.
 
 ## Components and Interfaces
 
-### types.rs — Attestation struct
+### lib.rs — TrustLinkContract
 
-Add a `confidence: u8` field to `Attestation`. Because `#[contracttype]` structs are serialized by field position in XDR, the new field is appended at the end to avoid breaking existing stored records (Soroban's XDR encoding for `contracttype` structs is positional, so appending is safe for new records; old records without the field will be handled via the backward-compatibility default described below).
+```rust
+pub fn get_confidence_score(env: Env, attestation_id: String) -> Option<u32> {
+    admin::get_confidence_score(&env, attestation_id)
+}
+
+pub fn set_decay_config(env: Env, admin: Address, config: DecayConfig) -> Result<(), Error> {
+    admin::set_decay_config(&env, admin, config)
+}
+
+pub fn get_decay_config(env: Env) -> DecayConfig {
+    admin::get_decay_config(&env)
+}
+
+pub fn set_issuer_tier(env: Env, admin: Address, issuer: Address, tier: IssuerTier) -> Result<(), Error> {
+    admin::set_issuer_tier(&env, admin, issuer, tier)
+}
+
+pub fn get_issuer_tier(env: Env, issuer: Address) -> Option<IssuerTier> {
+    admin::get_issuer_tier(&env, issuer)
+}
+```
+
+### admin.rs — Scoring Algorithm
+
+1. **Attestation Lookup**: Retrieve `Attestation` by ID. If not found, return `None`.
+2. **Base Score Calculation**:
+   - `tier_score`: 90 for `Premium`, 60 for `Verified`, 30 for `Basic` or `None`.
+   - `endorsement_score`: `(endorsements.len() * 2).min(10)`.
+   - `base_score = (tier_score + endorsement_score) as u64`.
+3. **Inactivity Decay**:
+   - If `cfg.half_life_days == 0`, `activity_factor_bps = 10_000`.
+   - Otherwise, `days_inactive = (now - last_issuance_time) / SECS_PER_DAY`.
+   - `penalty = (days_inactive * 5000 / cfg.half_life_days).min(10000)`.
+   - `activity_factor_bps = 10_000 - penalty`.
+4. **Revocation Ratio Decay**:
+   - If `cfg.revocation_weight == 0` or `total_issued == 0`, `reputation_factor_bps = 10_000`.
+   - Otherwise, `ratio_bps = (revocations * 10000 / total_issued).min(10000)`.
+   - `penalty = (ratio_bps * cfg.revocation_weight / 100).min(10000)`.
+   - `reputation_factor_bps = 10_000 - penalty`.
+5. **Final Computation**:
+   - `decayed = (base_score * activity_factor_bps / 10000) * reputation_factor_bps / 10000`.
+   - Return `Some(decayed as u32)`.
+
+## Data Models
+
+### types.rs — IssuerTier
+
+```rust
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum IssuerTier {
+    Basic = 0,
+    Verified = 1,
+    Premium = 2,
+}
+```
+
+### types.rs — DecayConfig
 
 ```rust
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Attestation {
-    // ... existing fields ...
-    pub confidence: u8,   // NEW — range [0, 100]; default 100
+pub struct DecayConfig {
+    pub half_life_days: u32,
+    pub revocation_weight: u32,
 }
-```
 
-Add a new error variant:
-
-```rust
-#[contracterror]
-pub enum Error {
-    // ... existing variants ...
-    InvalidConfidence = 21,
-}
-```
-
-### validation.rs — Validation::require_valid_confidence
-
-A new guard that rejects values above 100:
-
-```rust
-pub fn require_valid_confidence(confidence: u8) -> Result<(), Error> {
-    if confidence > 100 {
-        Err(Error::InvalidConfidence)
-    } else {
-        Ok(())
+impl Default for DecayConfig {
+    fn default() -> Self {
+        Self {
+            half_life_days: 90,
+            revocation_weight: 50,
+        }
     }
 }
 ```
 
-Because `u8` has a maximum of 255, only values 101–255 are invalid. The check is a single comparison.
-
-### lib.rs — create_attestation signature change
-
-The `confidence` parameter is added as `Option<u8>`. `None` defaults to `100`.
-
-```rust
-pub fn create_attestation(
-    env: Env,
-    issuer: Address,
-    subject: Address,
-    claim_type: String,
-    expiration: Option<u64>,
-    metadata: Option<String>,
-    tags: Option<Vec<String>>,
-    confidence: Option<u8>,   // NEW
-) -> Result<String, Error>
-```
-
-Validation order (unchanged for existing checks, confidence inserted before fee):
-
-1. `issuer.require_auth()`
-2. `Validation::require_issuer`
-3. `validate_metadata`
-4. `validate_tags`
-5. `validate_native_expiration`
-6. **`Validation::require_valid_confidence`** ← new, before fee charge
-7. `charge_attestation_fee`
-8. Store attestation
-
-### lib.rs — has_claim_with_min_confidence
-
-New public function:
-
-```rust
-pub fn has_claim_with_min_confidence(
-    env: Env,
-    subject: Address,
-    claim_type: String,
-    min_confidence: u8,
-) -> bool
-```
-
-Iterates the subject's attestation IDs, finds any with matching `claim_type` and `AttestationStatus::Valid`, and returns `true` if `attestation.confidence >= min_confidence`. Returns `false` otherwise.
-
-### Backward Compatibility — old attestations
-
-Attestations stored before this feature was deployed will not have a `confidence` field in their XDR. When `Storage::get_attestation` deserializes such a record, the missing field will cause a deserialization failure. To handle this gracefully, a wrapper `get_attestation_with_confidence_default` can be used internally that falls back to confidence `100` on deserialization error, or alternatively the field can be stored as `Option<u8>` internally and resolved to `100` at query time.
-
-The chosen approach: store `confidence` as a plain `u8` in new records (clean API), and in `has_claim_with_min_confidence` use a try-based deserialization that defaults to `100` for records that predate this feature. The `get_attestation` public function will return the stored value for new records; for old records it will return `100` via the fallback.
-
-## Data Models
-
-### Updated Attestation struct
-
-| Field | Type | Notes |
-|---|---|---|
-| id | String | unchanged |
-| issuer | Address | unchanged |
-| subject | Address | unchanged |
-| claim_type | String | unchanged |
-| timestamp | u64 | unchanged |
-| expiration | Option\<u64\> | unchanged |
-| revoked | bool | unchanged |
-| metadata | Option\<String\> | unchanged |
-| valid_from | Option\<u64\> | unchanged |
-| imported | bool | unchanged |
-| bridged | bool | unchanged |
-| source_chain | Option\<String\> | unchanged |
-| source_tx | Option\<String\> | unchanged |
-| tags | Option\<Vec\<String\>\> | unchanged |
-| **confidence** | **u8** | **NEW — [0, 100], default 100** |
-
-### Error enum additions
-
-| Variant | Code | Meaning |
-|---|---|---|
-| InvalidConfidence | 21 | confidence > 100 passed to create_attestation |
-
-### create_attestation parameter delta
-
-| Parameter | Before | After |
-|---|---|---|
-| confidence | absent | `Option<u8>` — `None` → stored as `100` |
-
-
 ## Correctness Properties
 
-*A property is a characteristic or behavior that should hold true across all valid executions of a system — essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees.*
+### Property 1: Non-existent attestation returns None
+Calling `get_confidence_score` with an unknown `attestation_id` returns `None`.
 
-### Property 1: Confidence round-trip
+### Property 2: Issuer tier bounds
+- `Basic` / unassigned tier yields a base score of 30 (plus endorsements up to +10).
+- `Verified` tier yields a base score of 60 (plus endorsements up to +10).
+- `Premium` tier yields a base score of 90 (plus endorsements up to +10).
 
-*For any* confidence value `c` in [0, 100], creating an attestation with that confidence value and then retrieving it via `get_attestation` should return an attestation whose `confidence` field equals `c`.
+### Property 3: Inactivity decay monotonicity
+For an active issuer with `half_life_days > 0`, increasing the ledger timestamp without new issuance monotonically decreases or maintains the confidence score.
 
-**Validates: Requirements 1.2, 1.4**
-
-### Property 2: Invalid confidence rejected
-
-*For any* `u8` value `c` greater than 100 (i.e., 101–255), calling `create_attestation` with that value should return `Error::InvalidConfidence` and no attestation should be stored.
-
-**Validates: Requirements 2.1**
-
-### Property 3: Valid confidence accepted
-
-*For any* confidence value `c` in [0, 100], calling `create_attestation` should succeed (not return an error) and the resulting attestation should be retrievable.
-
-**Validates: Requirements 2.2**
-
-### Property 4: has_claim_with_min_confidence threshold
-
-*For any* subject with a valid (non-revoked, non-expired) attestation of a given `claim_type` with confidence `c`, and *for any* `min_confidence` value `m`, `has_claim_with_min_confidence` should return `true` if and only if `c >= m`.
-
-**Validates: Requirements 3.1, 3.2, 3.3**
-
-### Property 5: Revoked or expired attestations never satisfy confidence query
-
-*For any* attestation that is either revoked or expired, calling `has_claim_with_min_confidence` with `min_confidence = 0` (which would match any confidence level) should return `false`.
-
-**Validates: Requirements 3.4**
-
-### Property 6: has_valid_claim is confidence-agnostic
-
-*For any* subject and claim type, the result of `has_valid_claim` should be the same regardless of the confidence value stored on the matching attestation — i.e., creating an attestation with confidence 0 vs confidence 100 should produce the same `has_valid_claim` result.
-
-**Validates: Requirements 4.2**
-
-## Error Handling
-
-| Scenario | Error returned | When |
-|---|---|---|
-| `confidence > 100` passed to `create_attestation` | `Error::InvalidConfidence` (21) | Before fee charge, before storage write |
-| All other existing error conditions | Unchanged | Unchanged |
-
-The confidence check is inserted at position 6 in the validation sequence (after tag/metadata/expiration checks, before fee charge). This ensures no side effects occur for invalid inputs.
-
-For `has_claim_with_min_confidence`, no new errors are introduced — the function returns `bool` and handles missing or undeserializable attestations by treating them as non-matching (returns `false`).
+### Property 4: Revocation decay scaling
+For an issuer with revocations and `revocation_weight > 0`, a higher revocation count lowers the confidence score relative to the baseline.
 
 ## Testing Strategy
 
-### Dual Testing Approach
-
-Both unit tests and property-based tests are required. Unit tests cover specific examples and edge cases; property tests verify universal correctness across randomized inputs.
-
-### Property-Based Testing Library
-
-Use **`proptest`** (crate `proptest = "1"`), the standard property-based testing library for Rust. Each property test runs a minimum of **100 iterations**.
-
-Each property test must be tagged with a comment in the format:
-`// Feature: attestation-confidence-score, Property N: <property text>`
-
-### Property Tests
-
-Each correctness property maps to exactly one property-based test:
-
-| Property | Test name | Generator |
-|---|---|---|
-| P1: Confidence round-trip | `prop_confidence_round_trip` | `confidence: u8` in `0..=100` |
-| P2: Invalid confidence rejected | `prop_invalid_confidence_rejected` | `confidence: u8` in `101..=255` |
-| P3: Valid confidence accepted | `prop_valid_confidence_accepted` | `confidence: u8` in `0..=100` |
-| P4: Threshold query | `prop_has_claim_with_min_confidence_threshold` | `(confidence: u8 in 0..=100, min_confidence: u8 in 0..=100)` |
-| P5: Revoked/expired return false | `prop_revoked_expired_confidence_false` | `confidence: u8 in 0..=100`, then revoke or expire |
-| P6: has_valid_claim ignores confidence | `prop_has_valid_claim_ignores_confidence` | two confidence values `a, b` in `0..=100` |
-
-### Unit Tests
-
-Unit tests focus on specific examples and edge cases not covered by property tests:
-
-- **Default confidence is 100**: call `create_attestation` with `confidence = None`, assert stored `confidence == 100`
-- **Validation before fee**: set a non-zero fee, call with `confidence = 101`, assert `InvalidConfidence` returned and fee collector balance unchanged
-- **Other fields unaffected**: create attestation with explicit confidence, assert all other fields (`issuer`, `subject`, `claim_type`, `metadata`, `tags`, etc.) are unchanged
-- **Backward compatibility edge case**: simulate an old attestation (imported with no confidence field) and verify `has_claim_with_min_confidence` treats it as confidence 100
-- **Boundary values**: explicitly test `confidence = 0`, `confidence = 100`, `confidence = 101` as boundary examples
+- **Tier impact tests**: Verify scores for Basic (30), Verified (60), and Premium (90) tiers.
+- **Endorsement bonus tests**: Verify each endorsement adds +2 points, capped at +10.
+- **Decay tests**: Verify score reduction when ledger timestamp advances without issuance.
+- **Revocation penalty tests**: Verify score reduction when revocations occur under non-zero revocation weight.
+- **Admin configuration tests**: Verify admin-only permissions on `set_decay_config` and `set_issuer_tier`.

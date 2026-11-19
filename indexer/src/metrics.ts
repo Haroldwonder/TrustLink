@@ -21,7 +21,7 @@ export const eventsProcessedTotal = new Counter({
 });
 
 export const eventsProcessedByType = new Counter({
-  name: "trustlink_events_processed_total",
+  name: "trustlink_events_processed_by_type_total",
   help: "Total number of events processed by type",
   labelNames: ["type"],
 });
@@ -35,6 +35,16 @@ export const eventsFailedTotal = new Counter({
 export const indexerLagLedgers = new Gauge({
   name: "trustlink_indexer_lag_ledgers",
   help: "Number of ledgers behind the tip",
+});
+
+export const webhookDeliveriesSuccessTotal = new Counter({
+  name: "trustlink_webhook_deliveries_success_total",
+  help: "Total number of webhook deliveries that succeeded",
+});
+
+export const webhookDeliveriesFailureTotal = new Counter({
+  name: "trustlink_webhook_deliveries_failure_total",
+  help: "Total number of webhook deliveries that failed after all retries",
 });
 
 // Event type constants matching TrustLink contract topics
@@ -56,6 +66,7 @@ export const EventTypes = {
   MULTISIG_ACTIVATED: "ms_actv",
   ADMIN_INIT: "adm_init",
   ADMIN_TRANSFER: "adm_xfer",
+  REQUEST_EXPIRED: "req_exp",
 } as const;
 
 export type EventType = (typeof EventTypes)[keyof typeof EventTypes];

@@ -5,7 +5,8 @@
   "description": "Freelance marketplace reputation example combining TrustLink endorsements and IssuerTier",
   "type": "module",
   "scripts": {
-    "start": "node index.mjs"
+    "start": "node index.mjs",
+    "test": "node --test index.test.mjs"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^13.3.0"

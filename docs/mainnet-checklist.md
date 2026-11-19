@@ -59,6 +59,19 @@ ensure hash reproducibility:
 | Optimiser | `stellar contract optimize` or `wasm-opt -Oz` |
 | OS | Linux x86_64 (use Docker for cross-platform builds) |
 
+**Finding the reference hash in release assets:**
+
+Every GitHub release includes a `wasm-hashes.txt` file in the release assets 
+with the SHA-256 hashes for both the unoptimized and optimized WASM binaries:
+
+```bash
+# Download the release assets
+gh release download v1.2.3 --repo Haroldwonder/TrustLink
+
+# View the hashes
+cat wasm-hashes.txt
+```
+
 **Record the reference hash after the first trusted build:**
 
 ```bash
@@ -66,7 +79,7 @@ ensure hash reproducibility:
 ./scripts/verify_wasm_hash.sh
 
 # Subsequent builds — verify the hash matches
-KNOWN="<hash from first build>"
+KNOWN="<hash from first build or wasm-hashes.txt>"
 ./scripts/verify_wasm_hash.sh "$KNOWN"
 ```
 
@@ -83,7 +96,7 @@ stellar contract fetch --id "$CONTRACT_ID" --network mainnet \
 # Hash it
 sha256sum deployed.wasm
 
-# Compare to the known-good hash from verify_wasm_hash.sh
+# Compare to the known-good hash from verify_wasm_hash.sh or wasm-hashes.txt
 ```
 
 A mismatch between the deployed hash and the reproducible build hash means the

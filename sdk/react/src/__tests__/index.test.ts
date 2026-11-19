@@ -5,4 +5,8 @@ describe("sdk/react/src/index exports", () => {
   it("exports useIssuerStats", () => {
     expect(typeof sdkReact.useIssuerStats).toBe("function");
   });
+
+  it("exports useGlobalStats", () => {
+    expect(typeof sdkReact.useGlobalStats).toBe("function");
+  });
 });

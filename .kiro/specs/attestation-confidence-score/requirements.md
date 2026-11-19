@@ -1,62 +1,70 @@
-# Requirements Document
+# Requirements Document: Attestation Confidence Score
 
 ## Introduction
 
-Different verification methods carry different levels of assurance. A biometric check is more reliable than a self-attested claim; a hardware-backed signature is stronger than an email confirmation. This feature lets issuers attach a numeric confidence score (0–100) to each attestation so that consumers can filter by minimum confidence when querying claims.
+Trust and assurance levels in decentralized identity ecosystems depend on multiple dynamic factors: the issuer's trust tier, community endorsements on the attestation, issuer activity recency, and the issuer's revocation history. Rather than storing a static score on the attestation struct, TrustLink computes a dynamic confidence score (0–100) at query time via `get_confidence_score(env, attestation_id)`.
 
-The feature adds a `confidence` field to the `Attestation` struct, threads it through `create_attestation`, validates the range, and exposes a new query function `has_claim_with_min_confidence` that returns `true` only when a valid attestation of the requested type meets or exceeds the caller's minimum threshold.
+This feature provides verifiers and consumers with an algorithmic confidence metric evaluating the overall trustworthiness of an attestation based on on-chain signals.
 
 ## Glossary
 
 - **Attestation**: An on-chain record created by a registered issuer asserting a claim about a subject.
-- **Confidence_Score**: An integer in the range [0, 100] representing the issuer's assurance level for an attestation. 100 means maximum confidence; 0 means minimal confidence.
-- **Issuer**: A registered address authorized to create attestations.
-- **Subject**: The address an attestation is about.
-- **Claim_Type**: A string identifier categorizing the nature of an attestation (e.g., `"KYC_PASSED"`).
-- **TrustLink**: The smart contract that stores and queries attestations.
-- **Validator**: The input-validation logic within TrustLink that enforces field constraints.
+- **Confidence_Score**: A computed dynamic score in the range [0, 100] returned by `get_confidence_score`.
+- **Issuer_Tier**: A trust tier assigned to an issuer (`Basic` = 30, `Verified` = 60, `Premium` = 90). Unset tier defaults to `Basic`.
+- **Endorsement**: An on-chain endorsement of an attestation by other authorized issuers, adding up to 10 points (+2 points per endorsement).
+- **Decay_Config**: Contract-wide configurable parameters (`half_life_days`, `revocation_weight`) governing score decay.
+- **Inactivity_Decay**: Reduction in confidence score based on the elapsed time since the issuer's last attestation issuance.
+- **Revocation_Decay**: Reduction in confidence score proportional to the issuer's historical revocation ratio (`revocations / total_issued`), scaled by `revocation_weight`.
+
+---
 
 ## Requirements
 
-### Requirement 1: Confidence Score Field on Attestation
+### Requirement 1: Confidence Score Query
 
-**User Story:** As an issuer, I want to attach a confidence score to each attestation I create, so that consumers can distinguish high-assurance claims from low-assurance ones.
-
-#### Acceptance Criteria
-
-1. THE `Attestation` struct SHALL include a `confidence` field of type `u8`.
-2. WHEN `create_attestation` is called with a `confidence` value, THE TrustLink SHALL store that value in the resulting `Attestation`.
-3. WHEN `create_attestation` is called without specifying a `confidence` value (i.e., `None`), THE TrustLink SHALL default the stored `confidence` to `100`.
-4. WHEN `get_attestation` is called for an existing attestation, THE TrustLink SHALL return the `confidence` value that was stored at creation time.
-
-### Requirement 2: Confidence Score Validation
-
-**User Story:** As a contract operator, I want invalid confidence values to be rejected at creation time, so that the stored data is always well-formed.
+**User Story:** As an integrator or verifier, I want to query the dynamic confidence score of an attestation, so that I can evaluate its assurance level based on up-to-date issuer and endorsement metrics.
 
 #### Acceptance Criteria
 
-1. WHEN `create_attestation` is called with a `confidence` value greater than `100`, THE Validator SHALL return `Error::InvalidConfidence`.
-2. WHEN `create_attestation` is called with a `confidence` value in the range [0, 100], THE TrustLink SHALL accept the attestation and proceed normally.
-3. THE Validator SHALL enforce the confidence range check before any fee is charged or storage is written.
+1. WHEN `get_confidence_score(env, attestation_id)` is called for an existing attestation, THE TrustLink SHALL return `Some(score)` where `score` is a `u32` in the range [0, 100].
+2. WHEN `get_confidence_score(env, attestation_id)` is called for a non-existent attestation ID, THE TrustLink SHALL return `None`.
+3. THE `get_confidence_score` function SHALL compute base score from the issuer's tier and the attestation's endorsement count.
+4. THE `get_confidence_score` function SHALL apply inactivity decay and revocation ratio decay based on the contract's `DecayConfig`.
 
-### Requirement 3: Minimum-Confidence Claim Query
+---
 
-**User Story:** As a verifier, I want to query whether a subject holds a valid claim of a given type with at least a specified confidence level, so that I can enforce assurance thresholds in my application.
+### Requirement 2: Issuer Tier Scoring
 
-#### Acceptance Criteria
-
-1. WHEN `has_claim_with_min_confidence(env, subject, claim_type, min_confidence)` is called and the subject has a valid, non-revoked, non-expired attestation of `claim_type` whose `confidence` is greater than or equal to `min_confidence`, THE TrustLink SHALL return `true`.
-2. WHEN `has_claim_with_min_confidence` is called and no valid attestation of `claim_type` meets the minimum confidence threshold, THE TrustLink SHALL return `false`.
-3. WHEN `has_claim_with_min_confidence` is called and the subject has a valid attestation of `claim_type` but its `confidence` is less than `min_confidence`, THE TrustLink SHALL return `false`.
-4. WHEN `has_claim_with_min_confidence` is called and the matching attestation is revoked or expired, THE TrustLink SHALL return `false` regardless of the stored confidence value.
-5. THE `has_claim_with_min_confidence` function SHALL accept `min_confidence` as a `u8` parameter.
-
-### Requirement 4: Backward Compatibility
-
-**User Story:** As a developer integrating TrustLink, I want existing attestation creation paths to continue working without modification, so that I do not need to update callers that do not care about confidence scores.
+**User Story:** As an admin, I want to assign trust tiers to issuers, so that attestations from higher-reputation issuers have higher baseline confidence scores.
 
 #### Acceptance Criteria
 
-1. WHEN `create_attestation` is called without a `confidence` argument (using the default), THE TrustLink SHALL behave identically to the pre-feature behavior for all other fields.
-2. THE `has_valid_claim` function SHALL continue to return results independent of confidence score, preserving existing semantics.
-3. FOR ALL attestations created before this feature is deployed, THE TrustLink SHALL treat the absence of a stored confidence value as equivalent to a confidence of `100` when queried via `has_claim_with_min_confidence`.
+1. THE `IssuerTier` SHALL support three levels: `Basic` (tier score = 30), `Verified` (tier score = 60), and `Premium` (tier score = 90).
+2. WHEN an issuer has no tier explicitly set, THE TrustLink SHALL default to `Basic` (tier score = 30).
+3. WHEN `set_issuer_tier(env, admin, issuer, tier)` is called by an authorized admin, THE TrustLink SHALL update the issuer's tier and emit an `issuer_tier_updated` event.
+4. WHEN `get_issuer_tier(env, issuer)` is called, THE TrustLink SHALL return `Some(tier)` if set, or `None` if not set.
+
+---
+
+### Requirement 3: Endorsement Score Bonus
+
+**User Story:** As a consumer, I want attestations with third-party endorsements to receive a confidence score bonus.
+
+#### Acceptance Criteria
+
+1. EACH endorsement on the attestation SHALL add 2 points to the base score.
+2. THE endorsement bonus SHALL be capped at a maximum of 10 points (5 endorsements).
+3. Base score (`tier_score + endorsement_score`) SHALL NOT exceed 100 before decay.
+
+---
+
+### Requirement 4: Inactivity & Revocation Decay
+
+**User Story:** As a protocol designer, I want confidence scores to decay if an issuer is inactive or has a high revocation rate, so that stale or unreliable issuers are accurately reflected.
+
+#### Acceptance Criteria
+
+1. WHEN `DecayConfig.half_life_days > 0`, THE confidence score SHALL decrease linearly based on `days_inactive` since the issuer's last issuance: `penalty_bps = min(10000, days_inactive * 5000 / half_life_days)`.
+2. WHEN `DecayConfig.revocation_weight > 0` and the issuer has issued attestations, THE confidence score SHALL decrease based on the ratio of revoked attestations: `penalty = min(10000, (revocations * 10000 / total_issued) * revocation_weight / 100)`.
+3. WHEN `set_decay_config(env, admin, config)` is called by an authorized admin, THE TrustLink SHALL persist the new decay parameters.
+4. WHEN `get_decay_config(env)` is called, THE TrustLink SHALL return the configured `DecayConfig`, or the default (`half_life_days: 90, revocation_weight: 50`) if unset.

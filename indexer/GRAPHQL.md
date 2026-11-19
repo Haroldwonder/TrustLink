@@ -37,6 +37,7 @@ type Attestation {
   timestamp: String!       # BigInt serialized as string
   expiration: String       # BigInt serialized as string, nullable
   isRevoked: Boolean!
+  revocationReason: String
   metadata: String
   imported: Boolean!
   bridged: Boolean!
@@ -44,6 +45,128 @@ type Attestation {
   sourceTx: String
   createdAt: String!
   updatedAt: String!
+}
+
+type AuditEntry {
+  id: Int!
+  attestationId: String!
+  action: String!
+  actor: String!
+  details: String
+  ledger: Int!
+  timestamp: String!
+  createdAt: String!
+}
+
+type MultisigProposal {
+  id: String!
+  subject: String!
+  proposer: String!
+  claimType: String!
+  threshold: Int!
+  signers: [String!]!
+  signatureCount: Int!
+  finalized: Boolean!
+  expiresAt: String!
+  createdAt: String!
+  updatedAt: String!
+}
+
+type Issuer {
+  address: String!
+  name: String!
+  url: String
+  description: String
+  tier: String!
+  registeredAt: String!
+  updatedAt: String!
+}
+
+type IssuerList {
+  items: [Issuer!]!
+  total: Int!
+}
+
+type HealthStatus {
+  status: String!
+  lastLedger: Int
+  timestamp: String!
+  schemaVersion: String!
+}
+
+type AttestationRevoked {
+  id: String!
+  issuer: String!
+  subject: String!
+  claimType: String!
+  revokedAt: String!
+}
+
+type IssuerRegistered {
+  issuer: String!
+  registeredAt: String!
+}
+
+enum RequestStatus {
+  PENDING
+  FULFILLED
+  REJECTED
+}
+
+type AttestationRequest {
+  id: String!
+  subject: String!
+  issuer: String!
+  claimType: String!
+  requestedAt: String!
+  expiresAt: String!
+  status: RequestStatus!
+  fulfillmentId: String
+  rejectionReason: String
+  createdAt: String!
+  updatedAt: String!
+}
+
+type Endorsement {
+  id: String!
+  attestationId: String!
+  endorser: String!
+  timestamp: String!
+  createdAt: String!
+}
+
+type Template {
+  id: String!
+  templateId: String!
+  issuer: String!
+  claimType: String!
+  createdAt: String!
+}
+
+type Delegation {
+  id: String!
+  delegator: String!
+  delegate: String!
+  claimType: String!
+  expiresAt: String!
+  revoked: Boolean!
+  createdAt: String!
+}
+
+type WhitelistEntry {
+  id: String!
+  issuer: String!
+  subject: String!
+  createdAt: String!
+}
+
+type CouncilAction {
+  id: String!
+  actionId: String!
+  proposer: String!
+  approvals: [String!]!
+  executed: Boolean!
+  createdAt: String!
 }
 
 type PageInfo {
@@ -70,12 +193,28 @@ type IssuerStats {
   active: Int!
   revoked: Int!
   claimTypes: [String!]!
+  rateLimit: Int
 }
 ```
 
 ---
 
 ## Queries
+
+### `healthCheck`
+
+Synthetic liveness probe — returns `status: "ok"` when the indexer is healthy.
+
+```graphql
+query {
+  healthCheck {
+    status
+    lastLedger
+    timestamp
+    schemaVersion
+  }
+}
+```
 
 ### `attestations`
 
@@ -168,9 +307,122 @@ query {
     active
     revoked
     claimTypes
+    rateLimit
   }
 }
 ```
+
+### `issuer`
+
+Get a single issuer by address. Returns `null` when the address is not registered.
+
+```graphql
+query {
+  issuer(address: "G...") {
+    address
+    name
+    url
+    description
+    tier
+    registeredAt
+    updatedAt
+  }
+}
+```
+
+**Parameters:**
+- `address` (required): Issuer Stellar address
+
+### `issuers`
+
+List all issuers with offset-based pagination.
+
+```graphql
+query {
+  issuers(start: 0, limit: 50) {
+    items {
+      address
+      name
+      tier
+      registeredAt
+    }
+    total
+  }
+}
+```
+
+**Parameters:**
+- `start` (optional): Pagination offset
+- `limit` (optional): Pagination limit
+
+### `proposal`
+
+Get a single multi-sig proposal by ID. Returns `null` when not found.
+
+```graphql
+query {
+  proposal(id: "prop_abc123") {
+    id
+    subject
+    proposer
+    claimType
+    threshold
+    signers
+    signatureCount
+    finalized
+    expiresAt
+    createdAt
+    updatedAt
+  }
+}
+```
+
+**Parameters:**
+- `id` (required): Proposal ID
+
+### `proposals`
+
+List multi-sig proposals with optional filters.
+
+```graphql
+query {
+  proposals(subject: "G...", finalized: false) {
+    id
+    subject
+    proposer
+    claimType
+    threshold
+    signatureCount
+    finalized
+  }
+}
+```
+
+**Parameters:**
+- `subject` (optional): Filter by subject address
+- `finalized` (optional): Filter by finalization status
+
+### `auditLog`
+
+Get audit log entries for an attestation (#774).
+
+```graphql
+query {
+  auditLog(attestationId: "att_abc123") {
+    id
+    attestationId
+    action
+    actor
+    details
+    ledger
+    timestamp
+    createdAt
+  }
+}
+```
+
+**Parameters:**
+- `attestationId` (required): Attestation ID
 
 ---
 
@@ -268,16 +520,57 @@ query {
 
 ### `onAttestationCreated`
 
-Real-time stream of newly created attestations. Optionally filter by subject.
+Real-time stream of newly created attestations. All filter arguments are optional and applied with AND logic when combined.
 
 ```graphql
 subscription {
-  onAttestationCreated(subject: "G...") {
+  onAttestationCreated(subject: "G...", issuer: "G...", claimType: "KYC_PASSED", topics: ["created"]) {
     id
     issuer
     subject
     claimType
     timestamp
+  }
+}
+```
+
+**Parameters:**
+- `subject` (optional): Only emit events for this subject address
+- `issuer` (optional): Only emit events issued by this issuer address
+- `claimType` (optional): Only emit events for this claim type (e.g. `"KYC_PASSED"`)
+- `topics` (optional): Only emit events if `'created'` is included in this topic allowlist
+
+### `onAttestationRevoked`
+
+Real-time stream of attestation revocation events. All filter arguments are optional and applied with AND logic when combined.
+
+```graphql
+subscription {
+  onAttestationRevoked(subject: "G...", issuer: "G...", claimType: "KYC_PASSED", topics: ["revoked"]) {
+    id
+    issuer
+    subject
+    claimType
+    revokedAt
+  }
+}
+```
+
+**Parameters:**
+- `subject` (optional): Only emit events for this subject address
+- `issuer` (optional): Only emit events issued by this issuer address
+- `claimType` (optional): Only emit events for this claim type (e.g. `"KYC_PASSED"`)
+- `topics` (optional): Only emit events if `'revoked'` is included in this topic allowlist
+
+### `onIssuerRegistered`
+
+Real-time stream of issuer registration events.
+
+```graphql
+subscription {
+  onIssuerRegistered {
+    issuer
+    registeredAt
   }
 }
 ```

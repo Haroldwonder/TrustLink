@@ -16,13 +16,13 @@ Contrast with **issuer** (which creates attestations) and **subject** (which is 
 
 ## Attestation
 
-A signed, on-chain record that a trusted **issuer** has made a **claim** about a **subject** address. An attestation is identified by a deterministic 32-character hex ID derived from the issuer address, subject address, claim type, and creation timestamp.
+A signed, on-chain record that a trusted **issuer** has made a **claim** about a **subject** address. An attestation is identified by a deterministic 32-character lowercase hexadecimal ID derived from the issuer address, subject address, claim type, and creation timestamp. Legacy bridge IDs also use 32 characters; request, multi-signature proposal, and bundle IDs use 64 characters.
 
-An attestation can be in one of four states: **Valid**, **Pending**, **Expired**, or **Revoked**. The state is computed at query time from the stored fields and the current ledger timestamp — it is not stored directly.
+An attestation can be in one of four states: **Valid**, **Pending**, **Expired**, or **Revoked**. The state is computed at query time from the stored fields and the current ledger timestamp — it is not stored directly. Status precedence is **Revoked**, then **Pending**, then **Expired**, then **Valid**; revocation remains final even if `valid_from` is in the future or the expiration has passed.
 
 ```
 {
-  id:           String,          // 32-char hex
+  id:           String,          // 32-char lowercase hex
   issuer:       Address,
   subject:      Address,
   claim_type:   String,          // e.g. "KYC_PASSED"
@@ -42,7 +42,7 @@ An attestation can be in one of four states: **Valid**, **Pending**, **Expired**
 
 ## Attestation ID
 
-A deterministic, collision-resistant 32-character hexadecimal string that uniquely identifies an attestation. Derived from a SHA-256 hash of the issuer address, subject address, claim type, and creation timestamp. Because the same issuer can attest the same claim about the same subject more than once (e.g. after the first attestation expires), the timestamp component ensures a fresh ID on each issuance.
+A deterministic, 32-character lowercase hexadecimal string derived from the first 16 bytes of a SHA-256 hash over the issuer address, subject address, claim type, and creation timestamp. Because the same issuer can attest the same claim about the same subject more than once (e.g. after the first attestation expires), the timestamp component ensures a fresh ID on each issuance. IDs are opaque storage keys and remain stable for compatibility.
 
 ---
 
@@ -79,13 +79,37 @@ Custom claim types can be registered by the admin for application-specific purpo
 
 ## Delegation
 
-The ability for an **issuer** to authorize another address to act on their behalf. TrustLink does not currently implement general delegation, but the **multi-signature attestation** flow (`propose_attestation` / `cosign_attestation`) allows a group of signers to collectively authorize an attestation, which achieves a similar effect for shared-custody issuers.
+The ability for an **issuer** to authorize another address to act on their behalf for specific claim types. TrustLink implements a complete delegation subsystem that allows issuers to delegate the authority to create attestations for specific claim types to other addresses.
+
+**Delegation Functions:**
+- `delegate_claim_type(issuer, delegate, claim_type, expiration)` – Grant delegation authority to an address for a specific claim type with optional expiration
+- `revoke_delegation(issuer, delegate, claim_type)` – Revoke delegation authority for a specific claim type
+- `revoke_delegation_all(delegator)` – Revoke all delegations issued by an address
+- `get_delegation(delegator, delegate, claim_type)` – Query a specific delegation
+- `list_delegations_by_delegator(delegator, start, limit)` – List all delegations issued by an address (paginated)
+
+**Supported Delegation Scenarios:**
+- Delegating claim-type-specific authority to trusted partners or team members
+- Time-bound delegations via optional expiration
+- Emergency delegation revocation via `revoke_delegation_all`
+- Integration with multi-signature workflows for shared-custody issuers
 
 ---
 
 ## Endorsement
 
-An informal term for an **attestation** in contexts that emphasize the trust relationship: an issuer *endorses* a subject by attesting a claim about them. The two terms are interchangeable in TrustLink documentation.
+A distinct on-chain feature where a registered **issuer** vouches for an existing **attestation** created by another issuer. An endorsement is a separate record that links an endorser address to an attestation ID with a timestamp, representing a third-party validation of the original claim.
+
+Unlike an **attestation** (which is a direct claim about a subject), an endorsement is a meta-claim: the endorser is stating "I verify that this existing attestation is trustworthy." Endorsements enable reputation networks where trust is built through accumulated third-party validation.
+
+Endorsements are managed via:
+- `endorse_attestation(env, endorser, attestation_id)` - create an endorsement
+- `get_endorsement_count(env, attestation_id)` - count endorsements on an attestation
+- `list_endorsements_by_endorser(env, endorser)` - list attestations endorsed by an issuer
+
+The following errors apply to endorsements:
+- `CannotEndorseOwn` - an issuer cannot endorse their own attestation
+- `AlreadyEndorsed` - an issuer has already endorsed this attestation
 
 ---
 

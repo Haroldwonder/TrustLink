@@ -372,7 +372,7 @@
                   "symbol": "Attestation"
                 },
                 {
-                  "string": "a274e3f6419882f0ebdc9f593b69a3e44234d68d7dee1318e425e91c536eaa3a"
+                  "string": "49f18759184d8710d709cf5714a732d4"
                 }
               ]
             },
@@ -392,13 +392,19 @@
                       "symbol": "Attestation"
                     },
                     {
-                      "string": "a274e3f6419882f0ebdc9f593b69a3e44234d68d7dee1318e425e91c536eaa3a"
+                      "string": "49f18759184d8710d709cf5714a732d4"
                     }
                   ]
                 },
                 "durability": "persistent",
                 "val": {
                   "map": [
+                    {
+                      "key": {
+                        "symbol": "bundle_id"
+                      },
+                      "val": "void"
+                    },
                     {
                       "key": {
                         "symbol": "claim_type"
@@ -426,7 +432,7 @@
                         "symbol": "id"
                       },
                       "val": {
-                        "string": "a274e3f6419882f0ebdc9f593b69a3e44234d68d7dee1318e425e91c536eaa3a"
+                        "string": "49f18759184d8710d709cf5714a732d4"
                       }
                     },
                     {
@@ -534,7 +540,7 @@
                   "symbol": "Attestation"
                 },
                 {
-                  "string": "c0a362cc15d60d47fccf831177abb2db6ce98f519d4dd64c090345019e8e5607"
+                  "string": "c3a18c78a7564c06e1bfc5579432266c"
                 }
               ]
             },
@@ -554,13 +560,19 @@
                       "symbol": "Attestation"
                     },
                     {
-                      "string": "c0a362cc15d60d47fccf831177abb2db6ce98f519d4dd64c090345019e8e5607"
+                      "string": "c3a18c78a7564c06e1bfc5579432266c"
                     }
                   ]
                 },
                 "durability": "persistent",
                 "val": {
                   "map": [
+                    {
+                      "key": {
+                        "symbol": "bundle_id"
+                      },
+                      "val": "void"
+                    },
                     {
                       "key": {
                         "symbol": "claim_type"
@@ -588,7 +600,7 @@
                         "symbol": "id"
                       },
                       "val": {
-                        "string": "c0a362cc15d60d47fccf831177abb2db6ce98f519d4dd64c090345019e8e5607"
+                        "string": "c3a18c78a7564c06e1bfc5579432266c"
                       }
                     },
                     {
@@ -696,7 +708,7 @@
                   "symbol": "AuditLog"
                 },
                 {
-                  "string": "a274e3f6419882f0ebdc9f593b69a3e44234d68d7dee1318e425e91c536eaa3a"
+                  "string": "49f18759184d8710d709cf5714a732d4"
                 }
               ]
             },
@@ -716,7 +728,7 @@
                       "symbol": "AuditLog"
                     },
                     {
-                      "string": "a274e3f6419882f0ebdc9f593b69a3e44234d68d7dee1318e425e91c536eaa3a"
+                      "string": "49f18759184d8710d709cf5714a732d4"
                     }
                   ]
                 },
@@ -780,7 +792,7 @@
                   "symbol": "AuditLog"
                 },
                 {
-                  "string": "c0a362cc15d60d47fccf831177abb2db6ce98f519d4dd64c090345019e8e5607"
+                  "string": "c3a18c78a7564c06e1bfc5579432266c"
                 }
               ]
             },
@@ -800,7 +812,7 @@
                       "symbol": "AuditLog"
                     },
                     {
-                      "string": "c0a362cc15d60d47fccf831177abb2db6ce98f519d4dd64c090345019e8e5607"
+                      "string": "c3a18c78a7564c06e1bfc5579432266c"
                     }
                   ]
                 },
@@ -943,10 +955,10 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "c0a362cc15d60d47fccf831177abb2db6ce98f519d4dd64c090345019e8e5607"
+                      "string": "c3a18c78a7564c06e1bfc5579432266c"
                     },
                     {
-                      "string": "a274e3f6419882f0ebdc9f593b69a3e44234d68d7dee1318e425e91c536eaa3a"
+                      "string": "49f18759184d8710d709cf5714a732d4"
                     }
                   ]
                 }
@@ -995,10 +1007,10 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "c0a362cc15d60d47fccf831177abb2db6ce98f519d4dd64c090345019e8e5607"
+                      "string": "c3a18c78a7564c06e1bfc5579432266c"
                     },
                     {
-                      "string": "a274e3f6419882f0ebdc9f593b69a3e44234d68d7dee1318e425e91c536eaa3a"
+                      "string": "49f18759184d8710d709cf5714a732d4"
                     }
                   ]
                 }
@@ -1195,7 +1207,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "c0a362cc15d60d47fccf831177abb2db6ce98f519d4dd64c090345019e8e5607"
+                      "string": "c3a18c78a7564c06e1bfc5579432266c"
                     }
                   ]
                 }
@@ -1250,7 +1262,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "a274e3f6419882f0ebdc9f593b69a3e44234d68d7dee1318e425e91c536eaa3a"
+                      "string": "49f18759184d8710d709cf5714a732d4"
                     }
                   ]
                 }
@@ -1299,7 +1311,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "c0a362cc15d60d47fccf831177abb2db6ce98f519d4dd64c090345019e8e5607"
+                      "string": "c3a18c78a7564c06e1bfc5579432266c"
                     }
                   ]
                 }
@@ -1348,7 +1360,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "a274e3f6419882f0ebdc9f593b69a3e44234d68d7dee1318e425e91c536eaa3a"
+                      "string": "49f18759184d8710d709cf5714a732d4"
                     }
                   ]
                 }
@@ -1397,7 +1409,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "c0a362cc15d60d47fccf831177abb2db6ce98f519d4dd64c090345019e8e5607"
+                      "string": "c3a18c78a7564c06e1bfc5579432266c"
                     }
                   ]
                 }
@@ -1446,7 +1458,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "a274e3f6419882f0ebdc9f593b69a3e44234d68d7dee1318e425e91c536eaa3a"
+                      "string": "49f18759184d8710d709cf5714a732d4"
                     }
                   ]
                 }
@@ -1575,7 +1587,7 @@
                         "key": {
                           "vec": [
                             {
-                              "symbol": "StorageLimits"
+                              "symbol": "MiscConfig"
                             }
                           ]
                         },
@@ -1583,18 +1595,101 @@
                           "map": [
                             {
                               "key": {
-                                "symbol": "max_attestations_per_issuer"
+                                "symbol": "council_timelock_delay"
                               },
                               "val": {
-                                "u32": 10
+                                "u64": 0
                               }
                             },
                             {
                               "key": {
-                                "symbol": "max_attestations_per_subject"
+                                "symbol": "decay_config"
                               },
                               "val": {
-                                "u32": 1000
+                                "map": [
+                                  {
+                                    "key": {
+                                      "symbol": "half_life_days"
+                                    },
+                                    "val": {
+                                      "u32": 90
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "revocation_weight"
+                                    },
+                                    "val": {
+                                      "u32": 50
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "decay_config_set"
+                              },
+                              "val": {
+                                "bool": false
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "multisig_ttl_days"
+                              },
+                              "val": {
+                                "u32": 7
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "rate_limit_config"
+                              },
+                              "val": {
+                                "map": [
+                                  {
+                                    "key": {
+                                      "symbol": "min_issuance_interval"
+                                    },
+                                    "val": {
+                                      "u64": 0
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "rate_limit_config_set"
+                              },
+                              "val": {
+                                "bool": false
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "storage_limits"
+                              },
+                              "val": {
+                                "map": [
+                                  {
+                                    "key": {
+                                      "symbol": "max_attestations_per_issuer"
+                                    },
+                                    "val": {
+                                      "u32": 10
+                                    }
+                                  },
+                                  {
+                                    "key": {
+                                      "symbol": "max_attestations_per_subject"
+                                    },
+                                    "val": {
+                                      "u32": 1000
+                                    }
+                                  }
+                                ]
                               }
                             }
                           ]
@@ -1944,7 +2039,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "c0a362cc15d60d47fccf831177abb2db6ce98f519d4dd64c090345019e8e5607"
+                  "string": "c3a18c78a7564c06e1bfc5579432266c"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
@@ -1979,7 +2074,7 @@
               }
             ],
             "data": {
-              "string": "c0a362cc15d60d47fccf831177abb2db6ce98f519d4dd64c090345019e8e5607"
+              "string": "c3a18c78a7564c06e1bfc5579432266c"
             }
           }
         }
@@ -2100,7 +2195,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "a274e3f6419882f0ebdc9f593b69a3e44234d68d7dee1318e425e91c536eaa3a"
+                  "string": "49f18759184d8710d709cf5714a732d4"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
@@ -2135,7 +2230,7 @@
               }
             ],
             "data": {
-              "string": "a274e3f6419882f0ebdc9f593b69a3e44234d68d7dee1318e425e91c536eaa3a"
+              "string": "49f18759184d8710d709cf5714a732d4"
             }
           }
         }
@@ -2196,10 +2291,10 @@
             "data": {
               "vec": [
                 {
-                  "string": "c0a362cc15d60d47fccf831177abb2db6ce98f519d4dd64c090345019e8e5607"
+                  "string": "c3a18c78a7564c06e1bfc5579432266c"
                 },
                 {
-                  "string": "a274e3f6419882f0ebdc9f593b69a3e44234d68d7dee1318e425e91c536eaa3a"
+                  "string": "49f18759184d8710d709cf5714a732d4"
                 }
               ]
             }

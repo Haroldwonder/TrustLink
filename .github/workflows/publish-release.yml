@@ -6,13 +6,14 @@ on:
 
 permissions:
   contents: write
-  id-token: write    # Required for OIDC-based npm provenance and SLSA attestations
+  id-token: write # Required for OIDC-based npm provenance and SLSA attestations
   attestations: write # Required for actions/attest-build-provenance
 
 jobs:
   build-and-publish:
     name: Build WASM and Publish Artifacts
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -36,15 +37,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Install soroban-cli
-        run: cargo install --locked soroban-cli
+      - name: Install Stellar CLI
+        run: cargo install --locked stellar-cli --features opt
 
       - name: Build WASM
         run: cargo build --target wasm32-unknown-unknown --release
 
       - name: Optimize WASM
         run: |
-          soroban contract optimize \
+          stellar contract optimize \
             --wasm target/wasm32-unknown-unknown/release/trustlink.wasm \
             --wasm-out target/wasm32-unknown-unknown/release/trustlink.optimized.wasm
 
@@ -62,6 +63,68 @@ jobs:
           ls -lh target/wasm32-unknown-unknown/release/trustlink.optimized.wasm
           file target/wasm32-unknown-unknown/release/trustlink.wasm
           file target/wasm32-unknown-unknown/release/trustlink.optimized.wasm
+
+      - name: Compute WASM binary hashes
+        id: wasm_hashes
+        run: |
+          # Compute SHA256 hashes for both WASM binaries
+          UNOPT_HASH=$(sha256sum target/wasm32-unknown-unknown/release/trustlink.wasm | awk '{print $1}')
+          OPT_HASH=$(sha256sum target/wasm32-unknown-unknown/release/trustlink.optimized.wasm | awk '{print $1}')
+
+          # Store hashes for use in later steps
+          echo "unoptimized=$UNOPT_HASH" >> $GITHUB_OUTPUT
+          echo "optimized=$OPT_HASH" >> $GITHUB_OUTPUT
+
+          # Create hash file for release artifact
+          cat > wasm-hashes.txt <<EOF
+          # TrustLink WASM Binary Hashes (SHA-256)
+
+          ## Build Information
+          - Release Tag: ${{ github.ref_name }}
+          - Build Date: $(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          - Repository: ${{ github.repository }}
+          - Commit: ${{ github.sha }}
+
+          ## WASM Binary Hashes
+
+          ### Unoptimized WASM
+          - File: trustlink.wasm
+          - SHA256: $UNOPT_HASH
+          - Size: $(du -b target/wasm32-unknown-unknown/release/trustlink.wasm | awk '{print $1}') bytes
+
+          ### Optimized WASM (Production)
+          - File: trustlink.optimized.wasm
+          - SHA256: $OPT_HASH
+          - Size: $(du -b target/wasm32-unknown-unknown/release/trustlink.optimized.wasm | awk '{print $1}') bytes
+
+          ## Verification
+
+          To verify these hashes on your machine, clone the repository and run:
+
+          \`\`\`bash
+          # Build, optimize with Stellar CLI, and verify against the optimized hash
+          ./scripts/verify_wasm_hash.sh $OPT_HASH
+
+          # To verify the unoptimized binary separately, build and hash trustlink.wasm
+          cargo build --target wasm32-unknown-unknown --release
+          sha256sum target/wasm32-unknown-unknown/release/trustlink.wasm
+          \`\`\`
+
+          For full reproducible build instructions, see [docs/mainnet-checklist.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/mainnet-checklist.md#reproducible-build-environment).
+
+          ## SLSA Provenance & Supply Chain Security
+
+          WASM binaries are signed with SLSA provenance attestations. Verify with:
+
+          \`\`\`bash
+          gh attestation verify trustlink.optimized.wasm --repo ${{ github.repository }}
+          \`\`\`
+
+          See [docs/slsa-provenance.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/slsa-provenance.md) for full verification details.
+          EOF
+
+          echo "Hash file created:"
+          cat wasm-hashes.txt
 
       - name: Generate Rust SBOM (CycloneDX)
         run: |
@@ -87,12 +150,29 @@ jobs:
             target/wasm32-unknown-unknown/release/trustlink.wasm
             target/wasm32-unknown-unknown/release/trustlink.optimized.wasm
             trustlink-sbom.cdx.json
+            wasm-hashes.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create release summary
         run: |
           echo "## Release Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔐 WASM Binary Verification" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**SHA-256 Hashes (for reproducible build verification):**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Unoptimized WASM:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.wasm_hashes.outputs.unoptimized }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Optimized WASM (Production):**" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.wasm_hashes.outputs.optimized }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Verify reproducibility:** Download the release and run \`./scripts/verify_wasm_hash.sh <HASH>\` (see [wasm-hashes.txt](wasm-hashes.txt) in release assets for full details)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### WASM Binaries" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -106,6 +186,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **trustlink-sbom.cdx.json** — CycloneDX SBOM for the Rust contract" >> $GITHUB_STEP_SUMMARY
           echo "- **trustlink-sdk-sbom.cdx.json** — CycloneDX SBOM for the TypeScript SDK" >> $GITHUB_STEP_SUMMARY
+          echo "- **wasm-hashes.txt** — SHA-256 hashes and verification instructions" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Supply Chain Security" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -118,87 +199,6 @@ jobs:
           echo "Use the optimized WASM for production deployments." >> $GITHUB_STEP_SUMMARY
           echo "See [DEPLOYMENT.md](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/DEPLOYMENT.md) for instructions." >> $GITHUB_STEP_SUMMARY
 
-  publish-typescript-sdk:
-    name: Publish TypeScript SDK to npm
-    runs-on: ubuntu-latest
-    needs: build-and-publish
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          ref: ${{ github.ref }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
-          cache: 'npm'
-          cache-dependency-path: 'sdk/typescript/package-lock.json'
-
-      - name: Install dependencies
-        working-directory: sdk/typescript
-        run: npm ci
-
-      - name: Extract version from tag
-        id: version
-        run: |
-          # Extract version from git tag (e.g., v1.2.3 -> 1.2.3)
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Extracted version: $VERSION"
-
-      - name: Update package.json version
-        working-directory: sdk/typescript
-        run: |
-          npm version ${{ steps.version.outputs.version }} --no-git-tag-version
-          echo "Updated package.json to version ${{ steps.version.outputs.version }}"
-
-      - name: Build TypeScript SDK
-        working-directory: sdk/typescript
-        run: npm run build
-
-      - name: Verify build output
-        working-directory: sdk/typescript
-        run: |
-          echo "Build output:"
-          ls -la dist/
-          echo "Package contents:"
-          npm pack --dry-run
-
-      - name: Generate TypeScript SDK SBOM (CycloneDX)
-        working-directory: sdk/typescript
-        run: |
-          npx --yes @cyclonedx/cyclonedx-npm \
-            --output-format JSON \
-            --output-file ../../trustlink-sdk-sbom.cdx.json \
-            --package-lock-only
-          echo "TypeScript SDK SBOM generated:"
-          ls -lh ../../trustlink-sdk-sbom.cdx.json
-
-      - name: Publish to npm
-        working-directory: sdk/typescript
-        run: npm publish --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Attest TypeScript SDK build provenance (SLSA)
-        uses: actions/attest-build-provenance@1c608b9e2f18e8526c3a22e876069cd30da2b2ac # v1.4.4
-        with:
-          subject-path: trustlink-sdk-sbom.cdx.json
-
-      - name: Upload TypeScript SDK SBOM to release
-        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
-        with:
-          files: trustlink-sdk-sbom.cdx.json
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Update release summary
-        run: |
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### TypeScript SDK" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **@trustlink/sdk@${{ steps.version.outputs.version }}** published to npm" >> $GITHUB_STEP_SUMMARY
-          echo "- Install: \`npm install @trustlink/sdk@${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- [View on npm](https://www.npmjs.com/package/@trustlink/sdk)" >> $GITHUB_STEP_SUMMARY
+  # TypeScript SDK publishing is handled exclusively by publish-sdk.yml,
+  # which includes a version-existence check to prevent duplicate publishes.
+  # Removed publish-typescript-sdk job to fix concurrent publish race (#1349).

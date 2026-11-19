@@ -13,6 +13,7 @@ jobs:
   check-graphql:
     name: GraphQL healthCheck
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Query GraphQL healthCheck
         env:
@@ -52,6 +53,7 @@ jobs:
   check-rest-health:
     name: REST /health endpoint
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Query REST /health
         env:
@@ -87,6 +89,7 @@ jobs:
   check-rpc:
     name: Stellar Soroban RPC reachability
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Query Stellar Soroban RPC getLatestLedger
         env:

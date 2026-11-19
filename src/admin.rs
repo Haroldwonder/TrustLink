@@ -3,9 +3,10 @@ use soroban_sdk::{token::TokenClient, Address, Env, String, Vec};
 use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::{
-    AdminCouncil, ClaimTypeInfo, ContractConfig, CouncilOperation, CouncilProposal, DecayConfig,
-    Delegation, DisputeRecord, Error, ExpirationHook, FeeConfig, IssuerMetadata, IssuerStats,
-    IssuerTier, PendingAdminTransfer, RateLimitConfig, StorageLimits, TtlConfig,
+    AdminCouncil, AttestationStatus, AuditAction, AuditEntry, ClaimTypeInfo, ContractConfig, CouncilOperation,
+    CouncilProposal, DecayConfig, Delegation, DisputeRecord, DisputeStatus, Error,
+    ExpirationHook, FeeConfig, IssuerMetadata, IssuerStats, IssuerTier, PendingAdminTransfer,
+    RateLimitConfig, StorageLimits, TtlConfig,
 };
 use crate::validation::Validation;
 
@@ -18,12 +19,15 @@ pub fn initialize(env: &Env, admin: Address, ttl_days: Option<u32>) -> Result<()
     if Storage::has_admin(env) {
         return Err(Error::AlreadyInitialized);
     }
+    let days = ttl_days.unwrap_or(crate::constants::DEFAULT_TTL_DAYS);
+    if days == 0 || days > crate::constants::MAX_TTL_DAYS {
+        return Err(Error::InvalidTtl);
+    }
     let mut council: AdminCouncil = Vec::new(env);
     council.push_back(admin.clone());
     Storage::set_admin_council(env, &council);
-    Storage::set_version(env, &String::from_str(env, "1.0.0"));
+    Storage::set_version(env, &String::from_str(env, env!("CARGO_PKG_VERSION")));
     Storage::set_fee_config(env, &FeeConfig { attestation_fee: 0, fee_collector: admin.clone(), fee_token: None });
-    let days = ttl_days.unwrap_or(30);
     Storage::set_ttl_config(env, &TtlConfig { ttl_days: days });
     Events::admin_initialized(env, &admin, env.ledger().timestamp());
     Ok(())
@@ -131,6 +135,7 @@ pub fn register_issuer(env: &Env, admin: Address, issuer: Address) -> Result<(),
 pub fn remove_issuer(env: &Env, admin: Address, issuer: Address) -> Result<(), Error> {
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
+    Validation::require_not_paused(env)?;
     Storage::remove_issuer(env, &issuer);
     Storage::decrement_total_issuers(env);
     Events::issuer_removed(env, &issuer, &admin, env.ledger().timestamp());
@@ -144,7 +149,9 @@ pub fn get_issuer_list(env: &Env, start: u32, limit: u32) -> Vec<Address> {
 pub fn add_to_whitelist(env: &Env, issuer: Address, subject: Address) -> Result<(), Error> {
     issuer.require_auth();
     Validation::require_issuer(env, &issuer)?;
+    Validation::require_not_paused(env)?;
     Storage::add_to_whitelist(env, &issuer, &subject);
+    Events::whitelist_updated(env, &issuer, &subject, true);
     Ok(())
 }
 
@@ -152,11 +159,13 @@ pub fn bulk_add_to_whitelist(env: &Env, issuer: Address, subjects: Vec<Address>)
     const MAX_BATCH: u32 = 50;
     issuer.require_auth();
     Validation::require_issuer(env, &issuer)?;
+    Validation::require_not_paused(env)?;
     if subjects.len() > MAX_BATCH {
         return Err(Error::LimitExceeded);
     }
     for subject in subjects.iter() {
         Storage::add_to_whitelist(env, &issuer, &subject);
+        Events::whitelist_updated(env, &issuer, &subject, true);
     }
     Ok(())
 }
@@ -164,7 +173,9 @@ pub fn bulk_add_to_whitelist(env: &Env, issuer: Address, subjects: Vec<Address>)
 pub fn remove_from_whitelist(env: &Env, issuer: Address, subject: Address) -> Result<(), Error> {
     issuer.require_auth();
     Validation::require_issuer(env, &issuer)?;
+    Validation::require_not_paused(env)?;
     Storage::remove_from_whitelist(env, &issuer, &subject);
+    Events::whitelist_updated(env, &issuer, &subject, false);
     Ok(())
 }
 
@@ -189,6 +200,13 @@ pub fn get_confidence_score(env: &Env, attestation_id: String) -> Option<u32> {
     use crate::constants::SECS_PER_DAY;
 
     let attestation = Storage::get_attestation(env, &attestation_id).ok()?;
+    // Only currently valid attestations are scored. Deleted ones return None so
+    // the score does not reveal that they exist.
+    if attestation.deleted
+        || !matches!(attestation.get_status(env.ledger().timestamp()), AttestationStatus::Valid)
+    {
+        return None;
+    }
     let tier_score = match Storage::get_issuer_tier(env, &attestation.issuer) {
         Some(IssuerTier::Premium) => 90u32,
         Some(IssuerTier::Verified) => 60u32,
@@ -248,14 +266,51 @@ pub fn get_decay_config(env: &Env) -> DecayConfig {
     Storage::get_decay_config(env).unwrap_or_default()
 }
 
+pub fn is_decay_config_set(env: &Env) -> bool {
+    Storage::get_decay_config(env).is_some()
+}
+
 pub fn get_issuer_metadata(env: &Env, issuer: Address) -> Option<IssuerMetadata> {
     Storage::get_issuer_metadata(env, &issuer)
 }
 
+const MAXIssuer_NAME_LEN: u32 = 64;
+const MAXIssuer_URL_LEN: u32 = 256;
+const MAXIssuer_DESC_LEN: u32 = 512;
+
 pub fn set_issuer_metadata(env: &Env, issuer: Address, metadata: IssuerMetadata) -> Result<(), Error> {
     issuer.require_auth();
     Validation::require_issuer(env, &issuer)?;
+    Validation::require_not_paused(env)?;
+
+    // Validate name length
+    let name_len = metadata.name.len();
+    if name_len > MAXIssuer_NAME_LEN {
+        return Err(Error::MetadataTooLong);
+    }
+
+    // Validate URL length and scheme
+    let url_len = metadata.url.len();
+    if url_len > MAXIssuer_URL_LEN {
+        return Err(Error::MetadataTooLong);
+    }
+    if url_len > 0 {
+        // Copy the URL into a fixed buffer and check for "https:" prefix
+        let mut url_buf = [0u8; 256];
+        metadata.url.copy_into_slice(&mut url_buf);
+        if url_len < 6 || &url_buf[..6] != b"https:" {
+            return Err(Error::InvalidMetadata);
+        }
+    }
+
+    // Validate description length
+    let desc_len = metadata.description.len();
+    if desc_len > MAXIssuer_DESC_LEN {
+        return Err(Error::MetadataTooLong);
+    }
+
     Storage::set_issuer_metadata(env, &issuer, &metadata);
+    Events::issuer_metadata_updated(env, &issuer, &metadata);
     Ok(())
 }
 
@@ -300,13 +355,20 @@ pub fn get_bridge_list(env: &Env, start: u32, limit: u32) -> Vec<Address> {
 pub fn set_whitelist_enabled(env: &Env, issuer: Address, enabled: bool) -> Result<(), Error> {
     issuer.require_auth();
     Validation::require_issuer(env, &issuer)?;
+    Validation::require_not_paused(env)?;
     Storage::set_whitelist_enabled(env, &issuer, enabled);
+    if enabled {
+        Events::whitelist_mode_enabled(env, &issuer);
+    } else {
+        Events::whitelist_mode_disabled(env, &issuer);
+    }
     Ok(())
 }
 
 pub fn enable_whitelist_mode(env: &Env, issuer: Address) -> Result<(), Error> {
     issuer.require_auth();
     Validation::require_issuer(env, &issuer)?;
+    Validation::require_not_paused(env)?;
     Storage::set_whitelist_mode(env, &issuer, true);
     Events::whitelist_mode_enabled(env, &issuer);
     Ok(())
@@ -327,7 +389,12 @@ pub fn set_fee(env: &Env, admin: Address, fee: i128, collector: Address, fee_tok
     if admin == collector {
         return Err(Error::Unauthorized);
     }
-    Storage::set_fee_config(env, &FeeConfig { attestation_fee: fee, fee_collector: collector, fee_token });
+    let fee_config = FeeConfig { attestation_fee: fee, fee_collector: collector.clone(), fee_token };
+    Storage::set_fee_config(env, &fee_config);
+    if let Some(mut config) = Storage::get_contract_config(env) {
+        config.fee_config = fee_config;
+        Storage::set_contract_config(env, &config);
+    }
     Ok(())
 }
 
@@ -398,22 +465,8 @@ pub fn is_paused(env: &Env) -> bool {
 pub fn set_require_registered_claim_type(env: &Env, admin: Address, require: bool) -> Result<(), Error> {
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
-    
-    let mut config = Storage::get_contract_config(env).unwrap_or_else(|| {
-        ContractConfig {
-            contract_name: soroban_sdk::String::from_str(env, "TrustLink"),
-            contract_version: soroban_sdk::String::from_str(env, "0.1.0"),
-            contract_description: soroban_sdk::String::from_str(env, ""),
-            ttl_config: Storage::get_ttl_config(env).unwrap_or(TtlConfig { ttl_days: 30 }),
-            fee_config: Storage::get_fee_config(env).unwrap_or(FeeConfig {
-                attestation_fee: 0,
-                fee_collector: admin.clone(),
-                fee_token: None,
-            }),
-            require_registered_claim_type: false,
-        }
-    });
-    
+
+    let mut config = Storage::get_contract_config(env).unwrap_or_else(|| ContractConfig::default_for(env));
     config.require_registered_claim_type = require;
     Storage::set_contract_config(env, &config);
     Ok(())
@@ -444,6 +497,70 @@ pub fn get_metadata_hash_only(env: &Env) -> bool {
         .unwrap_or(false)
 }
 
+pub fn set_max_attestations_per_subject(env: &Env, admin: Address, limit: Option<u32>) -> Result<(), Error> {
+    admin.require_auth();
+    Validation::require_admin(env, &admin)?;
+
+    let mut config = Storage::get_contract_config(env).unwrap_or_else(|| ContractConfig::default_for(env));
+    config.max_attestations_per_subject = limit;
+    Storage::set_contract_config(env, &config);
+    Events::max_attestations_per_subject_changed(env, &admin, limit);
+    Ok(())
+}
+
+pub fn get_max_attestations_per_subject(env: &Env) -> Option<u32> {
+    Storage::get_contract_config(env)
+        .and_then(|config| config.max_attestations_per_subject)
+}
+
+/// Sets the `ChunkedIndex` chunk size stored in `ContractConfig`.
+///
+/// The chunk size controls how many attestation IDs are packed into each
+/// on-chain storage entry for the subject/issuer indexes.
+///
+/// **This should only be called before any attestations are written.** Changing
+/// the chunk size after index data exists will cause the old chunks (written
+/// with the previous size) to be read correctly, but new writes will use the
+/// new size, producing inconsistently-sized chunks. A full index migration is
+/// required to normalise an existing index to a new chunk size.
+///
+/// # Errors
+/// - [`Error::Unauthorized`] — caller is not a registered admin.
+/// - [`Error::InvalidChunkSize`] — `chunk_size` is 0.
+pub fn set_chunk_size(env: &Env, admin: Address, chunk_size: u32) -> Result<(), Error> {
+    admin.require_auth();
+    Validation::require_admin(env, &admin)?;
+    if chunk_size == 0 {
+        return Err(Error::InvalidChunkSize);
+    }
+    let mut config = Storage::get_contract_config(env).unwrap_or_else(|| ContractConfig::default_for(env));
+    config.chunk_size = chunk_size;
+    Storage::set_contract_config(env, &config);
+    Ok(())
+}
+
+pub fn set_ttl_days(env: &Env, admin: Address, days: u32) -> Result<(), Error> {
+    admin.require_auth();
+    Validation::require_admin(env, &admin)?;
+    if days == 0 || days > crate::constants::MAX_TTL_DAYS {
+        return Err(Error::InvalidTtl);
+    }
+    Storage::set_ttl_config(env, &TtlConfig { ttl_days: days });
+    if let Some(mut config) = Storage::get_contract_config(env) {
+        config.ttl_config = TtlConfig { ttl_days: days };
+        Storage::set_contract_config(env, &config);
+    }
+    Ok(())
+}
+
+/// Returns the currently configured `ChunkedIndex` chunk size (default: 50).
+pub fn get_chunk_size(env: &Env) -> u32 {
+    Storage::get_contract_config(env)
+        .map(|config| config.chunk_size)
+        .filter(|&s| s >= 1)
+        .unwrap_or(50)
+}
+
 // -----------------------------------------------------------------------
 // Limits
 // -----------------------------------------------------------------------
@@ -467,9 +584,29 @@ pub fn register_claim_type(env: &Env, admin: Address, claim_type: String, descri
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
     Validation::validate_claim_type(&claim_type)?;
-    let info = ClaimTypeInfo { claim_type: claim_type.clone(), description: description.clone() };
+    Validation::validate_description(&description)?;
+    let info = ClaimTypeInfo {
+        claim_type: claim_type.clone(),
+        description: description.clone(),
+    };
     Storage::set_claim_type(env, &info);
+    // Initialize status to Active
+    Storage::set_claim_type_status(env, &claim_type, crate::types::ClaimTypeStatus::Active);
     Events::claim_type_registered(env, &claim_type, &description);
+    Ok(())
+}
+
+pub fn set_claim_type_status(env: &Env, admin: Address, claim_type: String, status: crate::types::ClaimTypeStatus) -> Result<(), Error> {
+    admin.require_auth();
+    Validation::require_admin(env, &admin)?;
+    Validation::validate_claim_type(&claim_type)?;
+
+    // Verify that the claim type is registered
+    Storage::get_claim_type(env, &claim_type)
+        .ok_or(Error::InvalidClaimType)?;
+
+    Storage::set_claim_type_status(env, &claim_type, status);
+    Events::claim_type_status_changed(env, &claim_type, status);
     Ok(())
 }
 
@@ -481,11 +618,40 @@ pub fn list_claim_types(env: &Env, start: u32, limit: u32) -> Vec<String> {
     crate::storage::paginate(env, &Storage::get_claim_type_list(env), start, limit)
 }
 
+const MAX_METADATA_LEN: u32 = 256;
+
 pub fn set_claim_type_constraints(env: &Env, admin: Address, claim_type: String, constraints: crate::types::ClaimTypeConstraints) -> Result<(), Error> {
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
     Validation::validate_claim_type(&claim_type)?;
+    Validation::require_not_paused(env)?;
+
+    // Validate min <= max if both are set
+    if let (Some(min), Some(max)) = (constraints.min_metadata_len, constraints.max_metadata_len) {
+        if min > max {
+            return Err(Error::InvalidConfigValue);
+        }
+        if max > MAX_METADATA_LEN {
+            return Err(Error::MetadataTooLong);
+        }
+    }
+
+    // If min is set but require_metadata is false, warn but allow (for compatibility)
+    // In practice, this config is confusing but not technically invalid
+
     Storage::set_claim_type_constraints(env, &claim_type, &constraints);
+    Events::claim_type_constraints_updated(env, &claim_type, &Some(constraints));
+    Ok(())
+}
+
+pub fn clear_claim_type_constraints(env: &Env, admin: Address, claim_type: String) -> Result<(), Error> {
+    admin.require_auth();
+    Validation::require_admin(env, &admin)?;
+    Validation::validate_claim_type(&claim_type)?;
+    Validation::require_not_paused(env)?;
+
+    Storage::remove_claim_type_constraints(env, &claim_type);
+    Events::claim_type_constraints_updated(env, &claim_type, &None);
     Ok(())
 }
 
@@ -505,11 +671,20 @@ pub fn delegate_claim_type(
     expiration: Option<u64>,
 ) -> Result<(), Error> {
     issuer.require_auth();
+    Validation::require_not_paused(env)?;
     Validation::require_issuer(env, &issuer)?;
+    Validation::validate_claim_type(&claim_type)?;
+    Validation::require_registered_claim_type(env, &claim_type)?;
     if issuer == delegate {
         return Err(Error::CannotDelegateToSelf);
     }
+    // Bridges and admins already hold privileged roles; they must not also
+    // act as sub-issuers.
+    if Storage::is_bridge(env, &delegate) || Storage::is_admin(env, &delegate) {
+        return Err(Error::Unauthorized);
+    }
     crate::attestation::validate_native_expiration(env, expiration)?;
+    let is_update = Storage::get_delegation(env, &issuer, &delegate, &claim_type).is_some();
     let delegation = Delegation {
         delegator: issuer.clone(),
         delegate: delegate.clone(),
@@ -517,7 +692,11 @@ pub fn delegate_claim_type(
         expiration,
     };
     Storage::set_delegation(env, &delegation);
-    Events::delegation_created(env, &issuer, &delegate, &claim_type, expiration);
+    if is_update {
+        Events::delegation_updated(env, &issuer, &delegate, &claim_type, expiration);
+    } else {
+        Events::delegation_created(env, &issuer, &delegate, &claim_type, expiration);
+    }
     Ok(())
 }
 
@@ -614,11 +793,17 @@ pub fn get_version(env: &Env) -> Result<String, Error> {
 pub fn health_check(env: &Env) -> crate::types::HealthStatus {
     let initialized = Storage::has_admin(env);
     let stats = Storage::get_global_stats(env);
+    let issuer_count = Storage::get_issuer_list(env).len();
+    let bridge_count = Storage::get_bridge_list(env).len();
+    let version = Storage::get_version(env)
+        .unwrap_or_else(|| soroban_sdk::String::from_str(env, ""));
     crate::types::HealthStatus {
         initialized,
-        admin_set: initialized,
-        issuer_count: stats.total_issuers,
+        paused: Storage::is_paused(env),
+        issuer_count,
+        bridge_count,
         total_attestations: stats.total_attestations,
+        version,
     }
 }
 
@@ -743,20 +928,99 @@ pub fn get_council_timelock_delay(env: &Env) -> u64 {
 // Dispute resolution (Issue #791)
 // -----------------------------------------------------------------------
 
-pub fn resolve_dispute(env: &Env, resolver: Address, attestation_id: String) -> Result<(), Error> {
+pub fn resolve_dispute(
+    env: &Env,
+    resolver: Address,
+    attestation_id: String,
+    resolution_note: Option<String>,
+) -> Result<(), Error> {
+    use crate::types::{DisputeStatus, AuditAction, AuditEntry};
+    
     resolver.require_auth();
 
     let attestation = Storage::get_attestation(env, &attestation_id)?;
     if attestation.issuer != resolver && !Storage::is_admin(env, &resolver) {
         return Err(Error::Unauthorized);
     }
-    if Storage::get_dispute(env, &attestation_id).is_none() {
-        return Err(Error::NotDisputed);
+    
+    let mut dispute = Storage::get_dispute(env, &attestation_id).ok_or(Error::NotDisputed)?;
+    
+    // Issue #1567: Cannot resolve already-resolved disputes
+    if dispute.status != DisputeStatus::Open {
+        return Err(Error::InvalidAttestation); // or new error: DisputeAlreadyResolved
     }
 
-    Storage::remove_dispute(env, &attestation_id);
-    Events::dispute_resolved(env, &attestation_id, &resolver, env.ledger().timestamp());
+    Validation::require_not_paused(env)?;
+
+    let timestamp = env.ledger().timestamp();
+    
+    // Issue #1566: Record resolution outcome instead of deleting
+    dispute.status = DisputeStatus::Upheld; // Default to Upheld when resolver acts
+    dispute.resolved_by = Some(resolver.clone());
+    dispute.resolved_at = Some(timestamp);
+    dispute.resolution_note = resolution_note.clone();
+    
+    Storage::set_dispute(env, &attestation_id, &dispute);
+    
+    // Issue #1566: Add resolution to audit log
+    let audit_entry = AuditEntry {
+        action: AuditAction::DisputeResolved,
+        actor: resolver.clone(),
+        timestamp,
+        details: resolution_note,
+    };
+    Storage::append_audit_entry(env, &attestation_id, &audit_entry);
+    
+    Events::dispute_resolved(env, &attestation_id, &resolver, timestamp);
     Ok(())
+}
+
+// -----------------------------------------------------------------------
+// Config & metadata getters
+// -----------------------------------------------------------------------
+
+/// Return a full snapshot of the contract configuration.
+///
+/// Falls back to sensible defaults for any field not yet explicitly set,
+/// ensuring backward compatibility with contracts initialised before a
+/// particular config key existed.
+pub fn get_config(env: &Env) -> ContractConfig {
+    let mut config = Storage::get_contract_config(env).unwrap_or_else(|| ContractConfig::default_for(env));
+    if let Some(version) = Storage::get_version(env) {
+        config.contract_version = version;
+    }
+    if let Some(fee_config) = Storage::get_fee_config(env) {
+        config.fee_config = fee_config;
+    }
+    if let Some(ttl_config) = Storage::get_ttl_config(env) {
+        config.ttl_config = ttl_config;
+    }
+    if config.contract_description.is_empty() {
+        config.contract_description = String::from_str(
+            env,
+            "On-chain attestation and verification system for the Stellar blockchain.",
+        );
+    }
+    if config.chunk_size == 0 {
+        config.chunk_size = get_chunk_size(env);
+    }
+    config
+}
+
+/// Return static contract metadata (name, version, description).
+///
+/// # Errors
+/// - [`Error::NotInitialized`] — contract has not been initialised.
+pub fn get_contract_metadata(env: &Env) -> Result<crate::types::ContractMetadata, Error> {
+    let version = Storage::get_version(env).ok_or(Error::NotInitialized)?;
+    Ok(crate::types::ContractMetadata {
+        name: soroban_sdk::String::from_str(env, "TrustLink"),
+        version,
+        description: soroban_sdk::String::from_str(
+            env,
+            "On-chain attestation and verification system for the Stellar blockchain.",
+        ),
+    })
 }
 
 // -----------------------------------------------------------------------
@@ -772,9 +1036,12 @@ fn validate_fee_config(env: &Env, fee: i128, fee_token: &Option<Address>) -> Res
     }
     if let Some(token_addr) = fee_token {
         let token = TokenClient::new(env, token_addr);
-        token
-            .try_balance(&env.current_contract_address())
-            .map_err(|_| Error::InvalidFeeToken)?;
+        // try_balance returns Result<Result<i128, Error>, Error> where the outer Result
+        // covers host errors and the inner Result covers token-specific errors (e.g., not a SEP-41 token).
+        match token.try_balance(&env.current_contract_address()) {
+            Ok(Ok(_)) => {}
+            _ => return Err(Error::InvalidFeeToken),
+        }
     }
     Ok(())
 }

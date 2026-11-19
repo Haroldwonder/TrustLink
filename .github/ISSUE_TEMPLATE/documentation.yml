@@ -1,0 +1,43 @@
+name: "📚 Documentation"
+description: Report a typo, unclear section, or missing content in the docs
+title: "[Docs]: "
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for issues with documentation — typos, unclear wording, outdated instructions, or missing content.
+  - type: input
+    id: location
+    attributes:
+      label: Where is the issue?
+      description: File path or URL (e.g. `docs/quickstart.md`, `README.md#usage`)
+    validations:
+      required: true
+  - type: dropdown
+    id: type
+    attributes:
+      label: Type of issue
+      options:
+        - Typo / grammar
+        - Unclear or confusing explanation
+        - Outdated or incorrect information
+        - Missing content
+        - Broken link
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What's wrong, and what would you expect to see instead?
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested fix (optional)
+      description: If you already have wording or content in mind, share it here.
+    validations:
+      required: false

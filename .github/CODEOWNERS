@@ -10,6 +10,40 @@
 # TypeScript and React SDKs — owned by the SDK team
 /sdk/ @Haroldwonder/sdk-team
 
+# Generated contract bindings — owned by the SDK team
+/bindings/ @Haroldwonder/sdk-team
+
+# Off-chain indexer service — owned by the indexer team
+/indexer/ @Haroldwonder/indexer-team
+
+# Infrastructure-as-code — owned by the devops team
+/infra/ @Haroldwonder/devops-team
+
+# Monitoring and alerting configuration — owned by the devops team
+/monitoring/ @Haroldwonder/devops-team
+
+# CI/CD workflows — owned by the devops team
+/.github/workflows/ @Haroldwonder/devops-team
+
+# Build and dev scripts — owned by the devops team
+/scripts/ @Haroldwonder/devops-team
+
+# Fuzz targets — owned by the security team
+/fuzz/ @Haroldwonder/security-team
+
+# Contract benchmarks — owned by the contract team
+/benches/ @Haroldwonder/contract-team
+
+# Root-level integration tests and snapshots — owned by the contract team
+/tests/ @Haroldwonder/contract-team
+/test_snapshots/ @Haroldwonder/contract-team
+
+# Integration examples — owned by the devrel team
+/examples/ @Haroldwonder/devrel-team
+
+# General documentation — owned by the devrel team
+/docs/ @Haroldwonder/devrel-team
+
 # Security-related documentation — owned by the security team
 /docs/security*.md @Haroldwonder/security-team
 

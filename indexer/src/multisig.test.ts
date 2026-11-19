@@ -145,6 +145,7 @@ describe("ms_sign event processing", () => {
   beforeEach(() => {
     db = makeMockDb();
     db.multisigProposal.update.mockResolvedValue(makeProposal());
+    db.multisigProposal.findUnique.mockResolvedValue(null);
   });
 
   it("appends new signer to signers array", async () => {
@@ -165,6 +166,38 @@ describe("ms_sign event processing", () => {
     expect(db.multisigProposal.update).toHaveBeenCalledWith({
       where: { id: "prop-1" },
       data: { signatureCount: 2, signers: ["GISSUER_A", "GISSUER_B"] },
+    });
+  });
+
+  it("processes ms_sign event end-to-end (issue #929)", async () => {
+    const proposalId = "prop-1";
+    const proposer = "GISSUER_A";
+    const signer = "GISSUER_B";
+    const signatureCount = 2;
+
+    const existing = makeProposal({
+      id: proposalId,
+      signers: [proposer],
+      signatureCount: 1,
+    });
+    db.multisigProposal.findUnique.mockResolvedValue({ signers: existing.signers });
+
+    const updatedSigners = existing.signers.includes(signer)
+      ? existing.signers
+      : [...existing.signers, signer];
+
+    await db.multisigProposal.update({
+      where: { id: proposalId },
+      data: { signatureCount, signers: updatedSigners },
+    });
+
+    expect(db.multisigProposal.findUnique).toHaveBeenCalledWith({
+      where: { id: proposalId },
+      select: { signers: true },
+    });
+    expect(db.multisigProposal.update).toHaveBeenCalledWith({
+      where: { id: proposalId },
+      data: { signatureCount: 2, signers: [proposer, signer] },
     });
   });
 

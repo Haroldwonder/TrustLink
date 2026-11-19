@@ -74,6 +74,7 @@ terraform apply tfplan
 ```
 
 This will:
+
 - Create VPC security groups
 - Deploy RDS PostgreSQL instance
 - Create ECS cluster and Fargate task definition
@@ -89,7 +90,9 @@ terraform output
 ```
 
 Key outputs:
-- `alb_dns_name` — Your indexer's public DNS endpoint (HTTP)
+
+- `alb_dns_name` — Your indexer's public ALB DNS name
+- `graphql_endpoint` — Public GraphQL HTTP and WebSocket endpoint
 - `rds_endpoint` — PostgreSQL connection host
 - `ecs_cluster_name` — ECS cluster name
 - `budget_alert_topic_arn` — SNS topic for cost alerts
@@ -104,6 +107,7 @@ Cost monitoring is configured automatically by the Terraform module:
 2. **SNS Notifications** — Email alerts when forecasted spend reaches 90% of budget
 
 The email provided in `alert_email` will receive:
+
 - **Subscription confirmation** email — confirm subscription to budget alerts
 - **Cost forecasts** — when monthly spend is projected to exceed the threshold
 
@@ -132,17 +136,17 @@ View detailed costs in the AWS console:
 
 ## Environment Variables
 
-| Variable | Required | Description |
-|---|---|---|
-| `environment` | Yes | `testnet` or `mainnet` |
-| `aws_region` | No | AWS region (default: `us-east-1`) |
-| `db_password` | Yes | PostgreSQL master password (sensitive) |
-| `contract_id` | Yes | Deployed contract address |
-| `alert_email` | Yes | Email for cost alerts |
-| `budget_threshold` | No | Monthly budget USD (default: 100) |
-| `db_instance_class` | No | RDS instance type (default: `db.t3.micro`) |
-| `indexer_cpu` | No | Fargate task CPU units (default: 256) |
-| `indexer_memory` | No | Fargate task memory MiB (default: 512) |
+| Variable            | Required | Description                                |
+| ------------------- | -------- | ------------------------------------------ |
+| `environment`       | Yes      | `testnet` or `mainnet`                     |
+| `aws_region`        | No       | AWS region (default: `us-east-1`)          |
+| `db_password`       | Yes      | PostgreSQL master password (sensitive)     |
+| `contract_id`       | Yes      | Deployed contract address                  |
+| `alert_email`       | Yes      | Email for cost alerts                      |
+| `budget_threshold`  | No       | Monthly budget USD (default: 100)          |
+| `db_instance_class` | No       | RDS instance type (default: `db.t3.micro`) |
+| `indexer_cpu`       | No       | Fargate task CPU units (default: 256)      |
+| `indexer_memory`    | No       | Fargate task memory MiB (default: 512)     |
 
 ## Connecting the Indexer
 

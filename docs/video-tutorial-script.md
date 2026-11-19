@@ -63,7 +63,7 @@ curl "https://friendbot.stellar.org?addr=YOUR_PUBLIC_KEY"
 Show terminal:
 
 ```bash
-git clone https://github.com/unixfundz/TrustLink.git
+git clone https://github.com/Haroldwonder/TrustLink.git
 cd TrustLink
 
 # Run tests to confirm everything works

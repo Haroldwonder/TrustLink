@@ -2,95 +2,39 @@
 
 ## Overview
 
-Add a `confidence: u8` field to the `Attestation` struct, thread it through `create_attestation` with validation, and expose a new `has_claim_with_min_confidence` query function. All changes are additive and backward-compatible.
+Implement dynamic confidence scoring (`get_confidence_score`) computed on-demand using issuer tier, endorsement count, inactivity decay, and revocation ratio decay.
 
 ## Tasks
 
-- [ ] 1. Add `confidence` field and `InvalidConfidence` error to types
-  - Add `pub confidence: u8` as the last field of the `Attestation` struct in `src/types.rs`
-  - Add `InvalidConfidence = 21` variant to the `Error` enum in `src/types.rs`
-  - _Requirements: 1.1, 2.1_
+- [x] 1. Define data models and types
+  - [x] 1.1 Add `IssuerTier` enum (`Basic = 0`, `Verified = 1`, `Premium = 2`) in `src/types.rs`
+  - [x] 1.2 Add `DecayConfig` struct with `half_life_days` and `revocation_weight` in `src/types.rs`
+  - [x] 1.3 Add `IssuerTierUpdated` event in `src/events.rs`
+  - _Requirements: 2.1, 4.3_
 
-- [ ] 2. Add confidence validation to `validation.rs`
-  - [ ] 2.1 Implement `Validation::require_valid_confidence`
-    - Add `pub fn require_valid_confidence(confidence: u8) -> Result<(), Error>` to `src/validation.rs`
-    - Return `Err(Error::InvalidConfidence)` when `confidence > 100`, `Ok(())` otherwise
-    - _Requirements: 2.1, 2.2_
+- [x] 2. Storage layer for tiers and decay config
+  - [x] 2.1 Add `Storage::get_issuer_tier` and `Storage::set_issuer_tier` in `src/storage.rs`
+  - [x] 2.2 Add `Storage::get_decay_config` and `Storage::set_decay_config` in `src/storage.rs`
+  - [x] 2.3 Track `Storage::get_last_issuance_time` and `Storage::get_issuer_revocations` in `src/storage.rs`
+  - _Requirements: 2.3, 2.4, 4.1, 4.2_
 
-  - [ ]* 2.2 Write property test for `require_valid_confidence` (Property 2 & 3)
-    - **Property 2: Invalid confidence rejected** — for any `u8` in `101..=255`, must return `Err(InvalidConfidence)`
-    - **Property 3: Valid confidence accepted** — for any `u8` in `0..=100`, must return `Ok(())`
-    - **Validates: Requirements 2.1, 2.2**
+- [x] 3. Dynamic confidence scoring algorithm in `src/admin.rs`
+  - [x] 3.1 Implement `get_confidence_score(env, attestation_id) -> Option<u32>`
+  - [x] 3.2 Compute base score: tier (Basic=30, Verified=60, Premium=90) + endorsements (+2 each up to +10)
+  - [x] 3.3 Apply inactivity decay factor via `half_life_days` and days since last issuance
+  - [x] 3.4 Apply revocation ratio decay factor via `revocation_weight` and `revocations / total_issued`
+  - [x] 3.5 Implement `set_decay_config`, `get_decay_config`, and `set_issuer_tier` admin handlers
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 2.2, 3.1, 3.2, 4.1, 4.2_
 
-- [ ] 3. Update `create_attestation` in `src/lib.rs`
-  - [ ] 3.1 Add `confidence: Option<u8>` parameter to `create_attestation`
-    - Insert `confidence: Option<u8>` as the last parameter
-    - Resolve the value: `let confidence = confidence.unwrap_or(100);`
-    - Call `Validation::require_valid_confidence(confidence)?` after `validate_native_expiration` and before `charge_attestation_fee`
-    - Set `confidence` field in the `Attestation` struct literal
-    - _Requirements: 1.2, 1.3, 2.1, 2.3, 4.1_
+- [x] 4. Expose contract entry points in `src/lib.rs`
+  - [x] 4.1 Expose `get_confidence_score(env, attestation_id) -> Option<u32>`
+  - [x] 4.2 Expose `set_decay_config`, `get_decay_config`, `set_issuer_tier`, and `get_issuer_tier`
+  - _Requirements: 1.1, 2.3, 2.4, 4.3, 4.4_
 
-  - [ ]* 3.2 Write unit tests for `create_attestation` confidence behavior
-    - Test default `None` stores `confidence = 100`
-    - Test `confidence = 101` returns `Error::InvalidConfidence` with fee collector balance unchanged (validation before fee)
-    - Test boundary values: `confidence = 0`, `confidence = 100`, `confidence = 101`
-    - Test all other attestation fields are unaffected when confidence is set
-    - _Requirements: 1.2, 1.3, 2.1, 2.3, 4.1_
+- [x] 5. Unit & Integration Tests
+  - [x] 5.1 Test `get_confidence_score` returns `None` for non-existent attestation
+  - [x] 5.2 Test tier impact on confidence score (Basic -> 30, Verified -> 60, Premium -> 90)
+  - [x] 5.3 Test inactivity decay decreases score as timestamp advances
+  - [x] 5.4 Test revocation ratio decay decreases score on revocations
+  - _Requirements: 1.1, 1.2, 2.1, 4.1, 4.2_
 
-  - [ ]* 3.3 Write property test for confidence round-trip (Property 1)
-    - **Property 1: Confidence round-trip** — for any `c` in `0..=100`, create attestation with that confidence and assert `get_attestation` returns `confidence == c`
-    - **Validates: Requirements 1.2, 1.4**
-
-- [ ] 4. Update all other `Attestation` construction sites in `src/lib.rs`
-  - Add `confidence: 100` to the `Attestation` struct literal in `import_attestation`
-  - Add `confidence: 100` to the `Attestation` struct literal in `bridge_attestation`
-  - Add `confidence: 100` to the `Attestation` struct literal in `create_attestations_batch`
-  - Add `confidence: 100` to the `Attestation` struct literal in `cosign_attestation` (multisig finalization)
-  - _Requirements: 4.1, 4.3_
-
-- [ ] 5. Checkpoint — ensure all tests pass
-  - Ensure all tests pass, ask the user if questions arise.
-
-- [ ] 6. Implement `has_claim_with_min_confidence` in `src/lib.rs`
-  - [ ] 6.1 Add the `has_claim_with_min_confidence` public function
-    - Signature: `pub fn has_claim_with_min_confidence(env: Env, subject: Address, claim_type: String, min_confidence: u8) -> bool`
-    - Iterate subject's attestation IDs via `Storage::get_subject_attestations`
-    - For each ID, attempt `Storage::get_attestation`; skip on error (backward-compat fallback: treat missing confidence as 100)
-    - Return `true` only when `claim_type` matches, `get_status` returns `AttestationStatus::Valid`, and `attestation.confidence >= min_confidence`
-    - Return `false` if no matching attestation is found
-    - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 4.3_
-
-  - [ ]* 6.2 Write unit tests for `has_claim_with_min_confidence`
-    - Test returns `true` when confidence meets threshold
-    - Test returns `false` when confidence is below threshold
-    - Test returns `false` for revoked attestation even with `min_confidence = 0`
-    - Test returns `false` for expired attestation even with `min_confidence = 0`
-    - Test `has_valid_claim` result is unchanged regardless of confidence value
-    - _Requirements: 3.1, 3.2, 3.3, 3.4, 4.2_
-
-  - [ ]* 6.3 Write property test for threshold query (Property 4)
-    - **Property 4: has_claim_with_min_confidence threshold** — for any `(c in 0..=100, m in 0..=100)`, result must equal `c >= m`
-    - **Validates: Requirements 3.1, 3.2, 3.3**
-
-  - [ ]* 6.4 Write property test for revoked/expired (Property 5)
-    - **Property 5: Revoked or expired attestations never satisfy confidence query** — for any `c in 0..=100`, after revoking or expiring the attestation, `has_claim_with_min_confidence` with `min_confidence = 0` returns `false`
-    - **Validates: Requirements 3.4**
-
-  - [ ]* 6.5 Write property test for `has_valid_claim` confidence-agnostic (Property 6)
-    - **Property 6: has_valid_claim is confidence-agnostic** — for any two confidence values `a, b in 0..=100`, `has_valid_claim` returns the same result for both
-    - **Validates: Requirements 4.2**
-
-- [ ] 7. Add `proptest` dependency to `Cargo.toml`
-  - Add `proptest = "1"` under `[dev-dependencies]` in `Cargo.toml`
-  - _Requirements: (testing infrastructure)_
-
-- [ ] 8. Final checkpoint — ensure all tests pass
-  - Ensure all tests pass, ask the user if questions arise.
-
-## Notes
-
-- Tasks marked with `*` are optional and can be skipped for a faster MVP
-- Property tests use `proptest = "1"` and run a minimum of 100 iterations each
-- Each property test must include a comment: `// Feature: attestation-confidence-score, Property N: <property text>`
-- The `confidence` field is appended last to `Attestation` to preserve XDR positional encoding for existing records
-- Old stored records without a `confidence` field are treated as confidence `100` via the error-fallback in `has_claim_with_min_confidence`

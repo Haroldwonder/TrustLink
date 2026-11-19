@@ -89,7 +89,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                  "string": "6495b6242dafd7a7256bfb109136722c"
                 },
                 {
                   "string": "v2"
@@ -114,7 +114,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                  "string": "6495b6242dafd7a7256bfb109136722c"
                 },
                 {
                   "string": "v3"
@@ -148,7 +148,7 @@
                   "symbol": "Attestation"
                 },
                 {
-                  "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                  "string": "6495b6242dafd7a7256bfb109136722c"
                 }
               ]
             },
@@ -168,13 +168,19 @@
                       "symbol": "Attestation"
                     },
                     {
-                      "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                      "string": "6495b6242dafd7a7256bfb109136722c"
                     }
                   ]
                 },
                 "durability": "persistent",
                 "val": {
                   "map": [
+                    {
+                      "key": {
+                        "symbol": "bundle_id"
+                      },
+                      "val": "void"
+                    },
                     {
                       "key": {
                         "symbol": "claim_type"
@@ -202,7 +208,7 @@
                         "symbol": "id"
                       },
                       "val": {
-                        "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                        "string": "6495b6242dafd7a7256bfb109136722c"
                       }
                     },
                     {
@@ -312,7 +318,7 @@
                   "symbol": "AttestationHistory"
                 },
                 {
-                  "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                  "string": "6495b6242dafd7a7256bfb109136722c"
                 }
               ]
             },
@@ -332,7 +338,7 @@
                       "symbol": "AttestationHistory"
                     },
                     {
-                      "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                      "string": "6495b6242dafd7a7256bfb109136722c"
                     }
                   ]
                 },
@@ -430,7 +436,7 @@
                   "symbol": "AuditLog"
                 },
                 {
-                  "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                  "string": "6495b6242dafd7a7256bfb109136722c"
                 }
               ]
             },
@@ -450,7 +456,7 @@
                       "symbol": "AuditLog"
                     },
                     {
-                      "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                      "string": "6495b6242dafd7a7256bfb109136722c"
                     }
                   ]
                 },
@@ -673,7 +679,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                      "string": "6495b6242dafd7a7256bfb109136722c"
                     }
                   ]
                 }
@@ -722,7 +728,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                      "string": "6495b6242dafd7a7256bfb109136722c"
                     }
                   ]
                 }
@@ -919,7 +925,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                      "string": "6495b6242dafd7a7256bfb109136722c"
                     }
                   ]
                 }
@@ -968,7 +974,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                      "string": "6495b6242dafd7a7256bfb109136722c"
                     }
                   ]
                 }
@@ -1017,7 +1023,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                      "string": "6495b6242dafd7a7256bfb109136722c"
                     }
                   ]
                 }
@@ -1596,7 +1602,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                  "string": "6495b6242dafd7a7256bfb109136722c"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -1633,7 +1639,7 @@
               }
             ],
             "data": {
-              "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+              "string": "6495b6242dafd7a7256bfb109136722c"
             }
           }
         }
@@ -1664,7 +1670,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                  "string": "6495b6242dafd7a7256bfb109136722c"
                 },
                 {
                   "string": "v2"
@@ -1694,7 +1700,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                  "string": "6495b6242dafd7a7256bfb109136722c"
                 },
                 {
                   "u64": 0
@@ -1751,7 +1757,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                  "string": "6495b6242dafd7a7256bfb109136722c"
                 },
                 {
                   "string": "v3"
@@ -1781,7 +1787,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+                  "string": "6495b6242dafd7a7256bfb109136722c"
                 },
                 {
                   "u64": 0
@@ -1833,7 +1839,7 @@
               }
             ],
             "data": {
-              "string": "c028752a809fbde36757974af115f9a80632245df76c4bab844fd501369079f3"
+              "string": "6495b6242dafd7a7256bfb109136722c"
             }
           }
         }

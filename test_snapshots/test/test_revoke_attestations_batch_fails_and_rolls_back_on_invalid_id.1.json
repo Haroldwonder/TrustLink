@@ -127,7 +127,7 @@
                   "symbol": "Attestation"
                 },
                 {
-                  "string": "91fdc54183c9ec8099a218b964a3eb1e06855af23b9eeccd7a7f4de3163a8cec"
+                  "string": "9e706fd7f12b40173b6bc0e8cd3c9eb7"
                 }
               ]
             },
@@ -147,13 +147,19 @@
                       "symbol": "Attestation"
                     },
                     {
-                      "string": "91fdc54183c9ec8099a218b964a3eb1e06855af23b9eeccd7a7f4de3163a8cec"
+                      "string": "9e706fd7f12b40173b6bc0e8cd3c9eb7"
                     }
                   ]
                 },
                 "durability": "persistent",
                 "val": {
                   "map": [
+                    {
+                      "key": {
+                        "symbol": "bundle_id"
+                      },
+                      "val": "void"
+                    },
                     {
                       "key": {
                         "symbol": "claim_type"
@@ -181,7 +187,7 @@
                         "symbol": "id"
                       },
                       "val": {
-                        "string": "91fdc54183c9ec8099a218b964a3eb1e06855af23b9eeccd7a7f4de3163a8cec"
+                        "string": "9e706fd7f12b40173b6bc0e8cd3c9eb7"
                       }
                     },
                     {
@@ -289,7 +295,7 @@
                   "symbol": "Attestation"
                 },
                 {
-                  "string": "d589a0d5e1193ce98a615444e6a69be7f602fda644d72f3706408c026b55c875"
+                  "string": "c5b851d83c0381673e146efff4aec5aa"
                 }
               ]
             },
@@ -309,13 +315,19 @@
                       "symbol": "Attestation"
                     },
                     {
-                      "string": "d589a0d5e1193ce98a615444e6a69be7f602fda644d72f3706408c026b55c875"
+                      "string": "c5b851d83c0381673e146efff4aec5aa"
                     }
                   ]
                 },
                 "durability": "persistent",
                 "val": {
                   "map": [
+                    {
+                      "key": {
+                        "symbol": "bundle_id"
+                      },
+                      "val": "void"
+                    },
                     {
                       "key": {
                         "symbol": "claim_type"
@@ -343,7 +355,7 @@
                         "symbol": "id"
                       },
                       "val": {
-                        "string": "d589a0d5e1193ce98a615444e6a69be7f602fda644d72f3706408c026b55c875"
+                        "string": "c5b851d83c0381673e146efff4aec5aa"
                       }
                     },
                     {
@@ -451,7 +463,7 @@
                   "symbol": "AuditLog"
                 },
                 {
-                  "string": "91fdc54183c9ec8099a218b964a3eb1e06855af23b9eeccd7a7f4de3163a8cec"
+                  "string": "9e706fd7f12b40173b6bc0e8cd3c9eb7"
                 }
               ]
             },
@@ -471,7 +483,7 @@
                       "symbol": "AuditLog"
                     },
                     {
-                      "string": "91fdc54183c9ec8099a218b964a3eb1e06855af23b9eeccd7a7f4de3163a8cec"
+                      "string": "9e706fd7f12b40173b6bc0e8cd3c9eb7"
                     }
                   ]
                 },
@@ -535,7 +547,7 @@
                   "symbol": "AuditLog"
                 },
                 {
-                  "string": "d589a0d5e1193ce98a615444e6a69be7f602fda644d72f3706408c026b55c875"
+                  "string": "c5b851d83c0381673e146efff4aec5aa"
                 }
               ]
             },
@@ -555,7 +567,7 @@
                       "symbol": "AuditLog"
                     },
                     {
-                      "string": "d589a0d5e1193ce98a615444e6a69be7f602fda644d72f3706408c026b55c875"
+                      "string": "c5b851d83c0381673e146efff4aec5aa"
                     }
                   ]
                 },
@@ -698,10 +710,10 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "d589a0d5e1193ce98a615444e6a69be7f602fda644d72f3706408c026b55c875"
+                      "string": "c5b851d83c0381673e146efff4aec5aa"
                     },
                     {
-                      "string": "91fdc54183c9ec8099a218b964a3eb1e06855af23b9eeccd7a7f4de3163a8cec"
+                      "string": "9e706fd7f12b40173b6bc0e8cd3c9eb7"
                     }
                   ]
                 }
@@ -750,10 +762,10 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "d589a0d5e1193ce98a615444e6a69be7f602fda644d72f3706408c026b55c875"
+                      "string": "c5b851d83c0381673e146efff4aec5aa"
                     },
                     {
-                      "string": "91fdc54183c9ec8099a218b964a3eb1e06855af23b9eeccd7a7f4de3163a8cec"
+                      "string": "9e706fd7f12b40173b6bc0e8cd3c9eb7"
                     }
                   ]
                 }
@@ -950,7 +962,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "d589a0d5e1193ce98a615444e6a69be7f602fda644d72f3706408c026b55c875"
+                      "string": "c5b851d83c0381673e146efff4aec5aa"
                     }
                   ]
                 }
@@ -1005,7 +1017,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "91fdc54183c9ec8099a218b964a3eb1e06855af23b9eeccd7a7f4de3163a8cec"
+                      "string": "9e706fd7f12b40173b6bc0e8cd3c9eb7"
                     }
                   ]
                 }
@@ -1054,7 +1066,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "d589a0d5e1193ce98a615444e6a69be7f602fda644d72f3706408c026b55c875"
+                      "string": "c5b851d83c0381673e146efff4aec5aa"
                     }
                   ]
                 }
@@ -1103,7 +1115,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "91fdc54183c9ec8099a218b964a3eb1e06855af23b9eeccd7a7f4de3163a8cec"
+                      "string": "9e706fd7f12b40173b6bc0e8cd3c9eb7"
                     }
                   ]
                 }
@@ -1152,7 +1164,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "d589a0d5e1193ce98a615444e6a69be7f602fda644d72f3706408c026b55c875"
+                      "string": "c5b851d83c0381673e146efff4aec5aa"
                     }
                   ]
                 }
@@ -1201,7 +1213,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "91fdc54183c9ec8099a218b964a3eb1e06855af23b9eeccd7a7f4de3163a8cec"
+                      "string": "9e706fd7f12b40173b6bc0e8cd3c9eb7"
                     }
                   ]
                 }
@@ -1745,7 +1757,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "d589a0d5e1193ce98a615444e6a69be7f602fda644d72f3706408c026b55c875"
+                  "string": "c5b851d83c0381673e146efff4aec5aa"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -1780,7 +1792,7 @@
               }
             ],
             "data": {
-              "string": "d589a0d5e1193ce98a615444e6a69be7f602fda644d72f3706408c026b55c875"
+              "string": "c5b851d83c0381673e146efff4aec5aa"
             }
           }
         }
@@ -1844,7 +1856,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "91fdc54183c9ec8099a218b964a3eb1e06855af23b9eeccd7a7f4de3163a8cec"
+                  "string": "9e706fd7f12b40173b6bc0e8cd3c9eb7"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -1879,7 +1891,7 @@
               }
             ],
             "data": {
-              "string": "91fdc54183c9ec8099a218b964a3eb1e06855af23b9eeccd7a7f4de3163a8cec"
+              "string": "9e706fd7f12b40173b6bc0e8cd3c9eb7"
             }
           }
         }
@@ -1912,13 +1924,13 @@
                 {
                   "vec": [
                     {
-                      "string": "d589a0d5e1193ce98a615444e6a69be7f602fda644d72f3706408c026b55c875"
+                      "string": "c5b851d83c0381673e146efff4aec5aa"
                     },
                     {
                       "string": "does_not_exist"
                     },
                     {
-                      "string": "91fdc54183c9ec8099a218b964a3eb1e06855af23b9eeccd7a7f4de3163a8cec"
+                      "string": "9e706fd7f12b40173b6bc0e8cd3c9eb7"
                     }
                   ]
                 },
@@ -2013,13 +2025,13 @@
                     {
                       "vec": [
                         {
-                          "string": "d589a0d5e1193ce98a615444e6a69be7f602fda644d72f3706408c026b55c875"
+                          "string": "c5b851d83c0381673e146efff4aec5aa"
                         },
                         {
                           "string": "does_not_exist"
                         },
                         {
-                          "string": "91fdc54183c9ec8099a218b964a3eb1e06855af23b9eeccd7a7f4de3163a8cec"
+                          "string": "9e706fd7f12b40173b6bc0e8cd3c9eb7"
                         }
                       ]
                     },
@@ -2052,7 +2064,7 @@
               }
             ],
             "data": {
-              "string": "d589a0d5e1193ce98a615444e6a69be7f602fda644d72f3706408c026b55c875"
+              "string": "c5b851d83c0381673e146efff4aec5aa"
             }
           }
         }
@@ -2076,6 +2088,12 @@
             ],
             "data": {
               "map": [
+                {
+                  "key": {
+                    "symbol": "bundle_id"
+                  },
+                  "val": "void"
+                },
                 {
                   "key": {
                     "symbol": "claim_type"
@@ -2103,7 +2121,7 @@
                     "symbol": "id"
                   },
                   "val": {
-                    "string": "d589a0d5e1193ce98a615444e6a69be7f602fda644d72f3706408c026b55c875"
+                    "string": "c5b851d83c0381673e146efff4aec5aa"
                   }
                 },
                 {
@@ -2218,7 +2236,7 @@
               }
             ],
             "data": {
-              "string": "91fdc54183c9ec8099a218b964a3eb1e06855af23b9eeccd7a7f4de3163a8cec"
+              "string": "9e706fd7f12b40173b6bc0e8cd3c9eb7"
             }
           }
         }
@@ -2242,6 +2260,12 @@
             ],
             "data": {
               "map": [
+                {
+                  "key": {
+                    "symbol": "bundle_id"
+                  },
+                  "val": "void"
+                },
                 {
                   "key": {
                     "symbol": "claim_type"
@@ -2269,7 +2293,7 @@
                     "symbol": "id"
                   },
                   "val": {
-                    "string": "91fdc54183c9ec8099a218b964a3eb1e06855af23b9eeccd7a7f4de3163a8cec"
+                    "string": "9e706fd7f12b40173b6bc0e8cd3c9eb7"
                   }
                 },
                 {
@@ -2419,10 +2443,10 @@
             "data": {
               "vec": [
                 {
-                  "string": "d589a0d5e1193ce98a615444e6a69be7f602fda644d72f3706408c026b55c875"
+                  "string": "c5b851d83c0381673e146efff4aec5aa"
                 },
                 {
-                  "string": "91fdc54183c9ec8099a218b964a3eb1e06855af23b9eeccd7a7f4de3163a8cec"
+                  "string": "9e706fd7f12b40173b6bc0e8cd3c9eb7"
                 }
               ]
             }

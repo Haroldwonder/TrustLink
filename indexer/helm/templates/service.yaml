@@ -11,5 +11,14 @@ spec:
       targetPort: http
       protocol: TCP
       name: http
+    - port: {{ .Values.service.graphqlPort | default .Values.gqlPort }}
+      targetPort: graphql
+      protocol: TCP
+      name: graphql
   selector:
     {{- include "trustlink-indexer.selectorLabels" . | nindent 4 }}
+    {{- if .Values.main.enabled | default false }}
+    deployment-type: main
+    {{- else }}
+    deployment-type: standard
+    {{- end }}

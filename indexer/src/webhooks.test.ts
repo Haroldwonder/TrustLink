@@ -12,6 +12,15 @@
 
 import { deliverWithRetry, replayFailure, dispatchWebhooks, MAX_ATTEMPTS } from "./webhooks";
 
+// Set test environment for webhook validation
+process.env.NODE_ENV = "test";
+
+// ── Mock webhook validation ───────────────────────────────────────────────────
+
+jest.mock("./webhook-validation", () => ({
+  validateWebhookUrl: jest.fn(async () => {}), // Mock always passes in tests
+}));
+
 // ── Mock fetch globally ───────────────────────────────────────────────────────
 
 const mockFetch = jest.fn();

@@ -62,6 +62,8 @@ export interface Attestation {
   revocation_reason: string | null;
   /** True when the subject has requested GDPR deletion. */
   deleted: boolean;
+  /** Optional: shared bundle ID if this attestation was created as part of a bundle. */
+  bundle_id: string | null;
 }
 
 export interface AuditEntry {
@@ -69,6 +71,23 @@ export interface AuditEntry {
   actor: string;
   timestamp: bigint;
   details: string | null;
+}
+
+export interface AttestationBundle {
+  /** Unique bundle identifier */
+  id: string;
+  /** Issuer who created the bundle */
+  issuer: string;
+  /** Subject to whom all attestations were issued */
+  subject: string;
+  /** List of claim types in the bundle (fixed order) */
+  claim_types: string[];
+  /** Timestamp when the bundle was created */
+  timestamp: bigint;
+  /** IDs of all attestations in this bundle */
+  attestation_ids: string[];
+  /** Whether all attestations in the bundle are still valid */
+  all_valid: boolean;
 }
 
 export interface ClaimTypeInfo {
@@ -177,6 +196,10 @@ export interface RevocationList {
 
 // ─── Errors ───────────────────────────────────────────────────────────────────
 
+// Error code table is generated from src/errors.rs — do not hand-edit.
+// Run `node scripts/generate-error-codes.mjs` (or `make generate`) to regenerate.
+export { ERROR_CODES as CONTRACT_ERRORS } from "./generated/error-codes";
+
 export enum ContractErrorCode {
   AlreadyInitialized = 1,
   NotInitialized = 2,
@@ -208,40 +231,8 @@ export enum ContractErrorCode {
   RateLimited = 28,
   LimitExceeded = 29,
   ProposalCancelled = 30,
+  InvalidSourceReference = 44,
 }
-
-export const CONTRACT_ERRORS: Record<number, string> = {
-  1: "AlreadyInitialized",
-  2: "NotInitialized",
-  3: "Unauthorized",
-  4: "NotFound",
-  5: "DuplicateAttestation",
-  6: "AlreadyRevoked",
-  7: "Expired",
-  8: "InvalidValidFrom",
-  9: "InvalidExpiration",
-  10: "MetadataTooLong",
-  11: "InvalidTimestamp",
-  12: "InvalidFee",
-  13: "FeeTokenRequired",
-  14: "TooManyTags",
-  15: "TagTooLong",
-  16: "InvalidThreshold",
-  17: "NotRequiredSigner",
-  18: "AlreadySigned",
-  19: "ProposalFinalized",
-  20: "ProposalExpired",
-  21: "ReasonTooLong",
-  22: "CannotEndorseOwn",
-  23: "AlreadyEndorsed",
-  24: "ContractPaused",
-  25: "SubjectNotWhitelisted",
-  26: "InvalidClaimType",
-  27: "InvalidJurisdiction",
-  28: "RateLimited",
-  29: "LimitExceeded",
-  30: "ProposalCancelled",
-};
 
 // ─── XDR helpers ──────────────────────────────────────────────────────────────
 

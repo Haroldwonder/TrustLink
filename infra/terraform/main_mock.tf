@@ -46,6 +46,13 @@ resource "aws_security_group" "alb" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  ingress {
+    from_port   = var.gql_port
+    to_port     = var.gql_port
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -62,6 +69,13 @@ resource "aws_security_group" "ecs" {
   ingress {
     from_port       = var.indexer_port
     to_port         = var.indexer_port
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb.id]
+  }
+
+  ingress {
+    from_port       = var.gql_port
+    to_port         = var.gql_port
     protocol        = "tcp"
     security_groups = [aws_security_group.alb.id]
   }
@@ -153,16 +167,23 @@ resource "aws_ecs_task_definition" "indexer" {
     name  = "indexer"
     image = var.indexer_image
 
-    portMappings = [{
-      containerPort = var.indexer_port
-      protocol      = "tcp"
-    }]
+    portMappings = [
+      {
+        containerPort = var.indexer_port
+        protocol      = "tcp"
+      },
+      {
+        containerPort = var.gql_port
+        protocol      = "tcp"
+      }
+    ]
 
     environment = [
       { name = "DATABASE_URL", value = "postgresql://${var.db_username}:${var.db_password}@${aws_db_instance.indexer.address}:5432/trustlink" },
       { name = "STELLAR_NETWORK", value = var.stellar_network },
       { name = "CONTRACT_ID", value = var.contract_id },
-      { name = "PORT", value = tostring(var.indexer_port) }
+      { name = "PORT", value = tostring(var.indexer_port) },
+      { name = "GQL_PORT", value = tostring(var.gql_port) }
     ]
 
     logConfiguration = {
@@ -197,7 +218,13 @@ resource "aws_ecs_service" "indexer" {
     container_port   = var.indexer_port
   }
 
-  depends_on = [aws_lb_listener.http]
+  load_balancer {
+    target_group_arn = aws_lb_target_group.graphql.arn
+    container_name   = "indexer"
+    container_port   = var.gql_port
+  }
+
+  depends_on = [aws_lb_listener.http, aws_lb_listener.graphql]
 
   tags = local.common_tags
 }
@@ -228,6 +255,20 @@ resource "aws_lb_target_group" "indexer" {
   }
 }
 
+resource "aws_lb_target_group" "graphql" {
+  name        = "${var.name_prefix}-gql"
+  port        = var.gql_port
+  protocol    = "HTTP"
+  vpc_id      = data.aws_vpc.default.id
+  target_type = "ip"
+
+  health_check {
+    path                = "/graphql?query=%7B__typename%7D"
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+  }
+}
+
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.this.arn
   port              = 80
@@ -236,6 +277,17 @@ resource "aws_lb_listener" "http" {
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.indexer.arn
+  }
+}
+
+resource "aws_lb_listener" "graphql" {
+  load_balancer_arn = aws_lb.this.arn
+  port              = var.gql_port
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.graphql.arn
   }
 }
 

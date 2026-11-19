@@ -20,20 +20,29 @@ pub fn request_attestation(
     Validation::require_issuer(env, &issuer)?;
     Validation::validate_claim_type(&claim_type)?;
 
-    let timestamp = env.ledger().timestamp();
-    let request_id = AttestationRequest::generate_id(env, &subject, &issuer, &claim_type, timestamp);
+    let current_time = env.ledger().timestamp();
 
-    if Storage::get_request(env, &request_id).is_ok() {
-        return Err(Error::DuplicateRequest);
+    // Check if there's already a pending, unexpired request for the same (subject, issuer, claim_type)
+    let pending_ids = Storage::get_pending_request_ids(env, &issuer);
+    for existing_id in pending_ids.iter() {
+        if let Ok(existing_req) = Storage::get_request(env, &existing_id) {
+            if existing_req.subject == subject
+                && existing_req.claim_type == claim_type
+                && existing_req.status == RequestStatus::Pending
+                && current_time < existing_req.expires_at {
+                return Err(Error::DuplicateRequest);
+            }
+        }
     }
 
-    let expires_at = timestamp + ATTESTATION_REQUEST_TTL_SECS;
+    let request_id = AttestationRequest::generate_id(env, &subject, &issuer, &claim_type, current_time);
+    let expires_at = current_time + ATTESTATION_REQUEST_TTL_SECS;
     let request = AttestationRequest {
         id: request_id.clone(),
         subject: subject.clone(),
         issuer: issuer.clone(),
         claim_type: claim_type.clone(),
-        timestamp,
+        timestamp: current_time,
         expires_at,
         status: RequestStatus::Pending,
         rejection_reason: None,
@@ -63,7 +72,7 @@ pub fn fulfill_request(
     }
 
     match request.status {
-        RequestStatus::Fulfilled | RequestStatus::Rejected | RequestStatus::Cancelled => return Err(Error::RequestAlreadyProcessed),
+        RequestStatus::Fulfilled | RequestStatus::Rejected | RequestStatus::Cancelled | RequestStatus::Expired => return Err(Error::RequestAlreadyProcessed),
         RequestStatus::Pending => {}
     }
 
@@ -72,42 +81,31 @@ pub fn fulfill_request(
         return Err(Error::RequestExpired);
     }
 
+    crate::attestation::validate_new_attestation_common(env, &issuer, &request.subject, &request.claim_type)?;
     validate_native_expiration(env, expiration)?;
 
-    let attestation_id = Attestation::generate_id(env, &issuer, &request.subject, &request.claim_type, current_time);
-    if Storage::has_attestation(env, &attestation_id) {
-        return Err(Error::DuplicateAttestation);
-    }
-
-    let limits = Storage::get_limits(env);
-    if Storage::get_issuer_attestations(env, &issuer).len() >= limits.max_attestations_per_issuer {
-        return Err(Error::LimitExceeded);
-    }
-    if Storage::get_subject_attestations(env, &request.subject).len() >= limits.max_attestations_per_subject {
-        return Err(Error::LimitExceeded);
-    }
-
-    let attestation = Attestation {
-        id: attestation_id.clone(),
-        issuer: issuer.clone(),
-        subject: request.subject.clone(),
-        claim_type: request.claim_type.clone(),
-        timestamp: current_time,
+    let attestation_id = crate::attestation::create_attestation_internal(
+        env,
+        issuer.clone(),
+        request.subject.clone(),
+        request.claim_type.clone(),
         expiration,
-        revoked: false,
-        metadata: None,
-        jurisdiction: None,
-        valid_from: None,
-        origin: AttestationOrigin::Native,
-        source_chain: None,
-        source_tx: None,
-        tags: None,
-        revocation_reason: None,
-        deleted: false,
-    };
+        None,
+        None,
+        None,
+        None,
+    )?;
 
-    store_attestation(env, &attestation);
-    Events::attestation_created(env, &attestation);
+    Storage::append_audit_entry(
+        env,
+        &attestation_id,
+        &crate::types::AuditEntry {
+            action: crate::types::AuditAction::Created,
+            actor: issuer.clone(),
+            timestamp: current_time,
+            details: Some(request_id.clone()),
+        },
+    );
 
     request.status = RequestStatus::Fulfilled;
     Storage::set_request(env, &request);
@@ -136,7 +134,9 @@ pub fn reject_request(
     }
 
     match request.status {
-        RequestStatus::Fulfilled | RequestStatus::Rejected | RequestStatus::Cancelled => return Err(Error::RequestAlreadyProcessed),
+        RequestStatus::Fulfilled | RequestStatus::Rejected | RequestStatus::Cancelled | RequestStatus::Expired => {
+            return Err(Error::RequestAlreadyProcessed)
+        }
         RequestStatus::Pending => {}
     }
 
@@ -166,7 +166,7 @@ pub fn cancel_request(env: &Env, subject: Address, request_id: String) -> Result
     }
 
     match request.status {
-        RequestStatus::Fulfilled | RequestStatus::Rejected | RequestStatus::Cancelled => {
+        RequestStatus::Fulfilled | RequestStatus::Rejected | RequestStatus::Cancelled | RequestStatus::Expired => {
             return Err(Error::RequestAlreadyProcessed)
         }
         RequestStatus::Pending => {}
@@ -209,5 +209,24 @@ pub fn get_pending_requests(env: &Env, issuer: Address, start: u32, limit: u32) 
 }
 
 pub fn get_request(env: &Env, request_id: String) -> Result<AttestationRequest, Error> {
-    Storage::get_request(env, &request_id)
+    let mut req = Storage::get_request(env, &request_id)?;
+    // Compute expiry lazily on read: a Pending request whose deadline has
+    // passed is surfaced as Expired without requiring cleanup to have run.
+    if req.status == RequestStatus::Pending && env.ledger().timestamp() >= req.expires_at {
+        req.status = RequestStatus::Expired;
+    }
+    Ok(req)
+}
+
+/// Remove expired pending requests from an issuer's pending list, persist
+/// `RequestStatus::Expired` on each expired record, and emit a `req_exp`
+/// event per expired request.
+///
+/// # Errors
+/// - [`Error::Unauthorized`] — caller is not a registered issuer.
+pub fn cleanup_expired_requests(env: &Env, issuer: Address) -> Result<(), Error> {
+    issuer.require_auth();
+    Validation::require_issuer(env, &issuer)?;
+    Storage::cleanup_expired_requests(env, &issuer);
+    Ok(())
 }

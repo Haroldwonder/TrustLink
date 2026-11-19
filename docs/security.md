@@ -46,7 +46,7 @@ key. It is set once during `initialize` and can be transferred atomically via
 |--------|----------|
 | Register a new issuer | `register_issuer` |
 | Remove an existing issuer | `remove_issuer` |
-| Assign or update an issuer's trust tier | `update_issuer_tier` |
+| Assign or update an issuer's trust tier | `set_issuer_tier` |
 | Register a bridge contract | `register_bridge` |
 | Import a historical attestation on behalf of a registered issuer | `import_attestation` |
 | Register a claim type with a description | `register_claim_type` |
@@ -526,8 +526,11 @@ acceptable score based on the sensitivity of the gated action.
   endorsements arrive.
 - The score reflects the **issuer's reputation and peer endorsements**, not the
   veracity of the claim content.
-- `get_confidence_score` returns `None` for non-existent attestations. Integrators
-  must handle `None` as "no score available" rather than "score is zero".
+- `get_confidence_score` returns `None` for non-existent attestations and for
+  any attestation that is not currently `Valid`: revoked, expired, pending
+  (`valid_from` in the future) or GDPR-deleted. Deleted attestations return
+  `None` rather than a score so the call does not confirm they exist.
+  Integrators must handle `None` as "no score available" rather than "score is zero".
 
 ---
 

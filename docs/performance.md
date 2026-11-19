@@ -11,27 +11,27 @@ the Soroban SDK budget tracker. Live network costs are typically 10–20% higher
 
 ### Soroban CU Budget Limits
 
-| Limit | Value | Notes |
-|-------|-------|-------|
+| Limit                            | Value          | Notes                                        |
+| -------------------------------- | -------------- | -------------------------------------------- |
 | Per-transaction CPU instructions | 100,000,000 CU | Hard limit; transaction rejected if exceeded |
-| Per-transaction memory | 40 MB | Soft cap; XDR serialisation counts |
-| Recommended safety margin | ≤ 80% of limit | Leave headroom for SDK overhead |
+| Per-transaction memory           | 40 MB          | Soft cap; XDR serialisation counts           |
+| Recommended safety margin        | ≤ 80% of limit | Leave headroom for SDK overhead              |
 
 ### Core Operations
 
-| Operation | Scenario | Measured CU | % of Tx Limit |
-|-----------|----------|-------------|---------------|
-| `create_attestation` | Baseline (no metadata, no tags) | ~75,000 | 0.075% |
-| `create_attestation` | 1,000th attestation for a single subject | ~78,000 | 0.078% |
-| `revoke_attestation` | Baseline | ~12,000 | 0.012% |
-| `has_valid_claim` | 1 attestation (hit) | ~8,500 | 0.009% |
-| `has_valid_claim` | 10 attestations — valid indexed first (hit) | ~9,000 | 0.009% |
-| `has_valid_claim` | 10 attestations — valid indexed last (hit) | ~25,000 | 0.025% |
-| `has_valid_claim` | 50 attestations — valid indexed first (hit) | ~9,500 | 0.010% |
-| `has_valid_claim` | 50 attestations — valid indexed last (hit) | ~65,000 | 0.065% |
-| `has_valid_claim` | 100 attestations — valid indexed first (hit) | ~10,000 | 0.010% |
-| `has_valid_claim` | 100 attestations (miss, no match) | ~150,000 | 0.150% |
-| `has_valid_claim` | 100 total / 50 revoked — valid-index path (hit) | ~80,000 | 0.080% |
+| Operation            | Scenario                                        | Measured CU | % of Tx Limit |
+| -------------------- | ----------------------------------------------- | ----------- | ------------- |
+| `create_attestation` | Baseline (no metadata, no tags)                 | ~75,000     | 0.075%        |
+| `create_attestation` | 1,000th attestation for a single subject        | ~78,000     | 0.078%        |
+| `revoke_attestation` | Baseline                                        | ~12,000     | 0.012%        |
+| `has_valid_claim`    | 1 attestation (hit)                             | ~8,500      | 0.009%        |
+| `has_valid_claim`    | 10 attestations — valid indexed first (hit)     | ~9,000      | 0.009%        |
+| `has_valid_claim`    | 10 attestations — valid indexed last (hit)      | ~25,000     | 0.025%        |
+| `has_valid_claim`    | 50 attestations — valid indexed first (hit)     | ~9,500      | 0.010%        |
+| `has_valid_claim`    | 50 attestations — valid indexed last (hit)      | ~65,000     | 0.065%        |
+| `has_valid_claim`    | 100 attestations — valid indexed first (hit)    | ~10,000     | 0.010%        |
+| `has_valid_claim`    | 100 attestations (miss, no match)               | ~150,000    | 0.150%        |
+| `has_valid_claim`    | 100 total / 50 revoked — valid-index path (hit) | ~80,000     | 0.080%        |
 
 **Short-circuit behaviour:** `has_valid_claim` uses the `SubjectClaimIndex` to
 scan only attestations for the requested claim type. It short-circuits and
@@ -42,12 +42,12 @@ claim type.
 
 ### `create_attestations_batch`
 
-| Batch size | Total CU | CU per subject | % of Tx Limit |
-|-----------|----------|----------------|---------------|
-| 10 subjects | ~720,000 | ~72,000 | 0.72% |
-| 50 subjects | ~3,600,000 | ~72,000 | 3.60% |
-| 100 subjects | ~7,200,000 | ~72,000 | 7.20% |
-| 200 subjects | ~16,000,000 | ~80,000 | 16.0% |
+| Batch size   | Total CU    | CU per subject | % of Tx Limit |
+| ------------ | ----------- | -------------- | ------------- |
+| 10 subjects  | ~720,000    | ~72,000        | 0.72%         |
+| 50 subjects  | ~3,600,000  | ~72,000        | 3.60%         |
+| 100 subjects | ~7,200,000  | ~72,000        | 7.20%         |
+| 200 subjects | ~16,000,000 | ~80,000        | 16.0%         |
 
 **Recommended maximum batch size:** 100 subjects. 200 approaches ~16% of the
 transaction budget; combined with SDK overhead the practical ceiling before
@@ -55,25 +55,25 @@ approaching the 80% safety margin is roughly 100–120 subjects per transaction.
 
 ### `has_all_claims` and `has_any_claim`
 
-| Operation | Claims checked | Measured CU |
-|-----------|---------------|-------------|
-| `has_all_claims` | 1 | ~9,000 |
-| `has_all_claims` | 5 | ~25,000 |
-| `has_all_claims` | 10 | ~40,000 |
-| `has_any_claim` | 1 (match on first) | ~9,000 |
-| `has_any_claim` | 10 (match on first — early exit) | ~9,000 |
-| `has_any_claim` | 10 (no match — worst case) | ~70,000 |
+| Operation        | Claims checked                   | Measured CU |
+| ---------------- | -------------------------------- | ----------- |
+| `has_all_claims` | 1                                | ~9,000      |
+| `has_all_claims` | 5                                | ~25,000     |
+| `has_all_claims` | 10                               | ~40,000     |
+| `has_any_claim`  | 1 (match on first)               | ~9,000      |
+| `has_any_claim`  | 10 (match on first — early exit) | ~9,000      |
+| `has_any_claim`  | 10 (no match — worst case)       | ~70,000     |
 
 ### Pagination
 
-| Operation | Page size | Total items | Measured CU |
-|-----------|-----------|-------------|-------------|
-| `get_subject_attestations` | 10 | 100 | ~15,000 |
-| `get_subject_attestations` | 50 | 100 | ~35,000 |
-| `get_subject_attestations` | 100 | 100 | ~65,000 |
-| `get_issuer_attestations` | 100 | 10,000 — first page | ~150,000 |
-| `get_issuer_attestations` | 100 | 10,000 — mid page | ~155,000 |
-| `get_issuer_attestations` | 100 | 10,000 — last page | ~155,000 |
+| Operation                  | Page size | Total items         | Measured CU |
+| -------------------------- | --------- | ------------------- | ----------- |
+| `get_subject_attestations` | 10        | 100                 | ~15,000     |
+| `get_subject_attestations` | 50        | 100                 | ~35,000     |
+| `get_subject_attestations` | 100       | 100                 | ~65,000     |
+| `get_issuer_attestations`  | 100       | 10,000 — first page | ~150,000    |
+| `get_issuer_attestations`  | 100       | 10,000 — mid page   | ~155,000    |
+| `get_issuer_attestations`  | 100       | 10,000 — last page  | ~155,000    |
 
 Pagination cost is dominated by loading the full index Vec from storage (one
 ledger entry read), then slicing in WASM. Cost is therefore roughly constant
@@ -81,22 +81,22 @@ per page regardless of offset, growing only with the total index size.
 
 ## Compute Units (CU)
 
-| Function | Scenario | Avg CU | Storage Impact |
-|----------|----------|--------|---------------|
-| `create_attestation` | Baseline (no metadata/tags) | ~75,000 | ~1.2 KB (attestation + 4 indices) |
-| `revoke_attestation` | Baseline | ~12,000 | ~200 bytes (status + audit append) |
-| `has_valid_claim` | 1 attestation (valid) | ~8,500 | read-only |
-| | 10 attestations (1 valid + 9 noise) | ~25,000 | read-only |
-| | 100 attestations (1 valid + 99 noise) | ~180,000 | read-only (SubjectClaimIndex opt saves ~10x vs no index) |
-| | Invalid claim (100 attestations) | ~150,000 | read-only |
-| `has_all_claims` | 1 claim | ~9,000 | read-only |
-| | 5 claims | ~25,000 | read-only |
-| | 10 claims | ~40,000 | read-only |
-| `has_any_claim` | early-exit (first claim matches) | ~9,000 | read-only |
-| | worst-case (10 claims, no match) | ~70,000 | read-only |
-| `get_subject_attestations` | page_size=10 (100 total) | ~15,000 | read-only |
-| | page_size=50 | ~35,000 | read-only |
-| | page_size=100 (full) | ~65,000 | read-only |
+| Function                   | Scenario                              | Avg CU   | Storage Impact                                           |
+| -------------------------- | ------------------------------------- | -------- | -------------------------------------------------------- |
+| `create_attestation`       | Baseline (no metadata/tags)           | ~75,000  | ~1.2 KB (attestation + 4 indices)                        |
+| `revoke_attestation`       | Baseline                              | ~12,000  | ~200 bytes (status + audit append)                       |
+| `has_valid_claim`          | 1 attestation (valid)                 | ~8,500   | read-only                                                |
+|                            | 10 attestations (1 valid + 9 noise)   | ~25,000  | read-only                                                |
+|                            | 100 attestations (1 valid + 99 noise) | ~180,000 | read-only (SubjectClaimIndex opt saves ~10x vs no index) |
+|                            | Invalid claim (100 attestations)      | ~150,000 | read-only                                                |
+| `has_all_claims`           | 1 claim                               | ~9,000   | read-only                                                |
+|                            | 5 claims                              | ~25,000  | read-only                                                |
+|                            | 10 claims                             | ~40,000  | read-only                                                |
+| `has_any_claim`            | early-exit (first claim matches)      | ~9,000   | read-only                                                |
+|                            | worst-case (10 claims, no match)      | ~70,000  | read-only                                                |
+| `get_subject_attestations` | page_size=10 (100 total)              | ~15,000  | read-only                                                |
+|                            | page_size=50                          | ~35,000  | read-only                                                |
+|                            | page_size=100 (full)                  | ~65,000  | read-only                                                |
 
 ## Storage Bytes Estimates
 
@@ -123,11 +123,11 @@ per page regardless of offset, growing only with the total index size.
 
 ### Stellar Base Reserve (as of 2026)
 
-| Parameter | Value |
-|-----------|-------|
-| Base reserve per ledger entry | 0.5 XLM |
+| Parameter                                     | Value   |
+| --------------------------------------------- | ------- |
+| Base reserve per ledger entry                 | 0.5 XLM |
 | Additional reserve per 32 bytes of entry data | 0.5 XLM |
-| Minimum account balance (2 entries) | 1 XLM |
+| Minimum account balance (2 entries)           | 1 XLM   |
 
 > Source: [Stellar Developer Docs — Lumens](https://developers.stellar.org/docs/learn/fundamentals/lumens)
 > The base reserve is a network-level parameter and can be changed by validator vote.
@@ -137,13 +137,13 @@ per page regardless of offset, growing only with the total index size.
 
 A baseline `create_attestation` call (no metadata, no tags) writes **5 ledger entries**:
 
-| Entry | Contents | Approx. size |
-|-------|----------|-------------|
-| `Attestation(id)` | Full attestation struct (id, issuer, subject, claim_type, timestamp, expiration, revoked, imported, bridged, source_chain, source_tx) | ~800 bytes |
-| `SubjectAttestations(subject)` | Vec of attestation IDs for this subject (grows with each new attestation) | ~32 bytes per ID |
-| `IssuerAttestations(issuer)` | Vec of attestation IDs for this issuer | ~32 bytes per ID |
-| `SubjectClaimIndex(subject, claim_type)` | Vec of IDs for fast `has_valid_claim` lookup | ~32 bytes per ID |
-| `GlobalStats` | Counters (total_attestations, total_revocations, total_issuers) | ~48 bytes |
+| Entry                                    | Contents                                                                                                                              | Approx. size     |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| `Attestation(id)`                        | Full attestation struct (id, issuer, subject, claim_type, timestamp, expiration, revoked, imported, bridged, source_chain, source_tx) | ~800 bytes       |
+| `SubjectAttestations(subject)`           | Vec of attestation IDs for this subject (grows with each new attestation)                                                             | ~32 bytes per ID |
+| `IssuerAttestations(issuer)`             | Vec of attestation IDs for this issuer                                                                                                | ~32 bytes per ID |
+| `SubjectClaimIndex(subject, claim_type)` | Vec of IDs for fast `has_valid_claim` lookup                                                                                          | ~32 bytes per ID |
+| `GlobalStats`                            | Counters (total_attestations, total_revocations, total_issuers)                                                                       | ~48 bytes        |
 
 **Total new data written per attestation: ~944 bytes** (excluding index Vec overhead already on-chain).
 
@@ -160,12 +160,12 @@ reserve_per_entry = base_reserve + ceil(entry_bytes / 32) × data_reserve_per_32
                   = 0.5 XLM    + ceil(N / 32)            × 0.5 XLM
 ```
 
-| Entry | Size (bytes) | 32-byte chunks | Reserve (XLM) |
-|-------|-------------|----------------|---------------|
-| `Attestation(id)` — baseline | 800 | 25 | 0.5 + 25 × 0.5 = **13.0 XLM** |
-| `Attestation(id)` — with 200-byte metadata | 1,000 | 32 | 0.5 + 32 × 0.5 = **16.5 XLM** |
-| Index Vec entry (32 bytes) | 32 | 1 | 0.5 + 1 × 0.5 = **1.0 XLM** |
-| `GlobalStats` update | 48 | 2 | shared entry, amortised across all ops |
+| Entry                                      | Size (bytes) | 32-byte chunks | Reserve (XLM)                          |
+| ------------------------------------------ | ------------ | -------------- | -------------------------------------- |
+| `Attestation(id)` — baseline               | 800          | 25             | 0.5 + 25 × 0.5 = **13.0 XLM**          |
+| `Attestation(id)` — with 200-byte metadata | 1,000        | 32             | 0.5 + 32 × 0.5 = **16.5 XLM**          |
+| Index Vec entry (32 bytes)                 | 32           | 1              | 0.5 + 1 × 0.5 = **1.0 XLM**            |
+| `GlobalStats` update                       | 48           | 2              | shared entry, amortised across all ops |
 
 > **Note:** Index Vec entries are appended to existing ledger entries, not new entries.
 > The marginal reserve cost for each new ID appended to an existing Vec is the data
@@ -173,10 +173,10 @@ reserve_per_entry = base_reserve + ceil(entry_bytes / 32) × data_reserve_per_32
 
 #### Summary — cost per `create_attestation` call
 
-| Scenario | Approx. XLM reserve |
-|----------|-------------------|
-| Baseline (no metadata) | ~15–16 XLM |
-| With 200-byte metadata | ~18–20 XLM |
+| Scenario                          | Approx. XLM reserve        |
+| --------------------------------- | -------------------------- |
+| Baseline (no metadata)            | ~15–16 XLM                 |
+| With 200-byte metadata            | ~18–20 XLM                 |
 | Revocation (`revoke_attestation`) | ~1–2 XLM (2 entry updates) |
 
 These are **reserve** costs, not transaction fees. The XLM is locked, not burned —
@@ -187,9 +187,9 @@ it is returned if the entry is deleted or the TTL expires and the entry is evict
 Soroban persistent entries have a TTL (time-to-live) measured in ledgers. When the TTL
 expires the entry is archived and must be restored (at cost) to be readable again.
 
-| Default TTL | ~30 days (configurable via `ttl_days` at initialization) |
-|-------------|----------------------------------------------------------|
-| Extend TTL | `stellar contract extend-ttl` or automatic via `bump_entry` |
+| Default TTL            | ~30 days (configurable via `ttl_days` at initialization)            |
+| ---------------------- | ------------------------------------------------------------------- |
+| Extend TTL             | `stellar contract extend-ttl` or automatic via `bump_entry`         |
 | Restore archived entry | `stellar contract restore` — costs a fee proportional to entry size |
 
 To keep attestations live indefinitely, issuers should run a periodic TTL-extension job.
@@ -199,11 +199,11 @@ in transaction fees (network-dependent).
 ### Cost at Scale
 
 | Attestations | Approx. total XLM reserve (baseline) |
-|-------------|--------------------------------------|
-| 10 | ~150–160 XLM |
-| 100 | ~1,500–1,600 XLM |
-| 1,000 | ~15,000–16,000 XLM |
-| 10,000 | ~150,000–160,000 XLM |
+| ------------ | ------------------------------------ |
+| 10           | ~150–160 XLM                         |
+| 100          | ~1,500–1,600 XLM                     |
+| 1,000        | ~15,000–16,000 XLM                   |
+| 10,000       | ~150,000–160,000 XLM                 |
 
 > These figures assume each attestation is a new subject+claim_type pair (worst case —
 > all 5 entries are new). If many attestations share the same subject or issuer, the
@@ -237,13 +237,13 @@ WASM heap on every query, even when only 10 items are needed.
 
 Key constraints confirmed from the Soroban SDK and XDR spec:
 
-| Constraint | Detail |
-|-----------|--------|
-| No partial entry reads | `env.storage().persistent().get(key)` always returns the full value |
-| No server-side filtering | Filtering/slicing must happen in WASM after the full load |
-| Max entry size | ~64 KB (XDR limit per ledger entry) |
-| Entry granularity | Each distinct key is a separate ledger entry with its own read fee |
-| Read fee | Charged per entry accessed, not per byte read |
+| Constraint               | Detail                                                              |
+| ------------------------ | ------------------------------------------------------------------- |
+| No partial entry reads   | `env.storage().persistent().get(key)` always returns the full value |
+| No server-side filtering | Filtering/slicing must happen in WASM after the full load           |
+| Max entry size           | ~64 KB (XDR limit per ledger entry)                                 |
+| Entry granularity        | Each distinct key is a separate ledger entry with its own read fee  |
+| Read fee                 | Charged per entry accessed, not per byte read                       |
 
 **Conclusion:** True lazy loading (reading a slice of a Vec without loading the
 whole entry) is not possible in Soroban. The only way to achieve partial loading
@@ -269,22 +269,22 @@ IssuerAttestationsCount(addr)      → u32
 
 **Query cost — before vs after:**
 
-| Index size | Page size | Chunks loaded (before) | Chunks loaded (after) | Data read reduction |
-|-----------|-----------|----------------------|----------------------|-------------------|
-| 100 IDs | 10 | 1 (full flat Vec) | 1 | ~0% (already 1 entry) |
-| 1,000 IDs | 10 | 1 (full flat Vec ~64 KB) | 1 (one chunk ~3.2 KB) | ~95% |
-| 10,000 IDs | 10 | 1 (full flat Vec, hits size limit) | 1 (one chunk ~3.2 KB) | ~99% |
-| 10,000 IDs | 100 | 1 (full flat Vec) | 2–3 chunks | ~97% |
+| Index size | Page size | Chunks loaded (before)             | Chunks loaded (after) | Data read reduction   |
+| ---------- | --------- | ---------------------------------- | --------------------- | --------------------- |
+| 100 IDs    | 10        | 1 (full flat Vec)                  | 1                     | ~0% (already 1 entry) |
+| 1,000 IDs  | 10        | 1 (full flat Vec ~64 KB)           | 1 (one chunk ~3.2 KB) | ~95%                  |
+| 10,000 IDs | 10        | 1 (full flat Vec, hits size limit) | 1 (one chunk ~3.2 KB) | ~99%                  |
+| 10,000 IDs | 100       | 1 (full flat Vec)                  | 2–3 chunks            | ~97%                  |
 
 For a 10-item page against a 10,000-item index, the chunked approach reads
 `ceil(10/50) + 1 = 2` chunks (~6.4 KB) instead of the entire flat Vec.
 
 **Write cost — append:**
 
-| Operation | Before | After |
-|-----------|--------|-------|
-| `add_subject` | 1 read + 1 write (full Vec) | 1 read + 1 write (one chunk) |
-| `add_issuer_bulk(N)` | 1 read + 1 write (full Vec) | `ceil(N/50)` reads + writes |
+| Operation               | Before                      | After                                   |
+| ----------------------- | --------------------------- | --------------------------------------- |
+| `add_subject`           | 1 read + 1 write (full Vec) | 1 read + 1 write (one chunk)            |
+| `add_issuer_bulk(N)`    | 1 read + 1 write (full Vec) | `ceil(N/50)` reads + writes             |
 | `remove_subject/issuer` | 1 read + 1 write (full Vec) | 1–2 reads + 1–2 writes (swap-with-last) |
 
 The remove operation uses a **swap-with-last** strategy: the target ID is
@@ -314,15 +314,16 @@ cargo test chunked_index -- --nocapture
 `create_attestations_batch` called `store_attestation` for each subject in the loop.
 `store_attestation` performs three shared-state writes per item:
 
-| Write | Per-item cost |
-|-------|--------------|
+| Write                      | Per-item cost                 |
+| -------------------------- | ----------------------------- |
 | `IssuerAttestations` index | read + write (grows Vec by 1) |
-| `IssuerStats` | read + write |
-| `GlobalStats` | read + write |
+| `IssuerStats`              | read + write                  |
+| `GlobalStats`              | read + write                  |
 
 For a batch of N subjects this produced **3N reads + 3N writes** on those three entries alone.
 
 **Batch of 50 — before:**
+
 - Issuer index: 50 reads + 50 writes
 - Issuer stats: 50 reads + 50 writes
 - Global stats: 50 reads + 50 writes
@@ -334,13 +335,14 @@ The loop now only writes the attestation record and the per-subject index (both 
 inherently per-item). The three shared-state entries are accumulated in memory and
 written **once** after the loop using three new bulk helpers:
 
-| Helper | Writes |
-|--------|--------|
+| Helper                                  | Writes           |
+| --------------------------------------- | ---------------- |
 | `Storage::add_issuer_attestations_bulk` | 1 read + 1 write |
-| `Storage::increment_issuer_stats` | 1 read + 1 write |
+| `Storage::increment_issuer_stats`       | 1 read + 1 write |
 | `Storage::increment_total_attestations` | 1 read + 1 write |
 
 **Batch of 50 — after:**
+
 - Issuer index: 1 read + 1 write
 - Issuer stats: 1 read + 1 write
 - Global stats: 1 read + 1 write
@@ -349,10 +351,10 @@ written **once** after the loop using three new bulk helpers:
 ### Write Count Reduction
 
 | Batch size | Writes before | Writes after | Saved |
-|-----------|--------------|-------------|-------|
-| 10 | 30 | 3 | 27 |
-| 50 | 150 | 3 | 147 |
-| 100 | 300 | 3 | 297 |
+| ---------- | ------------- | ------------ | ----- |
+| 10         | 30            | 3            | 27    |
+| 50         | 150           | 3            | 147   |
+| 100        | 300           | 3            | 297   |
 
 The per-attestation writes (attestation record, subject index, audit log) are unchanged —
 only the shared-state writes are batched.
@@ -386,6 +388,6 @@ Expected output (approximate):
 4. **Low**: Bump alloc for known index sizes.
 5. **Future**: Multisig batch writes for fee efficiency.
 
-Benchmark code: `benches/performance.rs`. Run `cargo test benches:: --nocapture`.
+Benchmark code: `benches/performance.rs`, registered as the `performance` integration-test target. Run all benchmarks with `cargo test --test performance -- --nocapture`.
 
-*Tested on Soroban SDK local (Linux x64, Rust 1.75). Live network CU ~10-20% higher.*
+_Tested on Soroban SDK local (Linux x64, Rust 1.75). Live network CU ~10-20% higher._

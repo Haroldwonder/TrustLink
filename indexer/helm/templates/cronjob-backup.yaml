@@ -30,7 +30,7 @@ spec:
               echo "[$(date)] Starting database backup..."
               
               # Run backup script
-              /app/scripts/backup.sh
+              /bin/bash /app/scripts/backup.sh
               
               if [ $? -eq 0 ]; then
                 echo "[$(date)] ✓ Backup completed successfully"
@@ -43,7 +43,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: {{ include "trustlink-indexer.fullname" . }}
-                  key: database-url
+                  key: DATABASE_URL
             - name: BACKUP_STORAGE
               value: {{ .Values.backup.storage | quote }}
             {{- if eq .Values.backup.storage "s3" }}

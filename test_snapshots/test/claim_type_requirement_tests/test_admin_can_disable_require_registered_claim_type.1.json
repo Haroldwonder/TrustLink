@@ -242,6 +242,14 @@
                           "map": [
                             {
                               "key": {
+                                "symbol": "chunk_size"
+                              },
+                              "val": {
+                                "u32": 50
+                              }
+                            },
+                            {
+                              "key": {
                                 "symbol": "contract_description"
                               },
                               "val": {
@@ -296,6 +304,20 @@
                                     "val": "void"
                                   }
                                 ]
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "max_attestations_per_subject"
+                              },
+                              "val": "void"
+                            },
+                            {
+                              "key": {
+                                "symbol": "metadata_hash_only"
+                              },
+                              "val": {
+                                "bool": false
                               }
                             },
                             {

@@ -182,6 +182,38 @@ async function revokeAttestation() {
   }
 }
 
+async function bumpTtl() {
+  required(config.contractId, "TRUSTLINK_CONTRACT_ID");
+
+  const attestationId = args[1];
+  if (!attestationId) {
+    console.error("Usage: issuer-cli bump-ttl <attestation_id>");
+    process.exit(1);
+  }
+
+  // bump_attestation_ttl is permissionless — any account may sign and submit it.
+  // We use the configured issuer as the keeper when a secret is available.
+  const server = new SorobanRpc.Server(config.rpcUrl);
+  const contract = new Contract(config.contractId);
+  const issuer = Keypair.fromSecret(config.issuerSecret);
+
+  console.log(`\n⏰ Bumping TTL for attestation...`);
+  console.log(`   ID: ${attestationId}`);
+
+  const bumpOp = contract.call(
+    "bump_attestation_ttl",
+    nativeToScVal(attestationId, { type: "string" })
+  );
+
+  try {
+    await submitWrite(server, issuer, bumpOp, config.networkPassphrase);
+    console.log(`✓ TTL bumped for ${attestationId}`);
+  } catch (err) {
+    console.error(`✗ Failed to bump TTL: ${err.message}`);
+    process.exit(1);
+  }
+}
+
 async function listIssued() {
   required(config.contractId, "TRUSTLINK_CONTRACT_ID");
   required(config.issuerSecret, "ISSUER_SECRET");
@@ -855,6 +887,10 @@ Commands:
   revoke <attestation_id> [--reason <text>]
     Revoke an existing attestation
 
+  bump-ttl <attestation_id>
+    Bump the attestation's TTL (and all related indexes) so it stays live
+    until its expiration. Permissionless — intended for a keeper job.
+
   list-issued [--page <n>] [--limit <n>]
     List attestations issued by this issuer
 
@@ -903,6 +939,7 @@ Environment Variables:
 Examples:
   issuer-cli issue GBRPYHIL... KYC_PASSED --expiry 365
   issuer-cli revoke att_abc123 --reason "User requested"
+  issuer-cli bump-ttl att_abc123
   issuer-cli list-issued --page 0 --limit 10
   issuer-cli check GBRPYHIL... KYC_PASSED
   issuer-cli propose-multisig GBRPYHIL... KYC_PASSED --signers GABC...,GDEF... --threshold 2
@@ -930,6 +967,9 @@ async function main() {
         break;
       case "revoke":
         await revokeAttestation();
+        break;
+      case "bump-ttl":
+        await bumpTtl();
         break;
       case "list-issued":
         await listIssued();

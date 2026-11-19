@@ -13,10 +13,46 @@
 #   refactor → Refactoring
 #   test, chore → hidden (not shown)
 #
-# Usage: bash scripts/changelog-preview.sh
-#        make changelog-preview
+# Usage:
+#   bash scripts/changelog-preview.sh [--since <ref>] [--help]
+#   make changelog-preview
+#
+# Options:
+#   --since <ref>   Start scanning from <ref> instead of the last release tag.
+#                   <ref> can be any git ref: a tag, branch, or commit SHA.
+#                   Example: --since v0.1.0  or  --since main
+#   --help          Show this help text and exit.
 
 set -euo pipefail
+
+# ── Argument parsing ──────────────────────────────────────────────────────────
+
+SINCE_REF=""
+
+usage() {
+    sed -n '/^# Usage:/,/^[^#]/{ /^[^#]/d; s/^# \{0,3\}//; p }' "$0"
+    exit 0
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --since)
+            if [[ -z "${2:-}" ]]; then
+                echo "Error: --since requires a git ref argument." >&2
+                exit 1
+            fi
+            SINCE_REF="$2"
+            shift 2
+            ;;
+        --help|-h)
+            usage
+            ;;
+        *)
+            echo "Error: Unknown option '$1'. Use --help for usage." >&2
+            exit 1
+            ;;
+    esac
+done
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -38,13 +74,24 @@ bump_version() {
 
 # ── Determine commit range ────────────────────────────────────────────────────
 
-LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-if [ -n "$LAST_TAG" ]; then
-    RANGE="${LAST_TAG}..HEAD"
-    SINCE_MSG="since ${LAST_TAG}"
+if [ -n "$SINCE_REF" ]; then
+    # Validate the provided ref exists in the repository
+    if ! git rev-parse --verify "${SINCE_REF}" >/dev/null 2>&1; then
+        echo "Error: git ref '${SINCE_REF}' not found in this repository." >&2
+        exit 1
+    fi
+    LAST_TAG="$SINCE_REF"
+    RANGE="${SINCE_REF}..HEAD"
+    SINCE_MSG="since ${SINCE_REF} (--since override)"
 else
-    RANGE="HEAD"
-    SINCE_MSG="(no previous release tag found — scanning all commits)"
+    LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+    if [ -n "$LAST_TAG" ]; then
+        RANGE="${LAST_TAG}..HEAD"
+        SINCE_MSG="since ${LAST_TAG}"
+    else
+        RANGE="HEAD"
+        SINCE_MSG="(no previous release tag found — scanning all commits)"
+    fi
 fi
 
 # ── Collect conventional commits ─────────────────────────────────────────────

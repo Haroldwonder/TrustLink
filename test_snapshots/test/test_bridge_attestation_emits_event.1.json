@@ -120,7 +120,7 @@
                   "symbol": "Attestation"
                 },
                 {
-                  "string": "a7b9700b4486fba87a6e1a4a6511c535c412534dbc32653eebc5e3839a8fc2ef"
+                  "string": "3501c1d1e9e1fe48cc67f29a1d5b7658"
                 }
               ]
             },
@@ -140,13 +140,19 @@
                       "symbol": "Attestation"
                     },
                     {
-                      "string": "a7b9700b4486fba87a6e1a4a6511c535c412534dbc32653eebc5e3839a8fc2ef"
+                      "string": "3501c1d1e9e1fe48cc67f29a1d5b7658"
                     }
                   ]
                 },
                 "durability": "persistent",
                 "val": {
                   "map": [
+                    {
+                      "key": {
+                        "symbol": "bundle_id"
+                      },
+                      "val": "void"
+                    },
                     {
                       "key": {
                         "symbol": "claim_type"
@@ -174,7 +180,7 @@
                         "symbol": "id"
                       },
                       "val": {
-                        "string": "a7b9700b4486fba87a6e1a4a6511c535c412534dbc32653eebc5e3839a8fc2ef"
+                        "string": "3501c1d1e9e1fe48cc67f29a1d5b7658"
                       }
                     },
                     {
@@ -286,7 +292,7 @@
                   "symbol": "AuditLog"
                 },
                 {
-                  "string": "a7b9700b4486fba87a6e1a4a6511c535c412534dbc32653eebc5e3839a8fc2ef"
+                  "string": "3501c1d1e9e1fe48cc67f29a1d5b7658"
                 }
               ]
             },
@@ -306,7 +312,7 @@
                       "symbol": "AuditLog"
                     },
                     {
-                      "string": "a7b9700b4486fba87a6e1a4a6511c535c412534dbc32653eebc5e3839a8fc2ef"
+                      "string": "3501c1d1e9e1fe48cc67f29a1d5b7658"
                     }
                   ]
                 },
@@ -537,7 +543,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "a7b9700b4486fba87a6e1a4a6511c535c412534dbc32653eebc5e3839a8fc2ef"
+                      "string": "3501c1d1e9e1fe48cc67f29a1d5b7658"
                     }
                   ]
                 }
@@ -586,7 +592,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "a7b9700b4486fba87a6e1a4a6511c535c412534dbc32653eebc5e3839a8fc2ef"
+                      "string": "3501c1d1e9e1fe48cc67f29a1d5b7658"
                     }
                   ]
                 }
@@ -738,7 +744,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "a7b9700b4486fba87a6e1a4a6511c535c412534dbc32653eebc5e3839a8fc2ef"
+                      "string": "3501c1d1e9e1fe48cc67f29a1d5b7658"
                     }
                   ]
                 }
@@ -787,7 +793,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "a7b9700b4486fba87a6e1a4a6511c535c412534dbc32653eebc5e3839a8fc2ef"
+                      "string": "3501c1d1e9e1fe48cc67f29a1d5b7658"
                     }
                   ]
                 }
@@ -836,7 +842,7 @@
                 "val": {
                   "vec": [
                     {
-                      "string": "a7b9700b4486fba87a6e1a4a6511c535c412534dbc32653eebc5e3839a8fc2ef"
+                      "string": "3501c1d1e9e1fe48cc67f29a1d5b7658"
                     }
                   ]
                 }
@@ -1437,7 +1443,7 @@
             "data": {
               "vec": [
                 {
-                  "string": "a7b9700b4486fba87a6e1a4a6511c535c412534dbc32653eebc5e3839a8fc2ef"
+                  "string": "3501c1d1e9e1fe48cc67f29a1d5b7658"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
@@ -1474,7 +1480,7 @@
               }
             ],
             "data": {
-              "string": "a7b9700b4486fba87a6e1a4a6511c535c412534dbc32653eebc5e3839a8fc2ef"
+              "string": "3501c1d1e9e1fe48cc67f29a1d5b7658"
             }
           }
         }

@@ -8,7 +8,30 @@ The end-to-end (E2E) test suite validates the complete attestation request workf
 
 ```
 sdk/typescript/e2e/attestation-request-flow.e2e.test.ts
+sdk/typescript/e2e/trustlink.e2e.test.ts
+sdk/typescript/e2e/contract-indexer-consistency.e2e.test.ts
 ```
+
+| File | Scope |
+| --- | --- |
+| `attestation-request-flow.e2e.test.ts` | Request → fulfill → verify workflow |
+| `trustlink.e2e.test.ts` | Core SDK happy path against local Quickstart |
+| `contract-indexer-consistency.e2e.test.ts` | Same attestation ID: live contract state vs indexer GraphQL |
+
+### Contract ↔ indexer consistency
+
+`contract-indexer-consistency.e2e.test.ts` closes the gap where contract and
+indexer were only tested independently. It:
+
+1. Creates a happy-path attestation on the local Soroban network
+2. Waits for the indexer to process the `created` event
+3. Loads the attestation via `get_attestation` on the contract
+4. Queries the indexer's GraphQL API for the same ID
+5. Asserts field-for-field equality (`id`, `issuer`, `subject`, `claimType`,
+   `timestamp`, `expiration`, `isRevoked`, `metadata`)
+
+Requires the indexer GraphQL endpoint (default `http://localhost:4000/graphql`,
+override with `INDEXER_GRAPHQL_URL`).
 
 ## Workflow Steps
 
@@ -19,9 +42,9 @@ Subject (user) initiates an attestation request:
 ```typescript
 // Subject asks issuer to verify KYC status
 await contract.request_attestation(
+  subject_address,
   issuer_address,
-  "KYC_PASSED",
-  "Need KYC to trade"
+  "KYC_PASSED"
 );
 ```
 
@@ -29,11 +52,13 @@ await contract.request_attestation(
 Issuer retrieves and reviews pending requests:
 ```typescript
 // Issuer checks all pending requests
-const pending_requests = await contract.get_issuer_pending_requests(
-  issuer_address
+const pending_requests = await contract.get_pending_requests(
+  issuer_address,
+  0,  // start
+  10  // limit
 );
 
-// Issuer reviews: claim type, reason, subject identity
+// Issuer reviews: claim type, subject identity
 for (const request of pending_requests) {
   console.log(`Request from ${request.subject} for ${request.claim_type}`);
 }

@@ -1,0 +1,43 @@
+{{- if .Values.backup.enabled }}
+{{- if eq .Values.backup.storage "local" }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "trustlink-indexer.fullname" . }}-backup-pvc
+  labels:
+    {{- include "trustlink-indexer.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- with .Values.backup.storageClassName }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.backup.pvcSize | default "10Gi" }}
+{{- else if and (eq .Values.backup.storage "s3") .Values.backup.awsAccessKeyId }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "trustlink-indexer.fullname" . }}-backup-aws
+  labels:
+    {{- include "trustlink-indexer.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+type: Opaque
+stringData:
+  access-key-id: {{ .Values.backup.awsAccessKeyId | quote }}
+  secret-access-key: {{ required "backup.awsSecretAccessKey is required when awsAccessKeyId is set" .Values.backup.awsSecretAccessKey | quote }}
+{{- else if and (eq .Values.backup.storage "gcs") .Values.backup.gcServiceAccountJson }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "trustlink-indexer.fullname" . }}-backup-gcp
+  labels:
+    {{- include "trustlink-indexer.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+type: Opaque
+data:
+  key.json: {{ .Values.backup.gcServiceAccountJson | quote }}
+{{- end }}
+{{- end }}

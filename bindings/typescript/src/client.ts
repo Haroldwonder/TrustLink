@@ -48,6 +48,14 @@ import {
   TrustLinkError,
 } from "./validation";
 
+import {
+  CircuitBreaker,
+  withRetry,
+  type RetryOptions,
+  type CircuitBreakerOptions,
+  type ResilienceConfig,
+} from "./resilience";
+
 export type { Attestation, AttestationStatus, AuditEntry, ClaimTypeInfo,
   ContractConfig, ContractMetadata, Delegation, Endorsement, FeeConfig, GlobalStats,
   HealthStatus, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal,
@@ -62,6 +70,12 @@ export interface TrustLinkClientOptions {
   rpcUrl: string;
   /** Network passphrase. Defaults to testnet. */
   networkPassphrase?: string;
+  /** Fine-grained retry configuration for transient RPC failures. */
+  retry?: RetryOptions;
+  /** Fine-grained circuit breaker configuration. */
+  circuitBreaker?: CircuitBreakerOptions;
+  /** Simplified resilience configuration (used if `retry`/`circuitBreaker` are not given). */
+  resilience?: ResilienceConfig;
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
@@ -118,35 +132,53 @@ export class TrustLinkClient {
   private readonly server: rpc.Server;
   private readonly networkPassphrase: string;
   private readonly contractId: string;
+  private readonly retryOptions: RetryOptions;
+  private readonly breaker: CircuitBreaker;
 
   constructor(opts: TrustLinkClientOptions) {
     this.contractId = opts.contractId;
     this.contract = new Contract(opts.contractId);
     this.server = new rpc.Server(opts.rpcUrl, { allowHttp: opts.rpcUrl.startsWith("http://") });
     this.networkPassphrase = opts.networkPassphrase ?? Networks.TESTNET;
+
+    const res = opts.resilience ?? {};
+    this.retryOptions = opts.retry ?? {
+      maxAttempts: res.maxRetries,
+      initialDelayMs: res.backoffMs,
+    };
+    this.breaker = new CircuitBreaker(opts.circuitBreaker ?? {
+      failureThreshold: res.circuitBreakerThreshold,
+    });
+  }
+
+  /** Run an RPC call with exponential backoff retry and circuit breaker protection. */
+  private rpcRetry<T>(fn: () => Promise<T>): Promise<T> {
+    return withRetry(fn, this.retryOptions, this.breaker);
   }
 
   // ─── Low-level helpers ──────────────────────────────────────────────────────
 
   /** Simulate a read-only call and return the decoded native value. */
   private async simulate(method: string, args: xdr.ScVal[]): Promise<unknown> {
-    const op = this.contract.call(method, ...args);
-    const account = new Account("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN", "0");
-    const tx = new TransactionBuilder(account, {
-      fee: BASE_FEE,
-      networkPassphrase: this.networkPassphrase,
-    })
-      .addOperation(op)
-      .setTimeout(30)
-      .build();
+    return this.rpcRetry(async () => {
+      const op = this.contract.call(method, ...args);
+      const account = new Account("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN", "0");
+      const tx = new TransactionBuilder(account, {
+        fee: BASE_FEE,
+        networkPassphrase: this.networkPassphrase,
+      })
+        .addOperation(op)
+        .setTimeout(30)
+        .build();
 
-    const result = await this.server.simulateTransaction(tx);
-    if (rpc.Api.isSimulationError(result)) {
-      throw new Error(parseError(result));
-    }
-    const simSuccess = result as rpc.Api.SimulateTransactionSuccessResponse;
-    if (!simSuccess.result) throw new Error("No result returned from simulation");
-    return scValToNative(simSuccess.result.retval);
+      const result = await this.server.simulateTransaction(tx);
+      if (rpc.Api.isSimulationError(result)) {
+        throw new Error(parseError(result));
+      }
+      const simSuccess = result as rpc.Api.SimulateTransactionSuccessResponse;
+      if (!simSuccess.result) throw new Error("No result returned from simulation");
+      return scValToNative(simSuccess.result.retval);
+    });
   }
 
   /**
@@ -158,7 +190,7 @@ export class TrustLinkClient {
     args: xdr.ScVal[],
     signer: Keypair,
   ): Promise<string> {
-    const account = await this.server.getAccount(signer.publicKey());
+    const account = await this.rpcRetry(() => this.server.getAccount(signer.publicKey()));
     const op = this.contract.call(method, ...args);
     const tx = new TransactionBuilder(account, {
       fee: BASE_FEE,
@@ -168,7 +200,7 @@ export class TrustLinkClient {
       .setTimeout(30)
       .build();
 
-    const simResult = await this.server.simulateTransaction(tx);
+    const simResult = await this.rpcRetry(() => this.server.simulateTransaction(tx));
     if (rpc.Api.isSimulationError(simResult)) {
       throw new Error(parseError(simResult));
     }
@@ -176,15 +208,17 @@ export class TrustLinkClient {
     const prepared = rpc.assembleTransaction(tx, simResult).build() as Transaction;
     prepared.sign(signer);
 
-    const sendResult = await this.server.sendTransaction(prepared);
+    // Retries only cover transport-level failures reaching the RPC node — an
+    // "ERROR" response (an on-chain rejection) is surfaced immediately, not retried.
+    const sendResult = await this.rpcRetry(() => this.server.sendTransaction(prepared));
     if (sendResult.status === "ERROR") {
       throw new Error(`Transaction failed: ${JSON.stringify(sendResult.errorResult)}`);
     }
 
-    let getResult = await this.server.getTransaction(sendResult.hash);
+    let getResult = await this.rpcRetry(() => this.server.getTransaction(sendResult.hash));
     for (let i = 0; i < 20 && getResult.status === "NOT_FOUND"; i++) {
       await new Promise((r) => setTimeout(r, 1500));
-      getResult = await this.server.getTransaction(sendResult.hash);
+      getResult = await this.rpcRetry(() => this.server.getTransaction(sendResult.hash));
     }
 
     if (getResult.status !== "SUCCESS") {
@@ -291,7 +325,7 @@ export class TrustLinkClient {
 
   /** Update the trust tier of a registered issuer. Admin only. */
   async updateIssuerTier(admin: Keypair, issuer: string, tier: IssuerTier): Promise<string> {
-    return this.invoke("update_issuer_tier", [
+    return this.invoke("set_issuer_tier", [
       addr(admin.publicKey()),
       addr(issuer),
       nativeToScVal(tier, { type: "u32" }),
@@ -555,17 +589,6 @@ export class TrustLinkClient {
     return this.simulate("has_valid_claim_from_issuer", [addr(subject), str(claimType), addr(issuer)]) as Promise<boolean>;
   }
 
-  /** Return true if the subject holds a valid attestation of the given claim type from an issuer at or above min_tier. */
-  async hasValidClaimFromTier(subject: string, claimType: string, minTier: IssuerTier): Promise<boolean> {
-    validateAddress(subject);
-    validateClaimType(claimType);
-    return this.simulate("has_valid_claim_from_tier", [
-      addr(subject),
-      str(claimType),
-      nativeToScVal(minTier, { type: "u32" }),
-    ]) as Promise<boolean>;
-  }
-
   /** Return true if the subject holds a valid attestation for ANY of the given claim types (OR logic). */
   async hasAnyClaim(subject: string, claimTypes: string[]): Promise<boolean> {
     validateAddress(subject);
@@ -670,12 +693,6 @@ export class TrustLinkClient {
     return this.invoke("endorse_attestation", [addr(endorser.publicKey()), str(attestationId)], endorser);
   }
 
-  /** Return all endorsements for an attestation. */
-  async getEndorsements(attestationId: string): Promise<Endorsement[]> {
-    validateAttestationId(attestationId);
-    return this.simulate("get_endorsements", [str(attestationId)]) as Promise<Endorsement[]>;
-  }
-
   /** Return the number of endorsements for an attestation. */
   async getEndorsementCount(attestationId: string): Promise<number> {
     validateAttestationId(attestationId);
@@ -730,19 +747,30 @@ export class TrustLinkClient {
    *
    * @param issuer - The issuer address whose revocations to export
    * @param claimType - Optional claim type filter (null = all claim types)
-   * @param format - The desired output format
+    * @param format - The desired output format
+    * @param start - Zero-based offset into the issuer's attestation history
+    * @param limit - Maximum number of history entries to inspect (1-100)
    * @returns RevocationList with revoked IDs and metadata
    */
   async exportRevocationList(
     issuer: string,
     claimType?: string,
     format: RevocationListFormat = RevocationListFormat.SimpleList,
+    start = 0,
+    limit = 100,
   ): Promise<RevocationList> {
     validateAddress(issuer);
+    validateNonNegative(start, "start");
+    validatePositive(limit, "limit");
+    if (limit > 100) {
+      throw new TrustLinkError("Revocation-list page limit cannot exceed 100");
+    }
     return this.simulate("export_revocation_list", [
       addr(issuer),
       optionVal(claimType !== undefined ? str(claimType) : null),
       nativeToScVal(format, { type: "u32" }),
+      u32(start),
+      u32(limit),
     ]) as Promise<RevocationList>;
   }
 }
