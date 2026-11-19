@@ -221,18 +221,18 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
 
   fastify.get("/webhooks", async () =>
     db.webhook.findMany({
-      select: { id: true, url: true, active: true, createdAt: true },
+      select: { id: true, url: true, active: true, rotatedAt: true, createdAt: true },
       orderBy: { createdAt: "desc" },
     }),
   );
 
-  fastify.post<{ Body: { url: string; secret: string } }>(
+  fastify.post<{ Body: { url: string; secret?: string } }>(
     "/webhooks",
     async (req, reply) => {
-      const { url, secret } = req.body ?? {};
-      if (!url || !secret) {
+      const { url, secret: clientSecret } = req.body ?? {};
+      if (!url) {
         reply.code(400);
-        return { error: "url and secret are required" };
+        return { error: "url is required" };
       }
 
       try {
@@ -242,9 +242,40 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
         return { error: err instanceof Error ? err.message : "invalid webhook url" };
       }
 
-      const webhook = await db.webhook.create({ data: { url, secret } });
-      reply.code(201);
-      return { id: webhook.id, url: webhook.url, active: webhook.active };
+      // If client provides a secret, validate it; otherwise generate server-side
+      let secret: string;
+      try {
+        const { validateWebhookSecret, generateWebhookSecret, encryptSecret } = await import("./webhook-secret");
+        
+        if (clientSecret) {
+          const secretBuffer = Buffer.from(clientSecret, "hex");
+          validateWebhookSecret(secretBuffer);
+          secret = clientSecret;
+        } else {
+          secret = generateWebhookSecret();
+        }
+        
+        const secretEncrypted = encryptSecret(secret);
+        const webhook = await db.webhook.create({
+          data: {
+            url,
+            secret_encrypted: secretEncrypted,
+          },
+        });
+        
+        reply.code(201);
+        // Return the plaintext secret ONLY once on creation
+        return {
+          id: webhook.id,
+          url: webhook.url,
+          secret: secret, // Returned ONLY on creation
+          active: webhook.active,
+          rotatedAt: webhook.rotatedAt,
+        };
+      } catch (err) {
+        reply.code(400);
+        return { error: err instanceof Error ? err.message : "failed to create webhook" };
+      }
     },
   );
 
@@ -258,6 +289,53 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
       } catch {
         reply.code(404);
         return { error: "Webhook not found" };
+      }
+    },
+  );
+
+  /// Issue #1604: Rotate webhook secret with grace period for dual-signing
+  fastify.post<{ Params: { id: string } }>(
+    "/webhooks/:id/rotate-secret",
+    async (req, reply) => {
+      try {
+        const { generateWebhookSecret, encryptSecret } = await import("./webhook-secret");
+        
+        const webhook = await db.webhook.findUnique({
+          where: { id: req.params.id },
+        });
+        
+        if (!webhook) {
+          reply.code(404);
+          return { error: "Webhook not found" };
+        }
+        
+        // Generate new secret
+        const newSecret = generateWebhookSecret();
+        const newSecretEncrypted = encryptSecret(newSecret);
+        
+        // Update webhook: move current secret to next_secret and set new secret
+        // This enables dual-signing during the grace period
+        await db.webhook.update({
+          where: { id: req.params.id },
+          data: {
+            next_secret_encrypted: webhook.secret_encrypted, // Old secret becomes next
+            secret_encrypted: newSecretEncrypted,
+            rotatedAt: new Date(),
+          },
+        });
+        
+        reply.code(200);
+        // Return the NEW plaintext secret ONLY once
+        return {
+          id: webhook.id,
+          url: webhook.url,
+          secret: newSecret, // New secret returned once
+          rotatedAt: new Date(),
+          graceMessage: "Old secret will be accepted for 7 days via X-TrustLink-Signature-Next header",
+        };
+      } catch (err) {
+        reply.code(500);
+        return { error: err instanceof Error ? err.message : "failed to rotate secret" };
       }
     },
   );

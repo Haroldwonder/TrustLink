@@ -227,19 +227,6 @@ impl TrustLinkContract {
     // Whitelist mode
     // -----------------------------------------------------------------------
 
-    pub fn add_to_whitelist(env: Env, issuer: Address, subject: Address) -> Result<(), Error> {
-        admin::add_to_whitelist(&env, issuer, subject)
-    }
-
-    pub fn remove_from_whitelist(env: Env, issuer: Address, subject: Address) -> Result<(), Error> {
-        admin::remove_from_whitelist(&env, issuer, subject)
-    }
-
-    #[must_use]
-    pub fn is_whitelisted(env: Env, issuer: Address, subject: Address) -> bool {
-        admin::is_whitelisted(&env, issuer, subject)
-    }
-
     #[must_use]
     pub fn is_whitelist_enabled(env: Env, issuer: Address) -> bool {
         admin::is_whitelist_enabled(&env, issuer)
@@ -639,19 +626,9 @@ impl TrustLinkContract {
     // Bundles
     // -----------------------------------------------------------------------
 
-    pub fn create_attestation_bundle(
-        env: Env,
-        issuer: Address,
-        subjects: Vec<Address>,
-        claim_type: String,
-        expiration: Option<u64>,
-    ) -> Result<String, Error> {
-        attestation::create_attestation_bundle(&env, issuer, subjects, claim_type, expiration)
-    }
-
     #[must_use]
     pub fn is_bundle_valid(env: Env, bundle_id: String) -> Result<bool, Error> {
-        attestation::is_bundle_valid(&env, bundle_id)
+        bundle::is_bundle_valid(&env, &bundle_id)
     }
 
     // -----------------------------------------------------------------------
@@ -693,13 +670,13 @@ impl TrustLinkContract {
     /// Issue #1567: Check if a subject has a valid attestation from a specific issuer
     /// of a given claim type that is NOT under an open dispute.
     #[must_use]
-    pub fn has_valid_undisputed_claim_from_issuer(
+    pub fn has_undisputed_claim_from(
         env: Env,
         subject: Address,
         claim_type: String,
         issuer: Address,
     ) -> bool {
-        query::has_valid_undisputed_claim_from_issuer(&env, subject, claim_type, issuer)
+        query::has_undisputed_claim_from(&env, subject, claim_type, issuer)
     }
 
     #[must_use]

@@ -173,12 +173,20 @@ model EventDeadLetter {
 }
 
 model Webhook {
-  id        String   @id @default(cuid())
-  url       String
-  secret    String
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                      String   @id @default(cuid())
+  url                     String
+  // secret_encrypted stores the AES-GCM encrypted webhook secret (base64-encoded)
+  // Minimum 32 random bytes before encryption, enforced by validateWebhookSecret()
+  secret_encrypted        String
+  // next_secret_encrypted is used during rotation grace period to support dual-signing
+  next_secret_encrypted   String?
+  // rotatedAt tracks when the secret was last rotated
+  rotatedAt               DateTime @default(now()) @updatedAt
+  active                  Boolean  @default(true)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  
+  @@index([rotatedAt])
 }
 
 enum WebhookFailureStatus {

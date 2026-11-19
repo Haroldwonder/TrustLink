@@ -3,7 +3,7 @@ use soroban_sdk::{token::TokenClient, Address, Env, String, Vec};
 use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::{
-    AdminCouncil, AuditAction, AuditEntry, ClaimTypeInfo, ContractConfig, CouncilOperation,
+    AdminCouncil, AttestationStatus, AuditAction, AuditEntry, ClaimTypeInfo, ContractConfig, CouncilOperation,
     CouncilProposal, DecayConfig, Delegation, DisputeRecord, DisputeStatus, Error,
     ExpirationHook, FeeConfig, IssuerMetadata, IssuerStats, IssuerTier, PendingAdminTransfer,
     RateLimitConfig, StorageLimits, TtlConfig,
@@ -295,8 +295,10 @@ pub fn set_issuer_metadata(env: &Env, issuer: Address, metadata: IssuerMetadata)
         return Err(Error::MetadataTooLong);
     }
     if url_len > 0 {
-        let url_slice = metadata.url.as_bytes();
-        if url_slice.len() < 6 || &url_slice[..6] != b"https:" {
+        // Copy the URL into a fixed buffer and check for "https:" prefix
+        let mut url_buf = [0u8; 256];
+        metadata.url.copy_into_slice(&mut url_buf);
+        if url_len < 6 || &url_buf[..6] != b"https:" {
             return Err(Error::InvalidMetadata);
         }
     }
