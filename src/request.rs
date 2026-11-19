@@ -1,4 +1,4 @@
-use soroban_sdk::{Address, Env, String, Vec};
+use soroban_sdk::{Address, BytesN, Env, String, Vec};
 
 use crate::attestation::{store_attestation, validate_native_expiration};
 use crate::events::Events;
@@ -14,6 +14,7 @@ pub fn request_attestation(
     subject: Address,
     issuer: Address,
     claim_type: String,
+    evidence_hash: Option<BytesN<32>>,
 ) -> Result<String, Error> {
     subject.require_auth();
     Validation::require_not_paused(env)?;
@@ -35,7 +36,9 @@ pub fn request_attestation(
         }
     }
 
-    let request_id = AttestationRequest::generate_id(env, &subject, &issuer, &claim_type, current_time);
+    // Get and increment the per-subject nonce to prevent ID collisions
+    let nonce = Storage::get_and_increment_request_nonce(env, &subject);
+    let request_id = AttestationRequest::generate_id(env, &subject, &issuer, &claim_type, current_time, nonce);
     let expires_at = current_time + ATTESTATION_REQUEST_TTL_SECS;
     let request = AttestationRequest {
         id: request_id.clone(),
@@ -46,11 +49,13 @@ pub fn request_attestation(
         expires_at,
         status: RequestStatus::Pending,
         rejection_reason: None,
+        evidence_hash,
     };
 
     Storage::set_request(env, &request);
     Storage::add_pending_request(env, &issuer, &request_id);
-    Events::attestation_requested(env, &request_id, &subject, &issuer, &claim_type, expires_at);
+    Storage::add_subject_request(env, &subject, &request_id);
+    Events::attestation_requested(env, &request_id, &subject, &issuer, &claim_type, expires_at, &evidence_hash);
 
     Ok(request_id)
 }
@@ -157,7 +162,8 @@ pub fn reject_request(
 
 pub fn cancel_request(env: &Env, subject: Address, request_id: String) -> Result<(), Error> {
     subject.require_auth();
-    Validation::require_not_paused(env)?;
+    // Cancellation is allowed even when paused - it only reduces state and moves no value.
+    // This allows subjects to withdraw pending requests during incidents.
 
     let mut request = Storage::get_request(env, &request_id)?;
 
@@ -204,6 +210,29 @@ pub fn get_pending_requests(env: &Env, issuer: Address, start: u32, limit: u32) 
             result.push_back(req);
         }
         i += 1;
+    }
+    result
+}
+
+/// Get all attestation requests made by a subject, with pagination.
+/// Returns requests in reverse chronological order (newest first).
+pub fn get_requests_by_subject(env: &Env, subject: Address, start: u32, limit: u32) -> Vec<AttestationRequest> {
+    let all_ids = Storage::get_subject_request_ids(env, &subject);
+    let total = all_ids.len();
+    let start = start.min(total);
+    let end = (start + limit).min(total);
+    let mut result = Vec::new(env);
+    
+    // Iterate in reverse to get newest first
+    let mut i = if end == 0 { 0 } else { end - 1 };
+    while i >= start && i < total {
+        if let Some(id) = all_ids.get(i) {
+            if let Ok(req) = Storage::get_request(env, &id) {
+                result.push_back(req);
+            }
+        }
+        if i == 0 { break; }
+        i -= 1;
     }
     result
 }

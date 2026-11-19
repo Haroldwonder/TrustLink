@@ -31,7 +31,7 @@ pub(crate) mod callback {
     }
 }
 
-use soroban_sdk::{contract, contractimpl, Address, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Vec};
 use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::{
@@ -845,8 +845,8 @@ impl TrustLinkContract {
     // Attestation requests
     // -----------------------------------------------------------------------
 
-    pub fn request_attestation(env: Env, subject: Address, issuer: Address, claim_type: String) -> Result<String, Error> {
-        request::request_attestation(&env, subject, issuer, claim_type)
+    pub fn request_attestation(env: Env, subject: Address, issuer: Address, claim_type: String, evidence_hash: Option<BytesN<32>>) -> Result<String, Error> {
+        request::request_attestation(&env, subject, issuer, claim_type, evidence_hash)
     }
 
     pub fn fulfill_request(env: Env, issuer: Address, request_id: String, expiration: Option<u64>) -> Result<String, Error> {
@@ -872,6 +872,16 @@ impl TrustLinkContract {
 
     pub fn cleanup_expired_requests(env: Env, issuer: Address) -> Result<(), Error> {
         request::cleanup_expired_requests(&env, issuer)
+    }
+
+    #[must_use]
+    pub fn get_requests_by_subject(env: Env, subject: Address, start: u32, limit: u32) -> Vec<AttestationRequest> {
+        request::get_requests_by_subject(&env, subject, start, limit)
+    }
+
+    #[must_use]
+    pub fn get_requests_by_subject(env: Env, subject: Address, start: u32, limit: u32) -> Vec<AttestationRequest> {
+        request::get_requests_by_subject(&env, subject, start, limit)
     }
 
     // -----------------------------------------------------------------------
