@@ -143,7 +143,7 @@ pub fn has_valid_undisputed_claim(env: &Env, subject: Address, claim_type: Strin
 
 /// Issue #1567: Check if a subject has a valid attestation from a specific issuer of a given claim type
 /// that is NOT under dispute.
-pub fn has_valid_undisputed_claim_from_issuer(
+pub fn has_undisputed_claim_from(
     env: &Env,
     subject: Address,
     claim_type: String,

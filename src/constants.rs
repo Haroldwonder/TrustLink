@@ -38,3 +38,13 @@ pub const MAX_TEMPLATE_ID_LEN: u32 = 256;
 /// Issue #1579: Minimum length for template IDs.
 pub const MIN_TEMPLATE_ID_LEN: u32 = 1;
 
+/// Maximum number of audit log entries retained per attestation before the
+/// oldest entries are dropped to prevent unbounded growth (issue #1549).
+/// Enforced in `Storage::append_audit_entry`.
+pub const MAX_AUDIT_LOG_ENTRIES: u32 = 100;
+
+/// Maximum number of attestation version history snapshots retained per
+/// attestation before the oldest entries are dropped (issue #1549).
+/// Enforced in `Storage::push_attestation_version`.
+pub const MAX_VERSION_HISTORY: u32 = 20;
+
