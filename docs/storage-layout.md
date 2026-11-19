@@ -542,6 +542,11 @@ full audit history. Each entry captures the state at the time of a mutation.
 Vec<AttestationVersionSnapshot>
 ```
 
+The history is capped at `MAX_VERSION_HISTORY` (`20`) snapshots in
+`Storage::push_attestation_version`; once the cap is reached the oldest
+snapshots are dropped before appending, so the history never grows beyond the
+limit.
+
 ---
 
 #### 22. `SubjectAttestations(Address)`
@@ -686,6 +691,10 @@ revoke, renew, transfer, etc.).
 ```rust
 Vec<AuditEntry>
 ```
+
+The log is capped at `MAX_AUDIT_LOG_ENTRIES` (`100`) entries in
+`Storage::append_audit_entry`; once the cap is reached the oldest entries are
+dropped before appending, so the log never grows beyond the limit.
 
 ---
 

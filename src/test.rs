@@ -2696,6 +2696,45 @@ fn test_audit_log_is_append_only_across_multiple_actions() {
 }
 
 #[test]
+fn test_audit_log_is_capped() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+    let contract_id = client.address.clone();
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    let id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+    let timestamp = env.ledger().timestamp();
+
+    // `create_attestation` already appends one `Created` entry. Append far more
+    // entries than the cap and assert the log never exceeds
+    // `MAX_AUDIT_LOG_ENTRIES` — the oldest entries must be dropped.
+    env.as_contract(&contract_id, || {
+        for _ in 0..(crate::constants::MAX_AUDIT_LOG_ENTRIES + 5) {
+            Storage::append_audit_entry(
+                &env,
+                &id,
+                &AuditEntry {
+                    action: AuditAction::Amended,
+                    actor: issuer.clone(),
+                    timestamp,
+                    details: None,
+                },
+            );
+        }
+    });
+
+    let log = client.get_audit_log(&id);
+    assert_eq!(log.len(), crate::constants::MAX_AUDIT_LOG_ENTRIES as usize);
+    // The most recent entry should be retained.
+    assert_eq!(
+        log.get(log.len() - 1).unwrap().action,
+        crate::types::AuditAction::Amended
+    );
+}
+
+#[test]
 fn test_audit_log_empty_for_nonexistent_attestation() {
     let env = Env::default();
     env.mock_all_auths();

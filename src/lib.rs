@@ -693,13 +693,13 @@ impl TrustLinkContract {
     /// Issue #1567: Check if a subject has a valid attestation from a specific issuer
     /// of a given claim type that is NOT under an open dispute.
     #[must_use]
-    pub fn has_valid_undisputed_claim_from_issuer(
+    pub fn has_undisputed_claim_from(
         env: Env,
         subject: Address,
         claim_type: String,
         issuer: Address,
     ) -> bool {
-        query::has_valid_undisputed_claim_from_issuer(&env, subject, claim_type, issuer)
+        query::has_undisputed_claim_from(&env, subject, claim_type, issuer)
     }
 
     #[must_use]
