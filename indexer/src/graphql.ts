@@ -151,8 +151,10 @@ export function buildResolvers(db: PrismaClient, redis: Redis | null = null) {
         _: unknown,
         args: { start?: number; limit?: number }
       ) => {
-        const start = args.start ?? 0;
-        const limit = args.limit ?? 50;
+        // #1694: clamp start to ≥ 0 and cap limit to a maximum of 100
+        const MAX_LIMIT = 100;
+        const start = Math.max(0, args.start ?? 0);
+        const limit = Math.min(args.limit ?? 50, MAX_LIMIT);
 
         const [issuers, total] = await Promise.all([
           db.issuer.findMany({

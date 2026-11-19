@@ -165,9 +165,16 @@ async function main() {
         await db.webhook.delete({ where: { id: req.params.id } });
         reply.code(204);
         return;
-      } catch {
-        reply.code(404);
-        return { error: "Webhook not found" };
+      } catch (err) {
+        // #1697: only return 404 when Prisma confirms the record doesn't exist (P2025);
+        // all other errors (connection failures, constraint violations, etc.) are 500
+        const { Prisma } = await import("@prisma/client");
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
+          reply.code(404);
+          return { error: "Webhook not found" };
+        }
+        reply.code(500);
+        return { error: "Internal server error" };
       }
     }
   );

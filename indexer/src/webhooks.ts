@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import { createHmac } from "crypto";
+import { createHmac, randomUUID } from "crypto";
 
 export const MAX_ATTEMPTS = 5;
 
@@ -7,8 +7,9 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function sign(secret: string, body: string): string {
-  return createHmac("sha256", secret).update(body).digest("hex");
+// #1695: sign over "<timestamp>.<body>" so the timestamp is covered by the HMAC
+function sign(secret: string, timestamp: string, body: string): string {
+  return createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex");
 }
 
 export async function dispatchWebhooks(
@@ -36,7 +37,11 @@ export async function deliverWithRetry(
   eventType: string,
   body: string
 ): Promise<void> {
-  const sig = sign(secret, body);
+  // #1695: capture a stable timestamp for the entire delivery (across retries)
+  const timestamp = String(Date.now());
+  const sig = sign(secret, timestamp, body);
+  // #1696: generate a stable delivery ID shared across all retry attempts
+  const deliveryId = randomUUID();
   let lastStatusCode: number | undefined;
   let lastError: string | undefined;
 
@@ -46,7 +51,12 @@ export async function deliverWithRetry(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-TrustLink-Signature": sig,
+          // #1695: include timestamp in the signature header so receivers can reject
+          // replayed deliveries (e.g. reject if |now - t| > 300s)
+          "X-TrustLink-Signature": `t=${timestamp},v1=${sig}`,
+          "X-TrustLink-Timestamp": timestamp,
+          // #1696: stable per-delivery ID so subscribers can deduplicate retries
+          "X-TrustLink-Delivery": deliveryId,
         },
         body,
         signal: AbortSignal.timeout(10_000),
@@ -128,14 +138,20 @@ export async function replayFailure(
     ? await db.webhook.findUnique({ where: { id: failure.webhookId } })
     : null;
   const secret = webhook?.secret ?? "";
-  const sig = sign(secret, failure.payload);
+  // #1695: use a fresh timestamp for the replay so receivers don't reject it as stale
+  const replayTimestamp = String(Date.now());
+  const sig = sign(secret, replayTimestamp, failure.payload);
+  // #1696: use a new delivery ID for the replay attempt
+  const replayDeliveryId = randomUUID();
 
   try {
     const res = await fetch(failure.url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-TrustLink-Signature": sig,
+        "X-TrustLink-Signature": `t=${replayTimestamp},v1=${sig}`,
+        "X-TrustLink-Timestamp": replayTimestamp,
+        "X-TrustLink-Delivery": replayDeliveryId,
       },
       body: failure.payload,
       signal: AbortSignal.timeout(10_000),
