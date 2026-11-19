@@ -344,3 +344,9 @@ changelog-preview:
 ## Run automated tests for the changelog-preview script.
 test-changelog-preview:
 	@bash tests/test_changelog_preview.sh
+
+## Verify that every public contract entrypoint is wrapped by TypeScript & Python SDKs
+## or explicitly included in scripts/sdk-coverage-allowlist.json.
+check-sdk-coverage:
+	node scripts/check-sdk-coverage.mjs
+
