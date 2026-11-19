@@ -544,6 +544,22 @@ TrustLink uses a [`.github/CODEOWNERS`](.github/CODEOWNERS) file to automaticall
 
 GitHub will add the matching team as a required reviewer automatically when you open a PR. You do not need to request them manually.
 
+## Branch Protection on `main`
+
+`main` is protected. No PR may be merged unless the following CI status checks pass:
+
+| Required status check | What it runs |
+|---|---|
+| **Check compilation** (`check` job) | `cargo check --workspace --all-targets` |
+| **Build and Test** (`ci` job) | `cargo check --lib`, `cargo test`, WASM build, coverage |
+| **Merge Gate** (`merge-gate` job) | Synthetic job that depends on both of the above |
+
+Additionally, branches must be **up to date with `main`** before merging (the "Require branches to be up to date before merging" GitHub setting must be enabled).
+
+> **For repository maintainers:** configure these in *GitHub → Repository Settings → Branches → Branch protection rules → `main`* by adding `Check compilation`, `Build and Test`, and `Merge Gate` to the required status checks list and enabling "Require branches to be up to date before merging".
+
+No commit may land on `main` while `cargo check --workspace --all-targets` is failing.
+
 ## PR Process
 
 1. **Branch** off `main` with a descriptive name:
