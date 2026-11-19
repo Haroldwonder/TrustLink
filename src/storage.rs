@@ -4,105 +4,108 @@
 
 use crate::constants::{DAY_IN_LEDGERS, DEFAULT_INSTANCE_LIFETIME, MAX_AUDIT_LOG_ENTRIES, MAX_VERSION_HISTORY};
 use crate::types::{
-    Attestation, AttestationBundle, AttestationRequest, AuditEntry, ClaimTypeInfo, Endorsement, Error, ExpirationHook,
-    FeeConfig, GlobalStats, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal,
+    AdminCouncil, Attestation, AttestationBundle, AttestationRequest, AttestationTemplate,
+    AttestationVersionSnapshot, AuditEntry, ClaimTypeConstraints, ClaimTypeInfo, CouncilProposal,
+    DecayConfig, Delegation, DisputeRecord, Endorsement, Error, ExpirationHook, FeeConfig,
+    GlobalStats, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, PendingAdminTransfer,
     RateLimitConfig, StorageLimits, TtlConfig,
-    AdminCouncil, Attestation, AttestationRequest, AttestationTemplate, AttestationVersionSnapshot,
-    AuditEntry, ClaimTypeConstraints, ClaimTypeInfo, CouncilProposal, DecayConfig, Delegation,
-    DisputeRecord, Endorsement, Error, ExpirationHook, FeeConfig, GlobalStats, IssuerMetadata,
-    IssuerStats, IssuerTier, MultiSigProposal, PendingAdminTransfer, RateLimitConfig,
-    StorageLimits, TtlConfig,
 };
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
 #[contracttype]
 pub enum StorageKey {
+    // Core configuration and admin
     AdminCouncil,
     Version,
     FeeConfig,
     TtlConfig,
     ContractConfig,
+    
+    // Issuer registry  
     Issuer(Address),
-    /// Issuer tier metadata.
     IssuerMetadata(Address),
-    /// Full [`Attestation`] record keyed by its ID.
-    Bridge(Address),
-    /// Ordered list of all registered bridge addresses.
-    BridgeList,
-    Attestation(String),
-    SubjectAttestations(Address),
-    IssuerAttestations(Address),
-    SubjectAttestationChunk(Address, u32),
-    IssuerAttestationChunk(Address, u32),
-    ClaimType(String),
-    ClaimTypeList,
-    /// Constraints for a specific claim type.
-    ClaimTypeConstraints(String),
-    /// Per-claim-type attestation count across all issuers.
-    ClaimTypeCount(String),
-    /// Per-claim-type minimum issuance interval (rate limit).
-    ClaimTypeRateLimit(String),
-    IssuerList,
     IssuerTier(Address),
     IssuerStats(Address),
-    GlobalStats,
-    ExpirationHook(Address),
-    Endorsements(String),
-    /// Index of attestation IDs endorsed by a given endorser.
-    EndorserIndex(Address),
-    IssuerWhitelistMode(Address),
-    /// Version history for an attestation (Vec<AttestationVersionSnapshot>).
+    IssuerList,
+    
+    // Bridge management
+    Bridge(Address),
+    BridgeList,
+    
+    // Attestations
+    Attestation(String),
     AttestationHistory(String),
-    /// Whitelist entry for a (issuer, subject) pair.
-    IssuerWhitelist(Address, Address),
-    /// Audit log entries for an attestation.
     AuditLog(String),
-    /// Multi-sig proposal keyed by proposal ID.
+    ValidAttestations(Address),
+    
+    // Chunked indexes for paginated queries
+    SubjectAttestationChunk(Address, u32),
+    IssuerAttestationChunk(Address, u32),
+    
+    // Attestation collections (flat lists)
+    SubjectAttestations(Address),
+    IssuerAttestations(Address),
+    
+    // Claim type registry and constraints
+    ClaimType(String),
+    ClaimTypeList,
+    ClaimTypeConstraints(String),
+    ClaimTypeCount(String),
+    ClaimTypeRateLimit(String),
+    
+    // Whitelist mode
+    IssuerWhitelistMode(Address),
+    IssuerWhitelist(Address, Address),
+    
+    // Global state
+    GlobalStats,
+    Paused,
+    LastIssuanceTime(Address),
+    ExpirationHook(Address),
+    
+    // Multi-sig proposals
     MultiSigProposal(String),
-    /// Admin council proposal keyed by proposal ID.
+    ProposalIndex(Address),
+    MultisigTtl,
+    
+    // Council governance
     CouncilProposal(u32),
-    /// Monotonic counter for admin council proposal IDs.
     ProposalCounter,
-    /// An attestation request record.
+    
+    // Attestation requests
     AttestationRequest(String),
     IssuerPendingRequests(Address),
-    /// Contract paused flag.
-    Paused,
-    /// Ordered list of proposal IDs for a subject (for list_open_proposals).
-    ProposalIndex(Address),
-    /// Configurable TTL in days for multisig proposals (default: 7).
-    MultisigTtl,
-    /// Attestation bundle keyed by bundle ID.
+    
+    // Bundles
     Bundle(String),
-    /// Last attestation issuance timestamp per issuer (across all claim types).
-    LastIssuanceTime(Address),
+    AttestationBundle(String),
+    IssuerBundles(Address),
+    SubjectBundles(Address),
+    
+    // Admin transfer
+    PendingAdminTransfer,
+    
+    // Templates
+    AttestationTemplate(Address, String),
+    AttestationTemplateList(Address),
+    
+    // Delegations
+    Delegation(Address, Address, String),
+    DelegatorIndex(Address),
+    
+    // Disputes
+    Dispute(String),
+    IssuerRevocations(Address),
+    
     /// Bundle of infrequently-changed, contract-wide singleton settings
     /// (multisig TTL, rate limit config, decay config, council timelock delay,
     /// storage limits). Consolidated into one key to stay within the
-    /// `#[contracttype]` enum's 50-variant limit — see `MiscConfig`.
+    /// `#[contracttype]` enum's 50-variant limit.
     MiscConfig,
-    /// Bundle metadata keyed by bundle ID.
-    AttestationBundle(String),
-    /// List of bundles created by an issuer.
-    IssuerBundles(Address),
-    /// List of bundles issued to a subject.
-    SubjectBundles(Address),
-    /// Pending two-step admin transfer.
-    PendingAdminTransfer,
-    /// Attestation template keyed by (issuer, template_id).
-    AttestationTemplate(Address, String),
-    /// Ordered list of template IDs for a given issuer.
-    AttestationTemplateList(Address),
-    /// Index of valid attestation IDs for a subject (optimised lookup).
-    ValidAttestations(Address),
-    /// Delegation record keyed by (delegator, delegate, claim_type).
-    Delegation(Address, Address, String),
-    /// Index of active delegations for a delegator.
-    DelegatorIndex(Address),
-    /// Active dispute record for an attestation.
-    Dispute(String),
-    /// Cumulative revocation count for an issuer (used in confidence scoring).
-    IssuerRevocations(Address),
+    
+    // Endorsements and indexes
+    Endorsements(String),
+    EndorserIndex(Address),
 }
 
 /// Composite key for per-issuer-per-claim-type last issuance timestamps.
@@ -112,6 +115,16 @@ pub enum StorageKey {
 #[derive(Clone)]
 pub struct ClaimTypeIssuanceKey {
     pub issuer: Address,
+    pub claim_type: String,
+}
+
+/// Dedicated key for per-claim-type enabled/disabled status.
+/// Stored as a separate `contracttype` struct (instead of a `StorageKey`
+/// variant) so it cannot collide with the `StorageKey::ClaimType` data key
+/// that holds the `ClaimTypeInfo` record for the same claim type string.
+#[contracttype]
+#[derive(Clone)]
+pub struct ClaimTypeStatusKey {
     pub claim_type: String,
 }
 
@@ -342,13 +355,6 @@ impl Storage {
         // reputation history: the counts are still meaningful after removal.
     }
 
-    /// Get the issuer metadata (tier).
-    pub fn get_issuer_metadata(env: &Env, issuer: &Address) -> Result<IssuerMetadata, Error> {
-        env.storage()
-            .persistent()
-            .get(&StorageKey::IssuerMetadata(issuer.clone()))
-            .ok_or(Error::NotFound)
-    }
 
     pub fn get_issuer_list(env: &Env) -> Vec<Address> {
         env.storage()
@@ -511,25 +517,19 @@ impl Storage {
     }
 
     pub fn get_claim_type_status(env: &Env, claim_type: &String) -> crate::types::ClaimTypeStatus {
-        // Use a composite key by appending "_status" to avoid conflicts
-        let status_key = {
-            let mut key = claim_type.clone();
-            key.push_str("_status");
-            key
-        };
-        env.storage().instance().get(&StorageKey::ClaimType(status_key))
+        let key = ClaimTypeStatusKey { claim_type: claim_type.clone() };
+        env.storage()
+            .instance()
+            .get(&key)
             .unwrap_or(crate::types::ClaimTypeStatus::Active)
     }
 
     pub fn set_claim_type_status(env: &Env, claim_type: &String, status: crate::types::ClaimTypeStatus) {
-        // Use a composite key by appending "_status" to avoid conflicts
-        let status_key = {
-            let mut key = claim_type.clone();
-            key.push_str("_status");
-            key
-        };
-        env.storage().instance().set(&StorageKey::ClaimType(status_key), &status);
-        env.storage().instance().extend_ttl(DEFAULT_INSTANCE_LIFETIME, DEFAULT_INSTANCE_LIFETIME);
+        let key = ClaimTypeStatusKey { claim_type: claim_type.clone() };
+        env.storage().instance().set(&key, &status);
+        env.storage()
+            .instance()
+            .extend_ttl(DEFAULT_INSTANCE_LIFETIME, DEFAULT_INSTANCE_LIFETIME);
     }
 
     pub fn get_claim_type_list(env: &Env) -> Vec<String> {

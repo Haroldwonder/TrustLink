@@ -1,5 +1,5 @@
 use soroban_sdk::{symbol_short, Address, Env, String, Symbol};
-use crate::types::{Attestation, IssuerTier};
+use crate::types::{Attestation, IssuerMetadata, IssuerTier};
 
 // Event topic constants (max 9 chars for symbol_short!)
 const TOPIC_ADM_INIT: Symbol = symbol_short!("adm_init");

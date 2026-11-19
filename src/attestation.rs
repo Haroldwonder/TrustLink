@@ -605,7 +605,7 @@ pub fn create_attestations_batch(
 ) -> Result<Vec<String>, Error> {
     const MAX_BATCH_SIZE: u32 = 50;
 
-    if subjects.is_empty() || subjects.len() > MAX_BATCH_SIZE as usize {
+    if subjects.is_empty() || subjects.len() > MAX_BATCH_SIZE {
         return Err(Error::LimitExceeded);
     }
 

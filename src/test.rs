@@ -2696,6 +2696,45 @@ fn test_audit_log_is_append_only_across_multiple_actions() {
 }
 
 #[test]
+fn test_audit_log_is_capped() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+    let contract_id = client.address.clone();
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+
+    let id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+    let timestamp = env.ledger().timestamp();
+
+    // `create_attestation` already appends one `Created` entry. Append far more
+    // entries than the cap and assert the log never exceeds
+    // `MAX_AUDIT_LOG_ENTRIES` — the oldest entries must be dropped.
+    env.as_contract(&contract_id, || {
+        for _ in 0..(crate::constants::MAX_AUDIT_LOG_ENTRIES + 5) {
+            Storage::append_audit_entry(
+                &env,
+                &id,
+                &AuditEntry {
+                    action: AuditAction::Amended,
+                    actor: issuer.clone(),
+                    timestamp,
+                    details: None,
+                },
+            );
+        }
+    });
+
+    let log = client.get_audit_log(&id);
+    assert_eq!(log.len(), crate::constants::MAX_AUDIT_LOG_ENTRIES as usize);
+    // The most recent entry should be retained.
+    assert_eq!(
+        log.get(log.len() - 1).unwrap().action,
+        crate::types::AuditAction::Amended
+    );
+}
+
+#[test]
 fn test_audit_log_empty_for_nonexistent_attestation() {
     let env = Env::default();
     env.mock_all_auths();
@@ -12928,4 +12967,103 @@ fn test_health_check_issuer_count_reflects_removal() {
     client.remove_issuer(&admin, &issuer);
     let status = client.health_check();
     assert_eq!(status.issuer_count, 0);
+}
+
+// ── ClaimTypeStatus storage tests (Issue: push_str fix) ─────────────────────
+
+/// Round-trip the status through Storage directly, verifying:
+/// 1. Default is Active when nothing has been set.
+/// 2. Setting Deprecated is reflected on get.
+/// 3. Setting Active again reverts the value.
+/// 4. The status key does NOT collide with the ClaimTypeInfo record stored
+///    under StorageKey::ClaimType for the same claim type string.
+#[test]
+fn test_storage_claim_type_status_roundtrip_and_no_collision() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_, _, client) = setup(&env);
+    let contract_id = client.address.clone();
+
+    env.as_contract(&contract_id, || {
+        let claim_type = String::from_str(&env, "KYC_PASSED");
+
+        // 1. Default is Active.
+        assert_eq!(
+            crate::storage::Storage::get_claim_type_status(&env, &claim_type),
+            crate::types::ClaimTypeStatus::Active,
+        );
+
+        // 2. Persist Deprecated.
+        crate::storage::Storage::set_claim_type_status(
+            &env,
+            &claim_type,
+            crate::types::ClaimTypeStatus::Deprecated,
+        );
+        assert_eq!(
+            crate::storage::Storage::get_claim_type_status(&env, &claim_type),
+            crate::types::ClaimTypeStatus::Deprecated,
+        );
+
+        // 3. Revert to Active.
+        crate::storage::Storage::set_claim_type_status(
+            &env,
+            &claim_type,
+            crate::types::ClaimTypeStatus::Active,
+        );
+        assert_eq!(
+            crate::storage::Storage::get_claim_type_status(&env, &claim_type),
+            crate::types::ClaimTypeStatus::Active,
+        );
+
+        // 4. ClaimTypeInfo stored under StorageKey::ClaimType is unaffected by
+        //    writing the status key (no collision between the two keys).
+        let info = crate::types::ClaimTypeInfo {
+            claim_type: claim_type.clone(),
+            description: String::from_str(&env, "KYC check"),
+        };
+        crate::storage::Storage::set_claim_type(&env, &info);
+        // Flip status to Deprecated; the ClaimTypeInfo must still be readable.
+        crate::storage::Storage::set_claim_type_status(
+            &env,
+            &claim_type,
+            crate::types::ClaimTypeStatus::Deprecated,
+        );
+        let fetched = crate::storage::Storage::get_claim_type(&env, &claim_type)
+            .expect("ClaimTypeInfo must survive a status write");
+        assert_eq!(fetched.description, String::from_str(&env, "KYC check"));
+        // And the status must still read Deprecated.
+        assert_eq!(
+            crate::storage::Storage::get_claim_type_status(&env, &claim_type),
+            crate::types::ClaimTypeStatus::Deprecated,
+        );
+    });
+}
+
+/// Verify the contract-level `set_claim_type_status` enforces the status:
+/// attestation creation is blocked when a claim type is Deprecated.
+#[test]
+fn test_deprecated_claim_type_blocks_attestation() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, issuer, client) = setup(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "DEPRECATED_CLAIM");
+
+    // Require registered claim types so the status check is active.
+    client.set_require_registered_claim_type(&admin, &true);
+
+    // Register the claim type (initialises status to Active).
+    client.register_claim_type(&admin, &claim_type, &String::from_str(&env, "Will be deprecated"));
+
+    // Attestation creation works before deprecation.
+    client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+
+    // Deprecate the claim type.
+    client.set_claim_type_status(&admin, &claim_type, &crate::types::ClaimTypeStatus::Deprecated);
+
+    // Subsequent attestation creation must fail.
+    let result = client.try_create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+    assert!(result.is_err(), "creating an attestation under a deprecated claim type must return an error");
 }

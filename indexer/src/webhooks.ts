@@ -2,6 +2,7 @@ import { PrismaClient } from "@prisma/client";
 import { createHmac } from "crypto";
 import { webhookDeliveriesSuccessTotal, webhookDeliveriesFailureTotal } from "./metrics";
 import { validateWebhookUrl } from "./webhook-validation";
+import { decryptSecret, signWebhookPayload } from "./webhook-secret";
 
 export const MAX_ATTEMPTS = 5;
 
@@ -25,7 +26,7 @@ export async function dispatchWebhooks(
 
   await Promise.allSettled(
     webhooks.map((wh) =>
-      deliverWithRetry(db, wh.id, wh.url, wh.secret, eventType, body)
+      deliverWithRetry(db, wh.id, wh.url, wh.secret_encrypted, wh.next_secret_encrypted ?? undefined, eventType, body)
     )
   );
 }
@@ -34,10 +35,23 @@ export async function deliverWithRetry(
   db: PrismaClient,
   webhookId: string,
   url: string,
-  secret: string,
+  secretEncrypted: string,
+  nextSecretEncrypted: string | undefined,
   eventType: string,
   body: string
 ): Promise<void> {
+  // Decrypt the secret
+  let secret: string;
+  try {
+    secret = decryptSecret(secretEncrypted);
+  } catch (err) {
+    const errorMessage = `Failed to decrypt webhook secret: ${err instanceof Error ? err.message : "unknown"}`;
+    console.error(`Webhook ${webhookId} decryption failed:`, err);
+    webhookDeliveriesFailureTotal.inc();
+    await persistFailure(db, webhookId, url, eventType, body, 500, errorMessage, 1);
+    return;
+  }
+
   // Validate URL at delivery time to catch DNS rebinding attacks
   try {
     await validateWebhookUrl(url);
@@ -50,17 +64,35 @@ export async function deliverWithRetry(
   }
 
   const sig = sign(secret, body);
+  // During grace period, also compute next signature for dual-signing
+  let nextSig: string | undefined;
+  if (nextSecretEncrypted) {
+    try {
+      const nextSecret = decryptSecret(nextSecretEncrypted);
+      nextSig = sign(nextSecret, body);
+    } catch (err) {
+      console.warn(`Failed to decrypt next secret for dual-signing:`, err);
+      // Continue without next signature
+    }
+  }
+
   let lastStatusCode: number | undefined;
   let lastError: string | undefined;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "X-TrustLink-Signature": sig,
+      };
+      // Include next signature during grace period
+      if (nextSig) {
+        headers["X-TrustLink-Signature-Next"] = nextSig;
+      }
+
       const res = await fetch(url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-TrustLink-Signature": sig,
-        },
+        headers,
         body,
         signal: AbortSignal.timeout(10_000),
         redirect: "manual",
@@ -245,17 +277,60 @@ export async function replayFailure(
   const webhook = failure.webhookId
     ? await db.webhook.findUnique({ where: { id: failure.webhookId } })
     : null;
-  // We already verified webhook exists and is active above, but double-check
-  const secret = webhook?.secret ?? "";
+  if (!webhook) {
+    await db.webhookFailure.update({
+      where: { id: failureId },
+      data: {
+        status: "FAILED",
+        errorMessage: "webhook no longer exists",
+        attemptCount: { increment: 1 },
+      },
+    });
+    return { success: false, error: "webhook no longer exists" };
+  }
+
+  // Decrypt the secret
+  let secret: string;
+  try {
+    secret = decryptSecret(webhook.secret_encrypted);
+  } catch (err) {
+    await db.webhookFailure.update({
+      where: { id: failureId },
+      data: {
+        status: "FAILED",
+        errorMessage: `Failed to decrypt webhook secret: ${err instanceof Error ? err.message : "unknown"}`,
+        attemptCount: { increment: 1 },
+      },
+    });
+    return { success: false, error: "secret decryption failed" };
+  }
+
   const sig = sign(secret, failure.payload);
+  
+  // During grace period, also compute next signature for dual-signing
+  let nextSig: string | undefined;
+  if (webhook.next_secret_encrypted) {
+    try {
+      const nextSecret = decryptSecret(webhook.next_secret_encrypted);
+      nextSig = sign(nextSecret, failure.payload);
+    } catch (err) {
+      console.warn(`Failed to decrypt next secret for dual-signing:`, err);
+      // Continue without next signature
+    }
+  }
 
   try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "X-TrustLink-Signature": sig,
+    };
+    if (nextSig) {
+      headers["X-TrustLink-Signature-Next"] = nextSig;
+    }
+
     const res = await fetch(failure.url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-TrustLink-Signature": sig,
-      },
+      headers,
       body: failure.payload,
       signal: AbortSignal.timeout(10_000),
       redirect: "manual",
