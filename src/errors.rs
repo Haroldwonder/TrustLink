@@ -109,7 +109,9 @@ pub enum Error {
     /// Issue #1579: Template ID is empty, too long, or contains disallowed characters.
     InvalidTemplateId = 48,
     /// Issue #1566: A resource with this identifier already exists (e.g., template already exists).
-    ConflictError = 49,
-    /// A generic config value was out of range or invalid.
-    InvalidConfigValue = 50,
+    ConflictError = 50,
+    /// Issue #1567: Attestation cannot be disputed (revoked, expired, etc.).
+    InvalidAttestation = 51,
+    /// Claim type has been deprecated; new attestations cannot be issued for it.
+    ClaimTypeDeprecated = 54,
 }

@@ -4,14 +4,11 @@
 
 use crate::constants::{DAY_IN_LEDGERS, DEFAULT_INSTANCE_LIFETIME, MAX_AUDIT_LOG_ENTRIES, MAX_VERSION_HISTORY};
 use crate::types::{
-    Attestation, AttestationBundle, AttestationRequest, AuditEntry, ClaimTypeInfo, Endorsement, Error, ExpirationHook,
-    FeeConfig, GlobalStats, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal,
+    AdminCouncil, Attestation, AttestationBundle, AttestationRequest, AttestationTemplate,
+    AttestationVersionSnapshot, AuditEntry, ClaimTypeConstraints, ClaimTypeInfo, CouncilProposal,
+    DecayConfig, Delegation, DisputeRecord, Endorsement, Error, ExpirationHook, FeeConfig,
+    GlobalStats, IssuerMetadata, IssuerStats, IssuerTier, MultiSigProposal, PendingAdminTransfer,
     RateLimitConfig, StorageLimits, TtlConfig,
-    AdminCouncil, Attestation, AttestationRequest, AttestationTemplate, AttestationVersionSnapshot,
-    AuditEntry, ClaimTypeConstraints, ClaimTypeInfo, CouncilProposal, DecayConfig, Delegation,
-    DisputeRecord, Endorsement, Error, ExpirationHook, FeeConfig, GlobalStats, IssuerMetadata,
-    IssuerStats, IssuerTier, MultiSigProposal, PendingAdminTransfer, RateLimitConfig,
-    StorageLimits, TtlConfig,
 };
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
@@ -118,6 +115,16 @@ pub enum StorageKey {
 #[derive(Clone)]
 pub struct ClaimTypeIssuanceKey {
     pub issuer: Address,
+    pub claim_type: String,
+}
+
+/// Dedicated key for per-claim-type enabled/disabled status.
+/// Stored as a separate `contracttype` struct (instead of a `StorageKey`
+/// variant) so it cannot collide with the `StorageKey::ClaimType` data key
+/// that holds the `ClaimTypeInfo` record for the same claim type string.
+#[contracttype]
+#[derive(Clone)]
+pub struct ClaimTypeStatusKey {
     pub claim_type: String,
 }
 
@@ -348,13 +355,6 @@ impl Storage {
         // reputation history: the counts are still meaningful after removal.
     }
 
-    /// Get the issuer metadata (tier).
-    pub fn get_issuer_metadata(env: &Env, issuer: &Address) -> Result<IssuerMetadata, Error> {
-        env.storage()
-            .persistent()
-            .get(&StorageKey::IssuerMetadata(issuer.clone()))
-            .ok_or(Error::NotFound)
-    }
 
     pub fn get_issuer_list(env: &Env) -> Vec<Address> {
         env.storage()
@@ -517,25 +517,19 @@ impl Storage {
     }
 
     pub fn get_claim_type_status(env: &Env, claim_type: &String) -> crate::types::ClaimTypeStatus {
-        // Use a composite key by appending "_status" to avoid conflicts
-        let status_key = {
-            let mut key = claim_type.clone();
-            key.push_str("_status");
-            key
-        };
-        env.storage().instance().get(&StorageKey::ClaimType(status_key))
+        let key = ClaimTypeStatusKey { claim_type: claim_type.clone() };
+        env.storage()
+            .instance()
+            .get(&key)
             .unwrap_or(crate::types::ClaimTypeStatus::Active)
     }
 
     pub fn set_claim_type_status(env: &Env, claim_type: &String, status: crate::types::ClaimTypeStatus) {
-        // Use a composite key by appending "_status" to avoid conflicts
-        let status_key = {
-            let mut key = claim_type.clone();
-            key.push_str("_status");
-            key
-        };
-        env.storage().instance().set(&StorageKey::ClaimType(status_key), &status);
-        env.storage().instance().extend_ttl(DEFAULT_INSTANCE_LIFETIME, DEFAULT_INSTANCE_LIFETIME);
+        let key = ClaimTypeStatusKey { claim_type: claim_type.clone() };
+        env.storage().instance().set(&key, &status);
+        env.storage()
+            .instance()
+            .extend_ttl(DEFAULT_INSTANCE_LIFETIME, DEFAULT_INSTANCE_LIFETIME);
     }
 
     pub fn get_claim_type_list(env: &Env) -> Vec<String> {
