@@ -17,92 +17,98 @@ use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
 #[contracttype]
 pub enum StorageKey {
+    // Core configuration and admin
     AdminCouncil,
     Version,
     FeeConfig,
     TtlConfig,
     ContractConfig,
+    
+    // Issuer registry  
     Issuer(Address),
-    /// Issuer tier metadata.
     IssuerMetadata(Address),
-    /// Full [`Attestation`] record keyed by its ID.
-    Bridge(Address),
-    /// Ordered list of all registered bridge addresses.
-    BridgeList,
-    Attestation(String),
-    SubjectAttestations(Address),
-    IssuerAttestations(Address),
-    SubjectAttestationChunk(Address, u32),
-    IssuerAttestationChunk(Address, u32),
-    ClaimType(String),
-    ClaimTypeList,
-    /// Constraints for a specific claim type.
-    ClaimTypeConstraints(String),
-    /// Per-claim-type attestation count across all issuers.
-    ClaimTypeCount(String),
-    /// Per-claim-type minimum issuance interval (rate limit).
-    ClaimTypeRateLimit(String),
-    IssuerList,
     IssuerTier(Address),
     IssuerStats(Address),
-    GlobalStats,
-    ExpirationHook(Address),
-    Endorsements(String),
-    /// Index of attestation IDs endorsed by a given endorser.
-    EndorserIndex(Address),
-    IssuerWhitelistMode(Address),
-    /// Version history for an attestation (Vec<AttestationVersionSnapshot>).
+    IssuerList,
+    
+    // Bridge management
+    Bridge(Address),
+    BridgeList,
+    
+    // Attestations
+    Attestation(String),
     AttestationHistory(String),
-    /// Whitelist entry for a (issuer, subject) pair.
-    IssuerWhitelist(Address, Address),
-    /// Audit log entries for an attestation.
     AuditLog(String),
-    /// Multi-sig proposal keyed by proposal ID.
+    ValidAttestations(Address),
+    
+    // Chunked indexes for paginated queries
+    SubjectAttestationChunk(Address, u32),
+    IssuerAttestationChunk(Address, u32),
+    
+    // Attestation collections (flat lists)
+    SubjectAttestations(Address),
+    IssuerAttestations(Address),
+    
+    // Claim type registry and constraints
+    ClaimType(String),
+    ClaimTypeList,
+    ClaimTypeConstraints(String),
+    ClaimTypeCount(String),
+    ClaimTypeRateLimit(String),
+    
+    // Whitelist mode
+    IssuerWhitelistMode(Address),
+    IssuerWhitelist(Address, Address),
+    
+    // Global state
+    GlobalStats,
+    Paused,
+    LastIssuanceTime(Address),
+    ExpirationHook(Address),
+    
+    // Multi-sig proposals
     MultiSigProposal(String),
-    /// Admin council proposal keyed by proposal ID.
+    ProposalIndex(Address),
+    MultisigTtl,
+    
+    // Council governance
     CouncilProposal(u32),
-    /// Monotonic counter for admin council proposal IDs.
     ProposalCounter,
-    /// An attestation request record.
+    
+    // Attestation requests
     AttestationRequest(String),
     IssuerPendingRequests(Address),
-    /// Contract paused flag.
-    Paused,
-    /// Ordered list of proposal IDs for a subject (for list_open_proposals).
-    ProposalIndex(Address),
-    /// Configurable TTL in days for multisig proposals (default: 7).
-    MultisigTtl,
-    /// Attestation bundle keyed by bundle ID.
+    
+    // Bundles
     Bundle(String),
-    /// Last attestation issuance timestamp per issuer (across all claim types).
-    LastIssuanceTime(Address),
+    AttestationBundle(String),
+    IssuerBundles(Address),
+    SubjectBundles(Address),
+    
+    // Admin transfer
+    PendingAdminTransfer,
+    
+    // Templates
+    AttestationTemplate(Address, String),
+    AttestationTemplateList(Address),
+    
+    // Delegations
+    Delegation(Address, Address, String),
+    DelegatorIndex(Address),
+    
+    // Disputes
+    Dispute(String),
+    IssuerRevocations(Address),
+    
     /// Bundle of infrequently-changed, contract-wide singleton settings
     /// (multisig TTL, rate limit config, decay config, council timelock delay,
     /// storage limits). Consolidated into one key to stay within the
-    /// `#[contracttype]` enum's 50-variant limit — see `MiscConfig`.
+    /// `#[contracttype]` enum's 50-variant limit.
     MiscConfig,
-    /// Bundle metadata keyed by bundle ID.
-    AttestationBundle(String),
-    /// List of bundles created by an issuer.
-    IssuerBundles(Address),
-    /// List of bundles issued to a subject.
-    SubjectBundles(Address),
-    /// Pending two-step admin transfer.
-    PendingAdminTransfer,
-    /// Attestation template keyed by (issuer, template_id).
-    AttestationTemplate(Address, String),
-    /// Ordered list of template IDs for a given issuer.
-    AttestationTemplateList(Address),
-    /// Index of valid attestation IDs for a subject (optimised lookup).
-    ValidAttestations(Address),
-    /// Delegation record keyed by (delegator, delegate, claim_type).
-    Delegation(Address, Address, String),
-    /// Index of active delegations for a delegator.
-    DelegatorIndex(Address),
-    /// Active dispute record for an attestation.
-    Dispute(String),
-    /// Cumulative revocation count for an issuer (used in confidence scoring).
-    IssuerRevocations(Address),
+    
+    // Endorsements and indexes
+    Endorsements(String),
+    EndorserIndex(Address),
 }
 
 /// Composite key for per-issuer-per-claim-type last issuance timestamps.
