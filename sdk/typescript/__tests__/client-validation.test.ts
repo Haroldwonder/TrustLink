@@ -40,3 +40,55 @@ describe("TrustLinkClient constructor validation", () => {
     })).toThrow("Invalid rpcUrl: \"not-a-valid-url\" is not a valid URL.");
   });
 });
+
+describe("TrustLinkClient.hasValidClaimBatch validation", () => {
+  const CONTRACT_ID = "CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
+  const SUBJECT_A = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+  const SUBJECT_B = "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+
+  const makeClient = () => new TrustLinkClient({ contractId: CONTRACT_ID, network: "testnet" });
+
+  test("rejects a non-array subjects list", async () => {
+    const client = makeClient();
+    await expect(client.hasValidClaimBatch(SUBJECT_A as any, "kyc")).rejects.toThrow(
+      "subjects must be an array of addresses."
+    );
+  });
+
+  test("rejects an empty subjects list", async () => {
+    const client = makeClient();
+    await expect(client.hasValidClaimBatch([], "kyc")).rejects.toThrow(
+      "subjects must not be empty."
+    );
+  });
+
+  test("rejects an invalid address in the subjects list", async () => {
+    const client = makeClient();
+    await expect(client.hasValidClaimBatch([SUBJECT_A, "not-an-address"], "kyc")).rejects.toThrow(
+      "Invalid subject address at index 1: \"not-an-address\"."
+    );
+  });
+
+  test("rejects an invalid claimType", async () => {
+    const client = makeClient();
+    await expect(client.hasValidClaimBatch([SUBJECT_A], "" as any)).rejects.toThrow(
+      "claimType must be a non-empty string."
+    );
+  });
+
+  test("returns a boolean array aligned with the input subjects", async () => {
+    const client = makeClient();
+    const simulate = jest
+      .spyOn(client as any, "simulate")
+      .mockResolvedValue([true, false]);
+
+    const result = await client.hasValidClaimBatch([SUBJECT_A, SUBJECT_B], "kyc");
+
+    expect(result).toEqual([true, false]);
+    expect(Array.isArray(result)).toBe(true);
+    expect(result).toHaveLength(2);
+    expect(simulate).toHaveBeenCalledTimes(1);
+
+    simulate.mockRestore();
+  });
+});

@@ -87,6 +87,16 @@ export interface ClaimTypeInfo {
   description: string;
 }
 
+/**
+ * Result of a batched `has_valid_claim_batch` query: one entry per subject,
+ * in the same order as the input subjects array.
+ */
+export interface ClaimBatchResult {
+  subjects: string[];
+  claim_type: string;
+  results: boolean[];
+}
+
 export interface GlobalStats {
   total_attestations: bigint;
   total_revocations: bigint;

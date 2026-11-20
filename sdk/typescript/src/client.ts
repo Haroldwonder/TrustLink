@@ -210,6 +210,10 @@ export class TrustLinkClient {
     return nativeToScVal(values, { type: "array" });
   }
 
+  private addrVec(addresses: string[]): xdr.ScVal {
+    return xdr.ScVal.scvVec(addresses.map((a) => this.addr(a)));
+  }
+
   // ── Admin / Initialization ─────────────────────────────────────────────────
 
   /**
@@ -736,6 +740,34 @@ export class TrustLinkClient {
     return this.simulate(
       "has_valid_claim",
       this.addr(subject),
+      this.str(claimType)
+    );
+  }
+
+  /**
+   * Checks if multiple subjects each have a valid claim of a specific type,
+   * in a single contract call.
+   * @param subjects - Array of subject Stellar addresses to check. Must be non-empty.
+   * @param claimType - The claim type to check.
+   * @returns Array of booleans, in the same order as `subjects`.
+   * @throws {InvalidAddressError} If any subject address format is invalid.
+   * @throws {InvalidClaimTypeError} If the claim type format is invalid.
+   * @throws {TrustLinkValidationError} If `subjects` is not a non-empty array.
+   * @throws {NotInitializedError} If the contract has not been initialized.
+   * @throws {TrustLinkError} For other contract errors.
+   */
+  async hasValidClaimBatch(
+    subjects: string[],
+    claimType: string
+  ): Promise<boolean[]> {
+    if (!Array.isArray(subjects) || subjects.length === 0) {
+      throw new Error("subjects must be a non-empty array of addresses");
+    }
+    subjects.forEach((s) => validateAddress(s));
+    validateClaimType(claimType);
+    return this.simulate(
+      "has_valid_claim_batch",
+      this.addrVec(subjects),
       this.str(claimType)
     );
   }

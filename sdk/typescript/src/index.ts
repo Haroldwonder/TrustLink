@@ -1,6 +1,7 @@
 export { TrustLinkClient } from "./client.js";
 export type {
   Attestation,
+  HasValidClaimBatchResult,
   AttestationOrigin,
   AttestationRequest,
   AttestationStatus,
