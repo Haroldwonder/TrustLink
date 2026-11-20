@@ -27,7 +27,8 @@ pub fn initialize(env: &Env, admin: Address, ttl_days: Option<u32>) -> Result<()
     council.push_back(admin.clone());
     Storage::set_admin_council(env, &council);
     Storage::set_version(env, &String::from_str(env, env!("CARGO_PKG_VERSION")));
-    Storage::set_fee_config(env, &FeeConfig { attestation_fee: 0, fee_collector: admin.clone(), fee_token: None });
+    // The contract itself is the default collector, never an admin (#1516, ADR-012).
+    Storage::set_fee_config(env, &FeeConfig { attestation_fee: 0, fee_collector: env.current_contract_address(), fee_token: None });
     Storage::set_ttl_config(env, &TtlConfig { ttl_days: days });
     Events::admin_initialized(env, &admin, env.ledger().timestamp());
     Ok(())
@@ -131,6 +132,10 @@ pub fn register_issuer(env: &Env, admin: Address, issuer: Address) -> Result<(),
     if Storage::is_bridge(env, &issuer) {
         return Err(Error::Unauthorized);
     }
+    // Re-registering an existing issuer must not bump stats or emit events (#1505).
+    if Storage::is_issuer(env, &issuer) {
+        return Ok(());
+    }
     Storage::add_issuer(env, &issuer);
     Storage::increment_total_issuers(env);
     Events::issuer_registered(env, &issuer, &admin, env.ledger().timestamp());
@@ -141,6 +146,10 @@ pub fn remove_issuer(env: &Env, admin: Address, issuer: Address) -> Result<(), E
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
     Validation::require_not_paused(env)?;
+    // Removing a non-issuer must not decrement stats or emit events (#1505).
+    if !Storage::is_issuer(env, &issuer) {
+        return Ok(());
+    }
     Storage::remove_issuer(env, &issuer);
     Storage::decrement_total_issuers(env);
     Events::issuer_removed(env, &issuer, &admin, env.ledger().timestamp());
@@ -391,7 +400,8 @@ pub fn set_fee(env: &Env, admin: Address, fee: i128, collector: Address, fee_tok
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
     validate_fee_config(env, fee, &fee_token)?;
-    if admin == collector {
+    // Reject any council member as collector, not only the caller (#1516, ADR-012).
+    if Storage::is_admin(env, &collector) {
         return Err(Error::Unauthorized);
     }
     let fee_config = FeeConfig { attestation_fee: fee, fee_collector: collector.clone(), fee_token };
@@ -487,12 +497,10 @@ pub fn set_metadata_hash_only(env: &Env, admin: Address, enabled: bool) -> Resul
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
 
-    if let Some(mut config) = Storage::get_contract_config(env) {
-        config.metadata_hash_only = enabled;
-        Storage::set_contract_config(env, &config);
-    }
-    // If no config is stored yet, the flag defaults to false (no-op when disabling).
-    // Enabling before any config exists is a no-op; callers should store config first.
+    // Fall back to defaults so the flag is stored even on a fresh deployment (#1513).
+    let mut config = Storage::get_contract_config(env).unwrap_or_else(|| ContractConfig::default_for(env));
+    config.metadata_hash_only = enabled;
+    Storage::set_contract_config(env, &config);
     Ok(())
 }
 
@@ -918,9 +926,12 @@ pub fn execute_council_action(
 
     match proposal.operation.clone() {
         CouncilOperation::RemoveIssuer(issuer) => {
-            Storage::remove_issuer(env, &issuer);
-            Storage::decrement_total_issuers(env);
-            Events::issuer_removed(env, &issuer, &executor, now);
+            // Skip non-issuers so stats and events stay accurate (#1505).
+            if Storage::is_issuer(env, &issuer) {
+                Storage::remove_issuer(env, &issuer);
+                Storage::decrement_total_issuers(env);
+                Events::issuer_removed(env, &issuer, &executor, now);
+            }
         }
         CouncilOperation::PauseContract => {
             Storage::set_paused(env, true);

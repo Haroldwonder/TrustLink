@@ -108,6 +108,16 @@ pub enum StorageKey {
     EndorserIndex(Address),
 }
 
+/// Composite key mapping a bridge source transaction to the attestation it
+/// created. Stored as a separate `contracttype` struct so it doesn't count
+/// against the `StorageKey` enum variant limit (#1510).
+#[contracttype]
+#[derive(Clone)]
+pub struct BridgedSourceKey {
+    pub source_chain: String,
+    pub source_tx: String,
+}
+
 /// Composite key for per-issuer-per-claim-type last issuance timestamps.
 /// Stored as a separate `contracttype` struct so it doesn't count against
 /// the `StorageKey` enum variant limit.
@@ -365,6 +375,20 @@ impl Storage {
 
     pub fn is_bridge(env: &Env, address: &Address) -> bool {
         env.storage().persistent().has(&StorageKey::Bridge(address.clone()))
+    }
+
+    pub fn is_source_bridged(env: &Env, source_chain: &String, source_tx: &String) -> bool {
+        let key = BridgedSourceKey { source_chain: source_chain.clone(), source_tx: source_tx.clone() };
+        env.storage().persistent().has(&key)
+    }
+
+    /// Record that this source transaction produced `attestation_id`, so a
+    /// later relay of the same transaction is rejected (#1510).
+    pub fn set_source_bridged(env: &Env, source_chain: &String, source_tx: &String, attestation_id: &String) {
+        let key = BridgedSourceKey { source_chain: source_chain.clone(), source_tx: source_tx.clone() };
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, attestation_id);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
     }
 
     pub fn add_bridge(env: &Env, bridge: &Address) {

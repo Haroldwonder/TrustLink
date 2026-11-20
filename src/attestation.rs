@@ -532,6 +532,11 @@ pub fn bridge_attestation(
     validate_source_reference(&source_chain, &source_tx)?;
     validate_native_expiration(env, expiration)?;
 
+    // A source transaction can be bridged once, however many ledgers later it is relayed (#1510).
+    if Storage::is_source_bridged(env, &source_chain, &source_tx) {
+        return Err(Error::SourceAlreadyBridged);
+    }
+
     // Check limits before creating attestation
     let limits = Storage::get_limits(env);
     let issuer_count = crate::storage::ChunkedIndex::issuer_count(env, &bridge);
@@ -562,6 +567,7 @@ pub fn bridge_attestation(
     if Storage::has_attestation(env, &attestation_id) {
         return Err(Error::DuplicateAttestation);
     }
+    Storage::set_source_bridged(env, &source_chain, &source_tx, &attestation_id);
 
     let attestation = Attestation {
         id: attestation_id.clone(),
