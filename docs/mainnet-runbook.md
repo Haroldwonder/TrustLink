@@ -194,6 +194,10 @@ immutable. "Rollback" means one of two things depending on the situation:
 
 Use this when a new version was deployed but the previous version was stable.
 
+> **Warning:** `src/` does not define an `upgrade` function, so the `-- upgrade`
+> invocation below will fail. Confirm the contract exposes this function before
+> planning around Option A.
+
 ```bash
 # 1. Re-upload the previous optimized WASM
 stellar contract upload \
