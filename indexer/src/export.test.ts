@@ -90,4 +90,72 @@ describe("GET /export/attestations", () => {
     expect(lines[1]).toContain("att-0");
     expect(lines.at(-1)).toContain(`att-${EXPORT_BATCH_SIZE + 24}`);
   });
+
+  it("returns 400 when from timestamp is greater than to timestamp", async () => {
+    const db = makeExportDb(1);
+    const app = buildRestServer(db as never);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/export/attestations?format=json&from=1700001000&to=1700000000",
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.body).error).toContain("from");
+  });
+
+  it("returns 400 when date range exceeds EXPORT_MAX_RANGE_SECONDS", async () => {
+    const originalMaxRange = process.env.EXPORT_MAX_RANGE_SECONDS;
+    process.env.EXPORT_MAX_RANGE_SECONDS = "3600";
+
+    try {
+      const db = makeExportDb(1);
+      const app = buildRestServer(db as never);
+
+      const response = await app.inject({
+        method: "GET",
+        url: "/export/attestations?format=json&from=1700000000&to=1700007200",
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.body).error).toContain("3600");
+    } finally {
+      if (originalMaxRange === undefined) {
+        delete process.env.EXPORT_MAX_RANGE_SECONDS;
+      } else {
+        process.env.EXPORT_MAX_RANGE_SECONDS = originalMaxRange;
+      }
+    }
+  });
+
+  it("returns 400 when matching row count exceeds EXPORT_MAX_ROWS", async () => {
+    const originalMaxRows = process.env.EXPORT_MAX_ROWS;
+    process.env.EXPORT_MAX_ROWS = "5";
+
+    try {
+      const baseDb = makeExportDb(10);
+      const db = {
+        attestation: {
+          ...baseDb.attestation,
+          count: jest.fn().mockResolvedValue(10),
+        },
+      };
+      const app = buildRestServer(db as never);
+
+      const response = await app.inject({
+        method: "GET",
+        url: "/export/attestations?format=json",
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.body).error).toContain("5");
+      expect(db.attestation.findMany).not.toHaveBeenCalled();
+    } finally {
+      if (originalMaxRows === undefined) {
+        delete process.env.EXPORT_MAX_ROWS;
+      } else {
+        process.env.EXPORT_MAX_ROWS = originalMaxRows;
+      }
+    }
+  });
 });

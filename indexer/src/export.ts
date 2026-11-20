@@ -2,6 +2,46 @@ import type { PrismaClient } from "@prisma/client";
 import { Readable } from "stream";
 
 export const EXPORT_BATCH_SIZE = 500;
+export const DEFAULT_EXPORT_MAX_ROWS = 10_000;
+export const DEFAULT_EXPORT_MAX_RANGE_SECONDS = 30 * 24 * 60 * 60; // 30 days
+
+export function getExportMaxRows(): number {
+  const raw = process.env.EXPORT_MAX_ROWS;
+  if (!raw) {
+    return DEFAULT_EXPORT_MAX_ROWS;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_EXPORT_MAX_ROWS;
+}
+
+export function getExportMaxRangeSeconds(): bigint {
+  const raw = process.env.EXPORT_MAX_RANGE_SECONDS;
+  if (!raw) {
+    return BigInt(DEFAULT_EXPORT_MAX_RANGE_SECONDS);
+  }
+  try {
+    const parsed = BigInt(raw);
+    return parsed > 0n ? parsed : BigInt(DEFAULT_EXPORT_MAX_RANGE_SECONDS);
+  } catch {
+    return BigInt(DEFAULT_EXPORT_MAX_RANGE_SECONDS);
+  }
+}
+
+export function validateExportDateRange(
+  fromTimestamp?: bigint,
+  toTimestamp?: bigint,
+  maxRangeSeconds = getExportMaxRangeSeconds(),
+): string | null {
+  if (fromTimestamp !== undefined && toTimestamp !== undefined) {
+    if (fromTimestamp > toTimestamp) {
+      return "'from' timestamp must be less than or equal to 'to' timestamp";
+    }
+    if (toTimestamp - fromTimestamp > maxRangeSeconds) {
+      return `Date range exceeds maximum allowed window of ${maxRangeSeconds} seconds`;
+    }
+  }
+  return null;
+}
 
 export type ExportFormat = "csv" | "json";
 
@@ -133,14 +173,17 @@ export async function* iterateAttestationsForExport(
   db: PrismaClient,
   where: AttestationExportWhere,
   batchSize = EXPORT_BATCH_SIZE,
+  maxRows = getExportMaxRows(),
 ): AsyncGenerator<ExportAttestationRow> {
   let cursor: string | undefined;
+  let yielded = 0;
 
-  while (true) {
+  while (yielded < maxRows) {
+    const take = Math.min(batchSize, maxRows - yielded);
     const batch = await db.attestation.findMany({
       where,
       orderBy: { id: "asc" },
-      take: batchSize,
+      take,
       ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
     });
 
@@ -150,10 +193,14 @@ export async function* iterateAttestationsForExport(
 
     for (const row of batch) {
       yield row as ExportAttestationRow;
+      yielded += 1;
+      if (yielded >= maxRows) {
+        break;
+      }
     }
 
     cursor = batch[batch.length - 1]?.id;
-    if (batch.length < batchSize) {
+    if (batch.length < take) {
       break;
     }
   }
@@ -163,8 +210,9 @@ export function createAttestationExportStream(
   db: PrismaClient,
   where: AttestationExportWhere,
   format: ExportFormat,
+  maxRows = getExportMaxRows(),
 ): Readable {
-  const iterator = iterateAttestationsForExport(db, where);
+  const iterator = iterateAttestationsForExport(db, where, EXPORT_BATCH_SIZE, maxRows);
 
   return Readable.from(
     (async function* () {

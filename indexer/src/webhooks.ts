@@ -22,12 +22,18 @@ export async function dispatchWebhooks(
   payload: unknown
 ): Promise<void> {
   const webhooks = await db.webhook.findMany({ where: { active: true } });
-  if (webhooks.length === 0) return;
+  const matching = webhooks.filter((wh) => {
+    if (wh.active === false) return false;
+    const subscribed = (wh as { eventTypes?: string[] }).eventTypes;
+    if (!subscribed || subscribed.length === 0) return true;
+    return subscribed.includes(eventType);
+  });
+  if (matching.length === 0) return;
 
   const body = JSON.stringify({ event: eventType, data: payload, ts: Date.now() });
 
   await Promise.allSettled(
-    webhooks.map((wh) =>
+    matching.map((wh) =>
       deliverWithRetry(db, wh.id, wh.url, wh.secret_encrypted, wh.next_secret_encrypted ?? undefined, eventType, body)
     )
   );

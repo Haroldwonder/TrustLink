@@ -200,13 +200,19 @@ Streams attestations as CSV or JSON. Requires the `x-api-key` header (see [Graph
 
 Query params: `format` (`csv` or `json`, required), `issuer`, `subject`, `claim_type`, `from`, `to` (all optional filters).
 
+Limits (configurable via environment variables):
+- `EXPORT_MAX_ROWS` (default `10000`) — maximum matching rows per export
+- `EXPORT_MAX_RANGE_SECONDS` (default `2592000`, 30 days) — maximum `to - from` timestamp window
+
+Returns `400` with a descriptive error if either limit is exceeded or `from > to`.
+
 ```bash
 curl -H "x-api-key: mysecretkey" "http://localhost:3000/export/attestations?format=csv"
 ```
 
 ### `GET /webhooks`
 
-Lists registered webhooks.
+Lists registered webhooks (including `active` status and subscribed `eventTypes`).
 
 ```bash
 curl http://localhost:3000/webhooks
@@ -214,12 +220,31 @@ curl http://localhost:3000/webhooks
 
 ### `POST /webhooks`
 
-Registers a new webhook. Body: `{ "url": "https://example.com/hook", "secret": "..." }`.
+Registers a new webhook. Body: `{ "url": "https://example.com/hook", "secret": "...", "eventTypes": ["attestation.revoked"] }`.
+
+- `secret` (optional): 32+ byte hex secret; generated server-side if omitted.
+- `eventTypes` (optional): array of event types to subscribe to (`attestation.created`, `attestation.imported`, `attestation.bridged`, `attestation.revoked`). Omit or pass `[]` to receive all events.
 
 ```bash
 curl -X POST http://localhost:3000/webhooks \
   -H "Content-Type: application/json" \
-  -d '{"url":"https://example.com/hook","secret":"mysecret"}'
+  -d '{"url":"https://example.com/hook","eventTypes":["attestation.revoked"]}'
+```
+
+### `PATCH /webhooks/:id`
+
+Updates an existing webhook to pause/resume delivery, change its URL (re-validated), or update subscribed `eventTypes`. Body accepts any combination of `{ "active": boolean, "url": string, "eventTypes": string[] }`.
+
+```bash
+# Pause webhook during maintenance
+curl -X PATCH http://localhost:3000/webhooks/<id> \
+  -H "Content-Type: application/json" \
+  -d '{"active":false}'
+
+# Resume webhook
+curl -X PATCH http://localhost:3000/webhooks/<id> \
+  -H "Content-Type: application/json" \
+  -d '{"active":true}'
 ```
 
 ### `DELETE /webhooks/:id`
