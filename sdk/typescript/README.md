@@ -112,6 +112,7 @@ interface StorageLimits {
 |--------|-------------|
 | `getAttestation(id)` | Fetch a single attestation |
 | `getAttestationStatus(id)` | Fetch live `AttestationStatus` |
+| `hasValidClaimBatch(subjects, claimType)` | Batch validity check; returns `boolean[]` aligned with `subjects` |
 | `getSubjectAttestations(subject)` | All attestation IDs for a subject |
 | `getIssuerAttestations(issuer)` | All attestation IDs from an issuer |
 | `getMultisigProposal(id)` | Fetch a multi-sig proposal |
@@ -203,7 +204,35 @@ await client.hasAllClaims(subject, ["KYC_PASSED", "AML_CLEARED"]);
 
 // Check claim from an issuer of at least a given tier
 await client.hasValidClaimFromTier(subject, "KYC_PASSED", "Verified");
+
+// Batch check: one call for many subjects
+const results = await client.hasValidClaimBatch(
+  ["GABC...USER_1", "GABC...USER_2", "GABC...USER_3"],
+  "KYC_PASSED"
+);
+// results is a boolean[] aligned with the input order:
+// results[0] corresponds to subjects[0], results[1] to subjects[1], …
 ```
+
+#### `hasValidClaimBatch(subjects, claimType)`
+
+Checks whether each subject in `subjects` holds a valid (non-revoked,
+non-expired) attestation of `claimType`, using a single call to the contract's
+`has_valid_claim_batch` entry point instead of one call per subject.
+
+```typescript
+const subjects = ["GABC...USER_1", "GABC...USER_2", "GABC...USER_3"];
+const results = await client.hasValidClaimBatch(subjects, "KYC_PASSED");
+
+subjects.forEach((subject, i) => {
+  console.log(subject, results[i] ? "verified" : "not verified");
+});
+```
+
+The returned `boolean[]` is aligned with the input order — `results[i]`
+corresponds to `subjects[i]` — and has the same length as `subjects`. The
+`subjects` array must be non-empty and contain only valid Stellar addresses;
+invalid input throws before any RPC call is made.
 
 ### Attestation Queries
 
