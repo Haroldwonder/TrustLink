@@ -395,9 +395,9 @@ known request IDs via `options.requestIds`. These can be retrieved from:
 
 ### Export constraints
 
-- **Deleted attestations**: Attestations flagged `deleted: true` remain in
-  the on-chain export (they are still stored on the ledger). Soft-deleted
-  records are included in `attestations` with `attestation.deleted === true`.
+- **Deleted attestations**: When deletion is requested, the attestation is removed
+  from the subject index. `get_subject_attestations` and `exportSubjectData` do not
+  return it. It remains stored on the ledger, but it is not part of the export.
   Off-chain systems that received `DeletionRequested` events and purged their
   copies should omit those records from any off-chain component of the export.
 - **Historical ledger data**: Raw ledger history is immutable and accessible

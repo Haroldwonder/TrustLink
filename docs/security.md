@@ -336,7 +336,10 @@ attacker can:
 - Change the fee collector to drain issuer funds.
 - Pause the contract indefinitely.
 
-There is no multi-sig or time-lock on admin operations. Mitigation: use a
+Only some admin operations are behind a council quorum and timelock:
+`RemoveIssuer` and `PauseContract`, see `create_council_proposal`. Other admin
+operations, including `set_fee`, `register_issuer` and `transfer_admin`, still run
+from a single admin address with no timelock. Mitigation: use a
 hardware wallet or multisig account (e.g. a Stellar multisig account) as the
 admin address. See [Operational Security](#operational-security) below.
 
@@ -503,8 +506,13 @@ score = tier_score + endorsement_bonus
 | `tier_score` — issuer is **Premium** | 90 |
 | `endorsement_bonus` — +2 per endorsement, max | +10 |
 
-So the minimum possible score is **30** (Basic tier, no endorsements) and the
-maximum is **100** (Premium tier, 5+ endorsements).
+Without a decay configuration, the minimum possible score is **30** (Basic tier,
+no endorsements) and the maximum is **100** (Premium tier, 5+ endorsements).
+
+When `set_decay_config` has been called, two more factors multiply the score: an
+inactivity factor based on `half_life_days`, and a revocation factor based on
+`revocation_weight`. With decay configured, the score can fall well below 30,
+close to 0. The 30–100 range does not hold in that case.
 
 ### Interpretation
 
