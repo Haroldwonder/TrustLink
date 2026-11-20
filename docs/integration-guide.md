@@ -261,7 +261,7 @@ intentionally kept separate:
   breaking, and pagination automatically.
 
 - Building a **backend service or script** that creates, revokes, or manages
-  attestations (and holds a secret key) → use **`@trustlink/bindings`**. It
+  attestations (and holds a secret key) → use **`@trustlink/contract`**. It
   exposes every write entry point and handles the full sign-and-submit
   lifecycle.
 
@@ -325,14 +325,14 @@ const canBorrowLarge = await client.hasAllClaims("GABC...", [
 
 ---
 
-### Using `@trustlink/bindings` (Writes / Backend)
+### Using `@trustlink/contract` (Writes / Backend)
 
 ```bash
-npm install @trustlink/bindings
+npm install @trustlink/contract
 ```
 
 ```typescript
-import { TrustLinkClient } from "@trustlink/bindings";
+import { TrustLinkClient } from "@trustlink/contract";
 import { Keypair } from "@stellar/stellar-sdk";
 
 const client = new TrustLinkClient({
