@@ -2,6 +2,9 @@
   "name": "@trustlink/conformance",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=20 <21"
+  },
   "scripts": {
     "test": "jest",
     "test:local": "RUN_CONFORMANCE=1 jest"

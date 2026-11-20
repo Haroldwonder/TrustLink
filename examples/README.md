@@ -134,6 +134,17 @@ cargo test
 
 JavaScript examples may include integration tests. Check each example's README for instructions.
 
+### Continuous Integration
+
+Every example is built in CI so that broken examples are caught before merge. On any pull request that touches `examples/` or `src/`, the workflow:
+
+- Runs `cargo check` for each Rust example (Soroban contracts and Rust-based tooling)
+- Type-checks each TypeScript example with `tsc --noEmit` (and lints where configured)
+- Syntax-checks each Python example
+
+The Node.js version used by CI is read from the repository's root [`.nvmrc`](../.nvmrc), so use the same version locally to reproduce CI results. Before opening a PR that adds or modifies an example, make sure it passes the corresponding check locally.
+=======
+
 ## Deployment
 
 ### Testnet
