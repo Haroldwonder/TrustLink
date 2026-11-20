@@ -235,3 +235,49 @@ class TestParityWithHasValidClaim:
         """has_any_claim and has_all_claims are accessible on TrustLinkClient."""
         assert callable(getattr(TrustLinkClient, "has_any_claim", None))
         assert callable(getattr(TrustLinkClient, "has_all_claims", None))
+
+
+# ── Lifecycle: close() and context manager ────────────────────────────────────
+
+class TestClientLifecycle:
+    def test_close_closes_underlying_session(self, client):
+        mock_session = MagicMock()
+        with patch.object(client, "_session", mock_session, create=True):
+            client.close()
+        mock_session.close.assert_called_once_with()
+
+    def test_close_is_idempotent(self, client):
+        mock_session = MagicMock()
+        with patch.object(client, "_session", mock_session, create=True):
+            client.close()
+            client.close()
+        assert mock_session.close.call_count == 2
+
+    def test_enter_returns_client_instance(self, client):
+        with patch.object(client, "close") as mock_close:
+            result = client.__enter__()
+        assert result is client
+        mock_close.assert_not_called()
+
+    def test_exit_invokes_close(self, client):
+        with patch.object(client, "close") as mock_close:
+            client.__exit__(None, None, None)
+        mock_close.assert_called_once_with()
+
+    def test_exit_returns_falsy_so_exceptions_propagate(self, client):
+        with patch.object(client, "close"):
+            result = client.__exit__(ValueError, ValueError("boom"), None)
+        assert not result
+
+    def test_with_statement_closes_client(self):
+        with patch.object(TrustLinkClient, "close") as mock_close:
+            with TrustLinkClient(contract_id=CONTRACT_ID, rpc_url=RPC_URL) as ctx_client:
+                assert isinstance(ctx_client, TrustLinkClient)
+        mock_close.assert_called_once_with()
+
+    def test_with_statement_closes_client_on_exception(self):
+        with patch.object(TrustLinkClient, "close") as mock_close:
+            with pytest.raises(RuntimeError, match="boom"):
+                with TrustLinkClient(contract_id=CONTRACT_ID, rpc_url=RPC_URL):
+                    raise RuntimeError("boom")
+        mock_close.assert_called_once_with()
