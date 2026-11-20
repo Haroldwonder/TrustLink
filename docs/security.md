@@ -61,9 +61,10 @@ key. It is set once during `initialize` and can be transferred atomically via
   registered issuer, and the admin is not automatically an issuer.
 - Revoke an attestation they did not issue — revocation is scoped to the
   original issuer of each attestation.
-- Modify or delete an existing attestation's content — attestations are
-  immutable once written; only the `revoked` flag and `expiration` field can
-  be updated, and only by the original issuer.
+- Change an existing attestation's content except through the issuer's own
+  operations. Only the original issuer can call `amend_attestation`, which
+  replaces `metadata` and keeps the previous value in version history. The issuer
+  can also update the `revoked` flag and the `expiration` field.
 - Impersonate an issuer — `require_auth` is called on the actual transaction
   signer; passing a different address as a parameter does not grant that
   address's permissions.
