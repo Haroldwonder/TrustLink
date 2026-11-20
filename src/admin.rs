@@ -126,6 +126,10 @@ pub fn register_issuer(env: &Env, admin: Address, issuer: Address) -> Result<(),
     if Storage::is_bridge(env, &issuer) {
         return Err(Error::Unauthorized);
     }
+    // Re-registering an existing issuer must not bump stats or emit events (#1505).
+    if Storage::is_issuer(env, &issuer) {
+        return Ok(());
+    }
     Storage::add_issuer(env, &issuer);
     Storage::increment_total_issuers(env);
     Events::issuer_registered(env, &issuer, &admin, env.ledger().timestamp());
@@ -136,6 +140,10 @@ pub fn remove_issuer(env: &Env, admin: Address, issuer: Address) -> Result<(), E
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
     Validation::require_not_paused(env)?;
+    // Removing a non-issuer must not decrement stats or emit events (#1505).
+    if !Storage::is_issuer(env, &issuer) {
+        return Ok(());
+    }
     Storage::remove_issuer(env, &issuer);
     Storage::decrement_total_issuers(env);
     Events::issuer_removed(env, &issuer, &admin, env.ledger().timestamp());
@@ -893,9 +901,12 @@ pub fn execute_council_action(
 
     match proposal.operation.clone() {
         CouncilOperation::RemoveIssuer(issuer) => {
-            Storage::remove_issuer(env, &issuer);
-            Storage::decrement_total_issuers(env);
-            Events::issuer_removed(env, &issuer, &executor, now);
+            // Skip non-issuers so stats and events stay accurate (#1505).
+            if Storage::is_issuer(env, &issuer) {
+                Storage::remove_issuer(env, &issuer);
+                Storage::decrement_total_issuers(env);
+                Events::issuer_removed(env, &issuer, &executor, now);
+            }
         }
         CouncilOperation::PauseContract => {
             Storage::set_paused(env, true);
