@@ -327,6 +327,103 @@ fn test_batch_attestation_from_any_issuer_is_valid() {
 }
 
 // ---------------------------------------------------------------------------
+// Removed issuer — attestations from a removed issuer are no longer valid
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_batch_removed_issuer_attestation_returns_false() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, client) = setup(&env);
+
+    let claim = kyc(&env);
+    let subject = Address::generate(&env);
+
+    client.create_attestation(&issuer, &subject, &claim, &None, &None, &None);
+
+    // Sanity check: valid while the issuer is registered
+    let mut subjects = Vec::new(&env);
+    subjects.push_back(subject.clone());
+    assert!(client.has_valid_claim_batch(&subjects, &claim).get(0).unwrap());
+
+    // Remove the issuer — its attestations must no longer count
+    client.remove_issuer(&admin, &issuer);
+
+    let results = client.has_valid_claim_batch(&subjects, &claim);
+    assert_eq!(results.len(), 1);
+    assert!(!results.get(0).unwrap());
+}
+
+#[test]
+fn test_batch_removed_issuer_does_not_affect_other_issuers() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, TrustLinkContract);
+    let client = TrustLinkContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let issuer_removed = Address::generate(&env);
+    let issuer_kept = Address::generate(&env);
+
+    client.initialize(&admin, &None);
+    client.register_issuer(&admin, &issuer_removed);
+    client.register_issuer(&admin, &issuer_kept);
+
+    let claim = kyc(&env);
+    let s_removed = Address::generate(&env);
+    let s_kept = Address::generate(&env);
+
+    // Each subject is attested only by its respective issuer
+    client.create_attestation(&issuer_removed, &s_removed, &claim, &None, &None, &None);
+    client.create_attestation(&issuer_kept, &s_kept, &claim, &None, &None, &None);
+
+    client.remove_issuer(&admin, &issuer_removed);
+
+    let mut subjects = Vec::new(&env);
+    subjects.push_back(s_removed);
+    subjects.push_back(s_kept);
+
+    let results = client.has_valid_claim_batch(&subjects, &claim);
+
+    assert_eq!(results.len(), 2);
+    assert!(!results.get(0).unwrap()); // attested by removed issuer → false
+    assert!(results.get(1).unwrap());  // attested by registered issuer → true
+}
+
+#[test]
+fn test_batch_subject_with_removed_and_registered_issuer_attestations() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, TrustLinkContract);
+    let client = TrustLinkContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let issuer_removed = Address::generate(&env);
+    let issuer_kept = Address::generate(&env);
+
+    client.initialize(&admin, &None);
+    client.register_issuer(&admin, &issuer_removed);
+    client.register_issuer(&admin, &issuer_kept);
+
+    let claim = kyc(&env);
+    let subject = Address::generate(&env);
+
+    // Same subject attested by both issuers
+    client.create_attestation(&issuer_removed, &subject, &claim, &None, &None, &None);
+    client.create_attestation(&issuer_kept, &subject, &claim, &None, &None, &None);
+
+    client.remove_issuer(&admin, &issuer_removed);
+
+    let mut subjects = Vec::new(&env);
+    subjects.push_back(subject);
+
+    // The remaining registered issuer's attestation still satisfies the check
+    let results = client.has_valid_claim_batch(&subjects, &claim);
+    assert_eq!(results.len(), 1);
+    assert!(results.get(0).unwrap());
+}
+
+// ---------------------------------------------------------------------------
 // Single subject — result length is 1
 // ---------------------------------------------------------------------------
 

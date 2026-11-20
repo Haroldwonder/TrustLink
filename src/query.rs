@@ -10,11 +10,25 @@ use crate::types::{
 };
 use crate::validation::Validation;
 
+/// Issue #1507: Returns `true` only if `issuer` is still a registered issuer.
+///
+/// Attestations issued by an issuer that has since been removed are treated as
+/// invalid by every `has_*` / `get_*` validity query in this module (Option A,
+/// strict semantics). This ensures that removing a compromised or misbehaving
+/// issuer immediately invalidates all attestations it previously issued, without
+/// requiring per-attestation revocation.
+fn is_issuer_active(env: &Env, issuer: &Address) -> bool {
+    Storage::get_issuer(env, issuer).is_some()
+}
+
 /// Returns `true` if the subject holds at least one valid attestation for `claim_type`.
 ///
 /// Loads the subject's attestation index, then iterates entries in insertion order.
 /// Returns immediately on the first matching attestation with status
 /// [`AttestationStatus::Valid`] (short-circuit evaluation).
+///
+/// **Issuer liveness (Issue #1507):** an attestation is only considered valid if
+/// its issuer is still registered. Attestations from removed issuers are skipped.
 ///
 /// **Complexity:** O(n) in the worst case, where n is the number of attestations
 /// indexed for the subject. Loading the subject index is O(n), and the attestation
@@ -32,7 +46,9 @@ pub fn has_valid_claim(env: &Env, subject: Address, claim_type: String) -> bool 
             if attestation.claim_type != claim_type {
                 continue;
             }
-            if attestation.get_status(current_time) == AttestationStatus::Valid {
+            if attestation.get_status(current_time) == AttestationStatus::Valid
+                && is_issuer_active(env, &attestation.issuer)
+            {
                 maybe_trigger_expiration_hook(
                     env,
                     &subject,
@@ -47,39 +63,16 @@ pub fn has_valid_claim(env: &Env, subject: Address, claim_type: String) -> bool 
     false
 }
 
+/// Returns `true` if the subject holds a valid `claim_type` attestation issued by
+/// `issuer`. Attestations from removed issuers are treated as invalid (Issue #1507).
 pub fn has_valid_claim_from_issuer(env: &Env, subject: Address, claim_type: String, issuer: Address) -> bool {
     let attestation_ids = Storage::get_valid_attestations(env, &subject);
     let current_time = env.ledger().timestamp();
     for attestation_id in attestation_ids.iter() {
         if let Ok(attestation) = Storage::get_attestation(env, &attestation_id) {
             if attestation.claim_type == claim_type && attestation.issuer == issuer {
-                if attestation.get_status(current_time) == AttestationStatus::Valid {
-                    maybe_trigger_expiration_hook(
-                        env,
-                        &subject,
-                        &attestation_id,
-                        attestation.expiration.unwrap_or(u64::MAX),
-                        current_time,
-                    );
-                    return true;
-                }
-            }
-        }
-    }
-    false
-}
-
-pub fn has_any_claim(env: &Env, subject: Address, claim_types: Vec<String>) -> bool {
-    if claim_types.is_empty() {
-        return false;
-    }
-    let attestation_ids = Storage::get_valid_attestations(env, &subject);
-    let current_time = env.ledger().timestamp();
-    for claim_type in claim_types.iter() {
-        for attestation_id in attestation_ids.iter() {
-            if let Ok(attestation) = Storage::get_attestation(env, &attestation_id) {
-                if attestation.claim_type == claim_type
-                    && attestation.get_status(current_time) == AttestationStatus::Valid
+                if attestation.get_status(current_time) == AttestationStatus::Valid
+                    && is_issuer_active(env, &attestation.issuer)
                 {
                     maybe_trigger_expiration_hook(
                         env,
@@ -96,6 +89,38 @@ pub fn has_any_claim(env: &Env, subject: Address, claim_types: Vec<String>) -> b
     false
 }
 
+/// Returns `true` if the subject holds a valid attestation for any of `claim_types`.
+/// Attestations from removed issuers are treated as invalid (Issue #1507).
+pub fn has_any_claim(env: &Env, subject: Address, claim_types: Vec<String>) -> bool {
+    if claim_types.is_empty() {
+        return false;
+    }
+    let attestation_ids = Storage::get_valid_attestations(env, &subject);
+    let current_time = env.ledger().timestamp();
+    for claim_type in claim_types.iter() {
+        for attestation_id in attestation_ids.iter() {
+            if let Ok(attestation) = Storage::get_attestation(env, &attestation_id) {
+                if attestation.claim_type == claim_type
+                    && attestation.get_status(current_time) == AttestationStatus::Valid
+                    && is_issuer_active(env, &attestation.issuer)
+                {
+                    maybe_trigger_expiration_hook(
+                        env,
+                        &subject,
+                        &attestation_id,
+                        attestation.expiration.unwrap_or(u64::MAX),
+                        current_time,
+                    );
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Returns `true` if the subject holds a valid attestation for every entry in
+/// `claim_types`. Attestations from removed issuers are treated as invalid (Issue #1507).
 pub fn has_all_claims(env: &Env, subject: Address, claim_types: Vec<String>) -> bool {
     if claim_types.is_empty() { return true; }
     let attestation_ids = Storage::get_valid_attestations(env, &subject);
@@ -105,6 +130,7 @@ pub fn has_all_claims(env: &Env, subject: Address, claim_types: Vec<String>) -> 
             if let Ok(attestation) = Storage::get_attestation(env, &attestation_id) {
                 if attestation.claim_type == claim_type
                     && attestation.get_status(current_time) == AttestationStatus::Valid
+                    && is_issuer_active(env, &attestation.issuer)
                 {
                     continue 'claims;
                 }
@@ -117,6 +143,7 @@ pub fn has_all_claims(env: &Env, subject: Address, claim_types: Vec<String>) -> 
 
 /// Issue #1567: Check if a subject has a valid attestation of a specific claim type that is NOT under dispute.
 /// Verifiers can use this to enforce "valid and not under dispute" semantics.
+/// Attestations from removed issuers are treated as invalid (Issue #1507).
 pub fn has_valid_undisputed_claim(env: &Env, subject: Address, claim_type: String) -> bool {
     let attestation_ids = Storage::get_valid_attestations(env, &subject);
     let current_time = env.ledger().timestamp();
@@ -126,7 +153,9 @@ pub fn has_valid_undisputed_claim(env: &Env, subject: Address, claim_type: Strin
             if attestation.claim_type != claim_type {
                 continue;
             }
-            if attestation.get_status(current_time) == AttestationStatus::Valid {
+            if attestation.get_status(current_time) == AttestationStatus::Valid
+                && is_issuer_active(env, &attestation.issuer)
+            {
                 // Check that there is no open dispute on this attestation
                 if let Some(dispute) = Storage::get_dispute(env, &attestation_id) {
                     // Skip this attestation if there's an open dispute
@@ -142,7 +171,8 @@ pub fn has_valid_undisputed_claim(env: &Env, subject: Address, claim_type: Strin
 }
 
 /// Issue #1567: Check if a subject has a valid attestation from a specific issuer of a given claim type
-/// that is NOT under dispute.
+/// that is NOT under dispute. Attestations from removed issuers are treated as
+/// invalid (Issue #1507).
 pub fn has_undisputed_claim_from(
     env: &Env,
     subject: Address,
@@ -154,7 +184,9 @@ pub fn has_undisputed_claim_from(
     for attestation_id in attestation_ids.iter() {
         if let Ok(attestation) = Storage::get_attestation(env, &attestation_id) {
             if attestation.claim_type == claim_type && attestation.issuer == issuer {
-                if attestation.get_status(current_time) == AttestationStatus::Valid {
+                if attestation.get_status(current_time) == AttestationStatus::Valid
+                    && is_issuer_active(env, &attestation.issuer)
+                {
                     // Check that there is no open dispute on this attestation
                     if let Some(dispute) = Storage::get_dispute(env, &attestation_id) {
                         if dispute.status == DisputeStatus::Open {
@@ -441,12 +473,17 @@ pub fn get_issuer_attestation_count(env: &Env, issuer: Address) -> u32 {
     crate::storage::ChunkedIndex::issuer_count(env, &issuer)
 }
 
+/// Returns the distinct claim types for which `subject` holds a valid attestation.
+/// Attestations from removed issuers are treated as invalid (Issue #1507).
 pub fn get_valid_claims(env: &Env, subject: Address) -> Vec<String> {
     let current_time = env.ledger().timestamp();
     let mut result = Vec::new(env);
     for attestation_id in crate::storage::ChunkedIndex::get_subject_all(env, &subject).iter() {
         if let Ok(attestation) = Storage::get_attestation(env, &attestation_id) {
-            if !attestation.deleted && attestation.get_status(current_time) == AttestationStatus::Valid {
+            if !attestation.deleted
+                && attestation.get_status(current_time) == AttestationStatus::Valid
+                && is_issuer_active(env, &attestation.issuer)
+            {
                 let mut already_present = false;
                 for existing in result.iter() {
                     if existing == attestation.claim_type {
@@ -463,6 +500,8 @@ pub fn get_valid_claims(env: &Env, subject: Address) -> Vec<String> {
     result
 }
 
+/// Returns the most recent valid attestation of `claim_type` for `subject`.
+/// Attestations from removed issuers are treated as invalid (Issue #1507).
 pub fn get_attestation_by_type(env: &Env, subject: Address, claim_type: String) -> Option<Attestation> {
     let attestation_ids = crate::storage::ChunkedIndex::get_subject_all(env, &subject);
     let current_time = env.ledger().timestamp();
@@ -474,6 +513,7 @@ pub fn get_attestation_by_type(env: &Env, subject: Address, claim_type: String) 
                 if !attestation.deleted
                     && attestation.claim_type == claim_type
                     && attestation.get_status(current_time) == AttestationStatus::Valid
+                    && is_issuer_active(env, &attestation.issuer)
                 {
                     return Some(attestation);
                 }
@@ -481,6 +521,39 @@ pub fn get_attestation_by_type(env: &Env, subject: Address, claim_type: String) 
         }
     }
     None
+}
+
+/// Issue #1507: Emergency admin path to revoke every attestation issued by `issuer`.
+///
+/// This is intended as the response to a compromised or misbehaving issuer. It
+/// requires admin authorization, iterates the issuer's attestation index, and
+/// revokes each non-deleted, non-revoked attestation via the standard revocation
+/// path (which also updates indexes, stats and emits events).
+///
+/// Returns the number of attestations revoked.
+pub fn revoke_all_from_issuer(env: &Env, admin: Address, issuer: Address) -> Result<u32, Error> {
+    admin.require_auth();
+    Validation::require_admin(env, &admin)?;
+
+    let attestation_ids = crate::storage::ChunkedIndex::get_issuer_all(env, &issuer);
+    let mut revoked_count: u32 = 0;
+
+    for attestation_id in attestation_ids.iter() {
+        if let Ok(attestation) = Storage::get_attestation(env, &attestation_id) {
+            if attestation.deleted || attestation.revoked {
+                continue;
+            }
+            crate::attestation::revoke_attestation(
+                env,
+                admin.clone(),
+                attestation_id.clone(),
+                String::from_str(env, "issuer removed: emergency revocation"),
+            )?;
+            revoked_count += 1;
+        }
+    }
+
+    Ok(revoked_count)
 }
 
 pub fn get_subject_attestation_count(env: &Env, subject: Address) -> u32 {
