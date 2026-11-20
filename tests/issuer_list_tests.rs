@@ -7,7 +7,7 @@
 
 #![cfg(test)]
 
-use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
+use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
 use trustlink::{TrustLinkContract, TrustLinkContractClient};
 
 // ---------------------------------------------------------------------------
@@ -103,4 +103,62 @@ fn test_start_beyond_list_returns_empty() {
 
     let list = client.get_issuer_list(&99, &10);
     assert_eq!(list.len(), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Removed issuers invalidate their attestations (strict behaviour)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_removed_issuer_attestations_become_invalid() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, client) = setup(&env);
+    let issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let kyc = String::from_str(&env, "KYC");
+
+    client.register_issuer(&admin, &issuer);
+    client.create_attestation(&issuer, &subject, &kyc, &None, &None, &None);
+
+    // While the issuer is registered, the claim is valid.
+    assert!(client.has_valid_claim(&subject, &kyc));
+    assert!(client.has_valid_claim_from_issuer(&subject, &kyc, &issuer));
+    assert!(client.has_any_claim(&subject));
+    assert!(client.has_all_claims(&subject, &Vec::from_array(&env, [kyc.clone()])));
+    assert_eq!(client.get_valid_claims(&subject).len(), 1);
+    assert!(client.get_attestation_by_type(&subject, &kyc).is_some());
+
+    // Removing the issuer invalidates all of its attestations.
+    client.remove_issuer(&admin, &issuer);
+
+    assert!(!client.has_valid_claim(&subject, &kyc));
+    assert!(!client.has_valid_claim_from_issuer(&subject, &kyc, &issuer));
+    assert!(!client.has_any_claim(&subject));
+    assert!(!client.has_all_claims(&subject, &Vec::from_array(&env, [kyc.clone()])));
+    assert_eq!(client.get_valid_claims(&subject).len(), 0);
+    assert!(client.get_attestation_by_type(&subject, &kyc).is_none());
+}
+
+#[test]
+fn test_reregistering_issuer_restores_attestation_validity() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, client) = setup(&env);
+    let issuer = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let kyc = String::from_str(&env, "KYC");
+
+    client.register_issuer(&admin, &issuer);
+    client.create_attestation(&issuer, &subject, &kyc, &None, &None, &None);
+
+    client.remove_issuer(&admin, &issuer);
+    assert!(!client.has_valid_claim(&subject, &kyc));
+
+    // Re-registering the same issuer makes its (non-revoked) attestations valid again.
+    client.register_issuer(&admin, &issuer);
+    assert!(client.has_valid_claim(&subject, &kyc));
+    assert!(client.has_valid_claim_from_issuer(&subject, &kyc, &issuer));
+    assert!(client.has_any_claim(&subject));
+    assert_eq!(client.get_valid_claims(&subject).len(), 1);
 }

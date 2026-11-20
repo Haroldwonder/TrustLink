@@ -255,9 +255,24 @@ pub fn get_confidence_score(env: &Env, attestation_id: String) -> Option<u32> {
     Some(decayed as u32)
 }
 
+/// Set the decay configuration used by [`get_confidence_score`].
+///
+/// # Bounds
+/// - `revocation_weight` must be `<= MAX_REVOCATION_WEIGHT` (100, i.e. a percentage).
+/// - `half_life_days` must be `<= MAX_HALF_LIFE_DAYS`.
+///
+/// # Errors
+/// - [`Error::Unauthorized`] — caller is not an admin.
+/// - [`Error::InvalidConfigValue`] — a field is out of range.
 pub fn set_decay_config(env: &Env, admin: Address, config: DecayConfig) -> Result<(), Error> {
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
+    if config.revocation_weight > crate::constants::MAX_REVOCATION_WEIGHT {
+        return Err(Error::InvalidConfigValue);
+    }
+    if config.half_life_days > crate::constants::MAX_HALF_LIFE_DAYS {
+        return Err(Error::InvalidConfigValue);
+    }
     Storage::set_decay_config(env, &config);
     Ok(())
 }
@@ -398,9 +413,21 @@ pub fn set_fee(env: &Env, admin: Address, fee: i128, collector: Address, fee_tok
     Ok(())
 }
 
+/// Set the global minimum issuance interval (in seconds) between attestations
+/// from the same issuer.
+///
+/// # Bounds
+/// - `min_issuance_interval` must be `<= MAX_RATE_LIMIT` seconds.
+///
+/// # Errors
+/// - [`Error::Unauthorized`] — caller is not an admin.
+/// - [`Error::InvalidConfigValue`] — `min_issuance_interval` exceeds the maximum.
 pub fn set_rate_limit(env: &Env, admin: Address, min_issuance_interval: u64) -> Result<(), Error> {
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
+    if min_issuance_interval > crate::constants::MAX_RATE_LIMIT {
+        return Err(Error::InvalidConfigValue);
+    }
     Storage::set_rate_limit_config(env, &RateLimitConfig { min_issuance_interval });
     Ok(())
 }
@@ -414,8 +441,12 @@ pub fn get_rate_limit(env: &Env) -> Option<RateLimitConfig> {
 /// When set, this overrides the global rate limit for the specified claim type.
 /// If not set, the global rate limit applies.
 ///
+/// # Bounds
+/// - `interval_secs` must be `<= MAX_RATE_LIMIT` seconds.
+///
 /// # Errors
 /// - [`Error::Unauthorized`] — caller is not an admin.
+/// - [`Error::InvalidConfigValue`] — `interval_secs` exceeds the maximum.
 pub fn set_rate_limit_for_claim_type(
     env: &Env,
     admin: Address,
@@ -425,6 +456,9 @@ pub fn set_rate_limit_for_claim_type(
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
     Validation::validate_claim_type(&claim_type)?;
+    if interval_secs > crate::constants::MAX_RATE_LIMIT {
+        return Err(Error::InvalidConfigValue);
+    }
     Storage::set_claim_type_rate_limit(env, &claim_type, interval_secs);
     Ok(())
 }
@@ -524,14 +558,21 @@ pub fn get_max_attestations_per_subject(env: &Env) -> Option<u32> {
 /// new size, producing inconsistently-sized chunks. A full index migration is
 /// required to normalise an existing index to a new chunk size.
 ///
+/// # Bounds
+/// - `chunk_size` must be in `1..=MAX_CHUNK_SIZE`.
+///
 /// # Errors
 /// - [`Error::Unauthorized`] — caller is not a registered admin.
 /// - [`Error::InvalidChunkSize`] — `chunk_size` is 0.
+/// - [`Error::InvalidConfigValue`] — `chunk_size` exceeds `MAX_CHUNK_SIZE`.
 pub fn set_chunk_size(env: &Env, admin: Address, chunk_size: u32) -> Result<(), Error> {
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
     if chunk_size == 0 {
         return Err(Error::InvalidChunkSize);
+    }
+    if chunk_size > crate::constants::MAX_CHUNK_SIZE {
+        return Err(Error::InvalidConfigValue);
     }
     let mut config = Storage::get_contract_config(env).unwrap_or_else(|| ContractConfig::default_for(env));
     config.chunk_size = chunk_size;
@@ -569,9 +610,21 @@ pub fn get_limits(env: &Env) -> StorageLimits {
     Storage::get_limits(env)
 }
 
+/// Set the global attestation limits.
+///
+/// # Bounds
+/// - `max_attestations_per_issuer` must be `>= 1`.
+/// - `max_attestations_per_subject` must be `>= 1`.
+///
+/// # Errors
+/// - [`Error::Unauthorized`] — caller is not an admin.
+/// - [`Error::InvalidConfigValue`] — either limit is 0.
 pub fn set_limits(env: &Env, admin: Address, max_attestations_per_issuer: u32, max_attestations_per_subject: u32) -> Result<(), Error> {
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
+    if max_attestations_per_issuer == 0 || max_attestations_per_subject == 0 {
+        return Err(Error::InvalidConfigValue);
+    }
     Storage::set_limits(env, &StorageLimits { max_attestations_per_issuer, max_attestations_per_subject });
     Ok(())
 }
@@ -913,15 +966,85 @@ pub fn get_council_proposal(env: &Env, proposal_id: u32) -> Option<CouncilPropos
     Storage::get_proposal(env, proposal_id)
 }
 
+/// Set the delay (in seconds) between a council proposal reaching quorum and
+/// being executable.
+///
+/// # Bounds
+/// - `delay_seconds` must be `<= MAX_TIMELOCK_SECS`.
+///
+/// # Errors
+/// - [`Error::Unauthorized`] — caller is not an admin.
+/// - [`Error::InvalidConfigValue`] — `delay_seconds` exceeds the maximum.
 pub fn set_council_timelock_delay(env: &Env, admin: Address, delay_seconds: u64) -> Result<(), Error> {
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
+    if delay_seconds > crate::constants::MAX_TIMELOCK_SECS {
+        return Err(Error::InvalidConfigValue);
+    }
     Storage::set_council_timelock_delay(env, delay_seconds);
     Ok(())
 }
 
 pub fn get_council_timelock_delay(env: &Env) -> u64 {
     Storage::get_council_timelock_delay(env)
+}
+
+// -----------------------------------------------------------------------
+// Emergency revocation (Issue #1507)
+// -----------------------------------------------------------------------
+
+/// Emergency path: revoke every attestation issued by `issuer`.
+///
+/// Removing an issuer does not invalidate the attestations it already issued.
+/// This admin-only entry point lets the council respond to a compromised or
+/// misbehaving issuer by revoking all of its attestations in one call.
+///
+/// Attestations that are already revoked are skipped. Returns the number of
+/// attestations revoked.
+///
+/// # Errors
+/// - [`Error::Unauthorized`] — caller is not an admin.
+pub fn revoke_all_from_issuer(env: &Env, admin: Address, issuer: Address) -> Result<u32, Error> {
+    admin.require_auth();
+    Validation::require_admin(env, &admin)?;
+
+    let ids = Storage::get_issuer_attestation_ids(env, &issuer);
+    let mut revoked: u32 = 0;
+    for id in ids.iter() {
+        if let Ok(mut attestation) = Storage::get_attestation(env, &id) {
+            if attestation.revoked {
+                continue;
+            }
+            attestation.revoked = true;
+            Storage::set_attestation(env, &attestation);
+            Events::attestation_revoked(env, &id, &admin, env.ledger().timestamp());
+            revoked += 1;
+        }
+    }
+    Ok(revoked)
+}
+
+/// Emergency path: revoke a single attestation as an admin.
+///
+/// Unlike [`crate::attestation::revoke_attestation`], the caller does not need
+/// to be the attestation's issuer, allowing the council to revoke fraudulent
+/// attestations minted by a compromised issuer.
+///
+/// # Errors
+/// - [`Error::Unauthorized`] — caller is not an admin.
+/// - [`Error::NotFound`] — no attestation with `attestation_id` exists.
+pub fn admin_revoke_attestation(env: &Env, admin: Address, attestation_id: String) -> Result<(), Error> {
+    admin.require_auth();
+    Validation::require_admin(env, &admin)?;
+
+    let mut attestation = Storage::get_attestation(env, &attestation_id)?;
+    if attestation.revoked {
+        return Ok(());
+    }
+    attestation.revoked = true;
+    Storage::set_attestation(env, &attestation);
+    Events::attestation_revoked(env, &attestation_id, &admin, env.ledger().timestamp());
+    Ok(())
 }
 
 // -----------------------------------------------------------------------

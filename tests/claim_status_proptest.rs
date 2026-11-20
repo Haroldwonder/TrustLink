@@ -1,8 +1,12 @@
-// Property-based tests: has_valid_claim is consistent with get_attestation_status (#509)
+// Property-based tests: has_valid_claim is consistent with get_attestation_status (#509, #1507)
 //
 // Invariant: has_valid_claim(subject, claim_type) == true
 //            iff at least one non-deleted attestation for (subject, claim_type)
-//            has get_attestation_status() == AttestationStatus::Valid.
+//            has get_attestation_status() == AttestationStatus::Valid
+//            AND its issuer is still registered.
+//
+// Attestations issued by an issuer that has since been removed are treated as
+// invalid by all `has_*` queries, even if their own status is Valid.
 
 #![cfg(test)]
 
@@ -96,12 +100,74 @@ proptest! {
         let status = client.get_attestation_status(&id);
         let has_valid = client.has_valid_claim(&subject, &claim_type);
 
-        // Invariant: has_valid_claim ↔ at least one Valid attestation exists.
+        // Invariant: has_valid_claim ↔ at least one Valid attestation exists
+        // from a still-registered issuer (the issuer is registered here).
         let status_is_valid = status == trustlink::types::AttestationStatus::Valid;
         prop_assert_eq!(
             has_valid,
             status_is_valid,
             "has_valid_claim={} but status={:?}", has_valid, status
+        );
+    }
+
+    /// Attestations from a removed issuer are invalid even when their own
+    /// status is Valid (#1507).
+    #[test]
+    fn prop_has_valid_claim_false_after_issuer_removed(
+        state in attestation_state_strategy(),
+    ) {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|l| l.timestamp = 10_000);
+
+        let client = deploy(&env);
+        let admin   = Address::generate(&env);
+        let issuer  = Address::generate(&env);
+        let subject = Address::generate(&env);
+        let claim_type = String::from_str(&env, "KYC_PASSED");
+
+        client.initialize(&admin, &None);
+        client.register_issuer(&admin, &issuer);
+
+        let now: u64 = 10_000;
+
+        let id = match state {
+            AttestationState::Valid => {
+                client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None)
+            }
+            AttestationState::Revoked => {
+                let id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+                client.revoke_attestation(&issuer, &id, &None);
+                id
+            }
+            AttestationState::Expired => {
+                let saved = env.ledger().timestamp();
+                env.ledger().with_mut(|l| l.timestamp = 5_000);
+                let id = client.create_attestation(
+                    &issuer, &subject, &claim_type, &Some(9_000), &None, &None,
+                );
+                env.ledger().with_mut(|l| l.timestamp = saved);
+                id
+            }
+            AttestationState::Pending => {
+                let valid_from = now + 10_000;
+                client.create_attestation_valid_from(
+                    &issuer, &subject, &claim_type, &None, &None, &None, &valid_from,
+                )
+            }
+        };
+
+        // Sanity: the attestation's own status is what we set up.
+        let status_before = client.get_attestation_status(&id);
+
+        // Remove the issuer; every attestation it issued must now be invalid.
+        client.remove_issuer(&admin, &issuer);
+
+        let has_valid = client.has_valid_claim(&subject, &claim_type);
+        prop_assert!(
+            !has_valid,
+            "has_valid_claim must be false after issuer removal (status_before={:?})",
+            status_before
         );
     }
 
@@ -175,10 +241,72 @@ proptest! {
         env.ledger().with_mut(|l| l.timestamp = 10_000);
         let has_valid = client.has_valid_claim(&subject, &claim_type);
 
+        // The issuer is still registered, so the invariant holds as-is.
         prop_assert_eq!(
             has_valid,
             any_valid,
             "has_valid_claim={} but expected any_valid={} (states={:?})", has_valid, any_valid, states
+        );
+    }
+
+    /// Multiple attestations from a removed issuer: has_valid_claim is false
+    /// regardless of the individual attestation states (#1507).
+    #[test]
+    fn prop_has_valid_claim_false_after_issuer_removed_multi(
+        states in prop::collection::vec(attestation_state_strategy(), 1..5),
+    ) {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().with_mut(|l| l.timestamp = 10_000);
+
+        let client = deploy(&env);
+        let admin   = Address::generate(&env);
+        let issuer  = Address::generate(&env);
+        let subject = Address::generate(&env);
+        let claim_type = String::from_str(&env, "KYC_PASSED");
+
+        client.initialize(&admin, &None);
+        client.register_issuer(&admin, &issuer);
+
+        for state in &states {
+            env.ledger().with_mut(|l| l.timestamp += 1);
+            let ts = env.ledger().timestamp();
+
+            match state {
+                AttestationState::Valid => {
+                    client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+                }
+                AttestationState::Revoked => {
+                    let id = client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None);
+                    client.revoke_attestation(&issuer, &id, &None);
+                }
+                AttestationState::Expired => {
+                    let saved = env.ledger().timestamp();
+                    let create_ts = saved - 5_000;
+                    let exp = saved - 1_000;
+                    env.ledger().with_mut(|l| l.timestamp = create_ts);
+                    client.create_attestation(
+                        &issuer, &subject, &claim_type, &Some(exp), &None, &None,
+                    );
+                    env.ledger().with_mut(|l| l.timestamp = saved);
+                }
+                AttestationState::Pending => {
+                    let valid_from = ts + 10_000;
+                    client.create_attestation_valid_from(
+                        &issuer, &subject, &claim_type, &None, &None, &None, &valid_from,
+                    );
+                }
+            }
+        }
+
+        env.ledger().with_mut(|l| l.timestamp = 10_000);
+        client.remove_issuer(&admin, &issuer);
+
+        let has_valid = client.has_valid_claim(&subject, &claim_type);
+        prop_assert!(
+            !has_valid,
+            "has_valid_claim must be false after issuer removal (states={:?})",
+            states
         );
     }
 }
