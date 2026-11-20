@@ -26,6 +26,78 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
 
 const DEFAULT_WASM_PATH = join(ROOT, "target/wasm32-unknown-unknown/release/trustlink.wasm");
+const DEFAULT_ALLOWLIST_PATH = join(__dirname, "sdk-abi-allowlist.json");
+
+/**
+ * Load the explicit allowlist of contract functions that are intentionally
+ * not wrapped by an SDK. The file is a JSON object of the shape:
+ *   { "typescript": ["fn_a", "fn_b"], "python": ["fn_c"] }
+ * A top-level "*" key applies to every SDK.
+ */
+function loadAllowlist(allowlistPath) {
+  const allowlist = { "*": new Set() };
+  if (!allowlistPath || !existsSync(allowlistPath)) {
+    return allowlist;
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(allowlistPath, "utf-8"));
+  } catch (err) {
+    console.error(`ERROR: Failed to parse allowlist ${allowlistPath}: ${err.message}`);
+    process.exit(2);
+  }
+
+  for (const [sdk, names] of Object.entries(parsed)) {
+    if (!Array.isArray(names)) {
+      console.error(`ERROR: Allowlist entry "${sdk}" must be an array of function names`);
+      process.exit(2);
+    }
+    allowlist[sdk] = new Set(names);
+  }
+
+  return allowlist;
+}
+
+function isAllowlisted(allowlist, sdkName, contractMethod) {
+  return (
+    allowlist["*"]?.has(contractMethod) ||
+    allowlist[sdkName]?.has(contractMethod) ||
+    false
+  );
+}
+
+/**
+ * Extract the full list of exported contract function names from the spec.
+ * Handles both the `stellar contract info interface` JSON shape and the
+ * raw WASM contractspec shape.
+ */
+function extractContractFunctionNames(spec) {
+  const names = new Set();
+
+  const addFrom = (entries) => {
+    if (!Array.isArray(entries)) return;
+    for (const entry of entries) {
+      if (!entry) continue;
+      if (typeof entry === "string") {
+        names.add(entry);
+      } else if (typeof entry.name === "string") {
+        names.add(entry.name);
+      }
+    }
+  };
+
+  // stellar contract info interface shape
+  addFrom(spec.functions);
+  addFrom(spec.methods);
+  // Some CLI versions nest the interface under `spec`
+  if (spec.spec) {
+    addFrom(spec.spec.functions);
+    addFrom(spec.spec.methods);
+  }
+
+  return names;
+}
 
 /**
  * Extract contract spec from WASM using stellar CLI or fallback to parsed WASM
@@ -38,7 +110,7 @@ async function getContractSpec(wasmPath) {
   let spec;
   try {
     const output = execSync(
-      `stellar contract inspect --wasm ${wasmPath} --output json`,
+      `stellar contract info interface --wasm ${wasmPath} --output json`,
       { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }
     );
     spec = JSON.parse(output);
@@ -225,6 +297,24 @@ function extractRustFunctions(sdkPath) {
 }
 
 /**
+ * Compare the full set of contract entry points against the set of contract
+ * methods actually wrapped by an SDK. Any contract function that is neither
+ * wrapped nor explicitly allowlisted is reported as a missing wrapper.
+ */
+function checkCoverage(contractFunctionNames, sdkFunctions, sdkName, allowlist) {
+  const wrapped = new Set(sdkFunctions.map((fn) => fn.contractMethod));
+  const missing = [];
+
+  for (const contractMethod of contractFunctionNames) {
+    if (wrapped.has(contractMethod)) continue;
+    if (isAllowlisted(allowlist, sdkName, contractMethod)) continue;
+    missing.push(contractMethod);
+  }
+
+  return missing;
+}
+
+/**
  * Main comparison logic
  */
 function checkSDK(spec, sdkFunctions, sdkName) {
@@ -338,6 +428,10 @@ async function main() {
         type: "string",
         default: join(ROOT, "sdk/typescript"),
       },
+      allowlist: {
+        type: "string",
+        default: DEFAULT_ALLOWLIST_PATH,
+      },
       help: {
         type: "boolean",
         default: false,
@@ -354,13 +448,14 @@ Compares contract ABI with SDK method signatures to catch drift.
 Usage: node scripts/check-sdk-abi.mjs [options]
 
 Options:
-  --wasm <path>    Path to WASM file (default: target/wasm32-unknown-unknown/release/trustlink.wasm)
-  --sdk-dir <path> SDK directory to check (default: sdk/typescript)
-  --help           Show this help
+  --wasm <path>      Path to WASM file (default: target/wasm32-unknown-unknown/release/trustlink.wasm)
+  --sdk-dir <path>   SDK directory to check (default: sdk/typescript)
+  --allowlist <path> Allowlist of intentionally unwrapped functions (default: scripts/sdk-abi-allowlist.json)
+  --help             Show this help
 
 Exit codes:
   0 - All checks passed
-  1 - Errors found (missing functions or arity mismatches)
+  1 - Errors found (missing wrappers or arity mismatches)
   2 - Failed to extract contract spec
 `);
     return;
@@ -368,6 +463,7 @@ Exit codes:
 
   const wasmPath = values.wasm;
   const sdkDir = values.sdkDir;
+  const allowlist = loadAllowlist(values.allowlist);
 
   console.log(`Checking SDK-ABI consistency...`);
   console.log(`WASM: ${wasmPath}`);
@@ -395,11 +491,13 @@ Exit codes:
     process.exit(2);
   }
 
-  const functionCount = spec.functions?.length || spec.methods?.length || 0;
+  const contractFunctionNames = extractContractFunctionNames(spec);
+  const functionCount = contractFunctionNames.size;
   console.log(`\nContract has ${functionCount} function(s)`);
 
   // Check each SDK
   const results = [];
+  const coverageFailures = [];
 
   // TypeScript SDK
   if (existsSync(join(sdkDir, "src/client.ts"))) {
@@ -410,6 +508,10 @@ Exit codes:
     }
     const checkResult = checkSDK(spec, functions, "typescript");
     results.push(checkResult);
+    const missing = checkCoverage(contractFunctionNames, functions, "typescript", allowlist);
+    if (missing.length > 0) {
+      coverageFailures.push({ sdk: "typescript", missing });
+    }
     console.log(`  Found ${functions.length} method(s), ${checkResult.errors.length} error(s)`);
   }
 
@@ -423,6 +525,10 @@ Exit codes:
     }
     const checkResult = checkSDK(spec, functions, "python");
     results.push(checkResult);
+    const missing = checkCoverage(contractFunctionNames, functions, "python", allowlist);
+    if (missing.length > 0) {
+      coverageFailures.push({ sdk: "python", missing });
+    }
     console.log(`  Found ${functions.length} method(s), ${checkResult.errors.length} error(s)`);
   }
 
@@ -442,12 +548,25 @@ Exit codes:
   // Print results and exit with appropriate code
   const success = printResults(results);
 
-  if (!success) {
+  if (coverageFailures.length > 0) {
+    console.error("\n=== MISSING SDK WRAPPERS ===\n");
+    for (const { sdk, missing } of coverageFailures) {
+      for (const contractMethod of missing) {
+        console.error(`[${sdk}] Contract entry point "${contractMethod}" has no SDK wrapper`);
+      }
+      console.error("");
+    }
+    console.error(
+      "Add the missing wrappers, or list intentionally unwrapped functions in the allowlist file."
+    );
+  }
+
+  if (!success || coverageFailures.length > 0) {
     console.error("\nFAILED: SDK-ABI mismatch detected");
     process.exit(1);
   }
 
-  console.log("\nOK: All SDK methods match contract ABI");
+  console.log("\nOK: All SDK methods match contract ABI and every entry point is wrapped");
   process.exit(0);
 }
 

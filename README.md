@@ -29,6 +29,7 @@ TrustLink solves the problem of decentralized identity verification and trust es
 - **Event Emission**: All state changes emit events for off-chain indexing
 - **Query Interface**: Easy verification of claims for other contracts
 - **Pagination & Filtering**: Efficient listing and date-range searching of attestations
+- **Attestation Requests**: Pull-based request workflow with a documented lifecycle — see [docs/attestation-requests.md](docs/attestation-requests.md)
 
 ## Security
 
@@ -1059,6 +1060,10 @@ New to TrustLink? Start with the [5-Minute Quickstart](docs/quickstart.md) for t
 ## Storage Layout
 
 For a full reference of every on-chain storage key, the data each holds, TTL policy, serialization format, and a practical RPC read example for indexer developers, see [docs/storage-layout.md](docs/storage-layout.md).
+
+## Attestation Requests
+
+Attestation requests let a subject ask a registered issuer for a claim instead of waiting for the issuer to push one. The full lifecycle — states (`Pending` → `Fulfilled` / `Rejected` / `Cancelled` / `Expired`), who can trigger each transition, the `ATTESTATION_REQUEST_TTL_SECS` expiry window and `cleanup_expired_requests`, pause behaviour, and the emitted events and error codes — is documented in [docs/attestation-requests.md](docs/attestation-requests.md). See also [ADR-007](docs/adr/ADR-007-attestation-requests.md) for the design rationale.
 
 ## Glossary
 
