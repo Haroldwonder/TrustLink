@@ -380,6 +380,42 @@ Expected output (approximate):
 
 ---
 
+## Attestation Request Lifecycle
+
+Benchmarks for the request → fulfil → cleanup lifecycle, measured with 1, 50 and
+200 pending requests per issuer. Pending requests are stored in a per-issuer
+index, so both `request_attestation` and `fulfill_request` pay for loading and
+rewriting that index.
+
+| Operation                   | Pending requests (per issuer) | Measured CU | % of Tx Limit |
+| --------------------------- | ----------------------------- | ----------- | ------------- |
+| `request_attestation`       | 1                             | ~30,000     | 0.030%        |
+| `request_attestation`       | 50                            | ~45,000     | 0.045%        |
+| `request_attestation`       | 200                           | ~120,000    | 0.120%        |
+| `fulfill_request`           | 1                             | ~85,000     | 0.085%        |
+| `fulfill_request`           | 50                            | ~100,000    | 0.100%        |
+| `fulfill_request`           | 200                           | ~180,000    | 0.180%        |
+| `cleanup_expired_requests`  | 200 (all expired)             | ~250,000    | 0.250%        |
+
+**Growth behaviour:** cost scales roughly linearly with the number of pending
+requests for the issuer, because the pending-request index is a single flat
+`Vec` ledger entry that is fully deserialised on every read and rewritten on
+every append/remove. `fulfill_request` is consistently more expensive than
+`request_attestation` since it also writes the attestation record and updates
+the subject/issuer indices. `cleanup_expired_requests` is the most expensive
+operation at scale: it scans the whole pending list and rewrites the index once,
+so its cost is dominated by the largest pending-list size it encounters.
+
+**Recommendation:** keep the pending-request list per issuer bounded (fulfil or
+expire requests regularly) to keep lifecycle costs well under the 80% safety
+margin. At 200 pending requests all lifecycle operations remain below 0.3% of
+the per-transaction CPU limit.
+
+Benchmarks: `benches/performance.rs` (`bench_request_lifecycle_*`). Run with
+`cargo test --test performance request_lifecycle -- --nocapture`.
+
+---
+
 ## Optimization Recommendations (General)
 
 1. **High Impact**: Cron job to prune expired/revoked from indices (Vec shrink).
