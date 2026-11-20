@@ -335,7 +335,10 @@ attacker can:
 - Change the fee collector to drain issuer funds.
 - Pause the contract indefinitely.
 
-There is no multi-sig or time-lock on admin operations. Mitigation: use a
+Only some admin operations are behind a council quorum and timelock:
+`RemoveIssuer` and `PauseContract`, see `create_council_proposal`. Other admin
+operations, including `set_fee`, `register_issuer` and `transfer_admin`, still run
+from a single admin address with no timelock. Mitigation: use a
 hardware wallet or multisig account (e.g. a Stellar multisig account) as the
 admin address. See [Operational Security](#operational-security) below.
 
