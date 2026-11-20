@@ -35,6 +35,8 @@ pub fn initialize(env: &Env, admin: Address, ttl_days: Option<u32>) -> Result<()
 
 pub fn transfer_admin(env: &Env, current_admin: Address, new_admin: Address) -> Result<(), Error> {
     current_admin.require_auth();
+    // The new admin must authorize the handover, so a typo cannot lock the contract (#1503).
+    new_admin.require_auth();
     Validation::require_admin(env, &current_admin)?;
     Storage::add_admin(env, &new_admin);
     Storage::remove_admin(env, &current_admin);
