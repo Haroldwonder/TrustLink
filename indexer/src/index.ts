@@ -202,10 +202,48 @@ async function main() {
   });
 
   // ── Indexer ────────────────────────────────────────────────────────────────
-  startIndexer(db, redis).catch((err) => {
-    console.error("Indexer error:", err);
+  const indexerController = new AbortController();
+
+  startIndexer(db, redis, indexerController.signal).catch((err) => {
+    logger.error({ err }, "Indexer error");
     process.exit(1);
   });
+
+  // ── Graceful shutdown ──────────────────────────────────────────────────────
+  const SHUTDOWN_TIMEOUT_MS = Number(process.env.SHUTDOWN_TIMEOUT_MS ?? 10_000);
+
+  async function shutdown(signal: string): Promise<void> {
+    logger.info({ signal }, "Received shutdown signal, draining...");
+
+    // Stop the indexing loop after the current batch
+    indexerController.abort();
+
+    const timer = setTimeout(() => {
+      logger.error("Shutdown timed out, forcing exit");
+      process.exit(1);
+    }, SHUTDOWN_TIMEOUT_MS);
+    timer.unref();
+
+    try {
+      await fastify.close();
+      await apollo.stop(); // disposes wsCleanup via serverWillStart plugin
+      httpServer.close();
+      await db.$disconnect();
+      if (redis) await redis.quit();
+    } catch (err) {
+      logger.error({ err }, "Error during shutdown");
+    } finally {
+      clearTimeout(timer);
+      logger.info("Shutdown complete");
+      process.exit(0);
+    }
+  }
+
+  process.once("SIGTERM", () => shutdown("SIGTERM"));
+  process.once("SIGINT", () => shutdown("SIGINT"));
 }
 
-main();
+main().catch((err) => {
+  logger.error({ err }, "Fatal startup error");
+  process.exit(1);
+});

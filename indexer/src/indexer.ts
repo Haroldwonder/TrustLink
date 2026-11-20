@@ -98,7 +98,7 @@ const WATCHED = new Set([
 
 import { getLastLedger, setLastLedger } from "./indexer-state";
 
-export async function startIndexer(db: PrismaClient, redis: Redis | null = null): Promise<void> {
+export async function startIndexer(db: PrismaClient, redis: Redis | null = null, signal?: AbortSignal): Promise<void> {
   const rpc = new SorobanRpc.Server(RPC_URL, { allowHttp: true });
 
   // Initialize archival scheduler (runs every 6 hours, configurable)
@@ -145,7 +145,7 @@ export async function startIndexer(db: PrismaClient, redis: Redis | null = null)
 
   // ── Live polling ───────────────────────────────────────────────────────────
   logger.info("Live polling for new events");
-  while (true) {
+  while (!signal?.aborted) {
     await sleep(POLL_MS);
     const { sequence: latest } = await rpc.getLatestLedger();
     if (cursor <= latest) {
