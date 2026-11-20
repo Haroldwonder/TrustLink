@@ -811,6 +811,21 @@ pub fn health_check(env: &Env) -> crate::types::HealthStatus {
 // Council actions with timelock (Issue #790)
 // -----------------------------------------------------------------------
 
+/// Start the timelock once enough council members have approved (#1501).
+///
+/// Called from both proposal creation and approval, so a one-member council
+/// reaches quorum at creation.
+fn apply_quorum(env: &Env, proposal: &mut CouncilProposal) -> Result<(), Error> {
+    let council = Storage::get_admin_council(env)?;
+    let quorum = council.len() / 2 + 1;
+    if proposal.approvals.len() >= quorum && proposal.quorum_reached_at.is_none() {
+        let ts = env.ledger().timestamp();
+        proposal.quorum_reached_at = Some(ts);
+        Events::council_timelock_started(env, proposal.id, ts);
+    }
+    Ok(())
+}
+
 pub fn create_council_proposal(
     env: &Env,
     proposer: Address,
@@ -823,7 +838,7 @@ pub fn create_council_proposal(
     let mut approvals: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(env);
     approvals.push_back(proposer.clone());
 
-    let proposal = CouncilProposal {
+    let mut proposal = CouncilProposal {
         id,
         operation,
         proposer: proposer.clone(),
@@ -831,6 +846,7 @@ pub fn create_council_proposal(
         executed: false,
         quorum_reached_at: None,
     };
+    apply_quorum(env, &mut proposal)?;
     Storage::set_proposal(env, &proposal);
     Events::proposal_created(env, id, &proposer);
     Ok(id)
@@ -857,16 +873,7 @@ pub fn approve_council_proposal(
     proposal.approvals.push_back(approver.clone());
     Events::proposal_approved(env, proposal_id, &approver);
 
-    // Simple-majority quorum among the current council.
-    let council = Storage::get_admin_council(env)?;
-    let quorum = council.len() / 2 + 1;
-
-    if proposal.approvals.len() >= quorum && proposal.quorum_reached_at.is_none() {
-        let ts = env.ledger().timestamp();
-        proposal.quorum_reached_at = Some(ts);
-        Events::council_timelock_started(env, proposal_id, ts);
-    }
-
+    apply_quorum(env, &mut proposal)?;
     Storage::set_proposal(env, &proposal);
     Ok(())
 }
@@ -883,7 +890,7 @@ pub fn execute_council_action(
     if proposal.executed {
         return Err(Error::CouncilProposalExecuted);
     }
-    let quorum_at = proposal.quorum_reached_at.ok_or(Error::Unauthorized)?;
+    let quorum_at = proposal.quorum_reached_at.ok_or(Error::QuorumNotReached)?;
 
     let delay = Storage::get_council_timelock_delay(env);
     let now = env.ledger().timestamp();
