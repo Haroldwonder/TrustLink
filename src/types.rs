@@ -273,6 +273,9 @@ pub struct ClaimTypeConstraints {
 pub enum CouncilOperation {
     RemoveIssuer(Address),
     PauseContract,
+    /// Membership changes must go through quorum once the council has two or more members (#1499).
+    AddAdmin(Address),
+    RemoveAdmin(Address),
 }
 
 #[contracttype]

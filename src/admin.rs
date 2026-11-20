@@ -94,6 +94,10 @@ pub fn get_pending_admin_transfer(env: &Env) -> Option<PendingAdminTransfer> {
 pub fn add_admin(env: &Env, existing_admin: Address, new_admin: Address) -> Result<(), Error> {
     existing_admin.require_auth();
     Validation::require_admin(env, &existing_admin)?;
+    // With a multi-admin council, membership changes need a quorum proposal (#1499).
+    if Storage::get_admin_council(env)?.len() > 1 {
+        return Err(Error::Unauthorized);
+    }
     if Storage::is_admin(env, &new_admin) {
         return Ok(());
     }
@@ -106,6 +110,10 @@ pub fn remove_admin(env: &Env, existing_admin: Address, admin_to_remove: Address
     existing_admin.require_auth();
     Validation::require_admin(env, &existing_admin)?;
     let council = Storage::get_admin_council(env)?;
+    // With a multi-admin council, removal needs a quorum proposal (#1499).
+    if council.len() > 1 {
+        return Err(Error::Unauthorized);
+    }
     if council.len() <= 1 {
         return Err(Error::LastAdminCannotBeRemoved);
     }
@@ -906,6 +914,22 @@ pub fn execute_council_action(
             Storage::remove_issuer(env, &issuer);
             Storage::decrement_total_issuers(env);
             Events::issuer_removed(env, &issuer, &executor, now);
+        }
+        CouncilOperation::AddAdmin(new_admin) => {
+            if !Storage::is_admin(env, &new_admin) {
+                Storage::add_admin(env, &new_admin);
+                Events::admin_added(env, &executor, &new_admin, now);
+            }
+        }
+        CouncilOperation::RemoveAdmin(admin_to_remove) => {
+            let council = Storage::get_admin_council(env)?;
+            if council.len() <= 1 {
+                return Err(Error::LastAdminCannotBeRemoved);
+            }
+            if Storage::is_admin(env, &admin_to_remove) {
+                Storage::remove_admin(env, &admin_to_remove);
+                Events::admin_removed(env, &executor, &admin_to_remove, now);
+            }
         }
         CouncilOperation::PauseContract => {
             Storage::set_paused(env, true);
