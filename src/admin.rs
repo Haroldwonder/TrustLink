@@ -39,6 +39,10 @@ pub fn transfer_admin(env: &Env, current_admin: Address, new_admin: Address) -> 
     // The new admin must authorize the handover, so a typo cannot lock the contract (#1503).
     new_admin.require_auth();
     Validation::require_admin(env, &current_admin)?;
+    // A self-transfer would empty the council, so reject it (#1498).
+    if new_admin == current_admin {
+        return Err(Error::InvalidAdminTransfer);
+    }
     Storage::add_admin(env, &new_admin);
     Storage::remove_admin(env, &current_admin);
     Events::admin_transferred(env, &current_admin, &new_admin);
@@ -48,6 +52,9 @@ pub fn transfer_admin(env: &Env, current_admin: Address, new_admin: Address) -> 
 pub fn propose_admin_transfer(env: &Env, current_admin: Address, new_admin: Address) -> Result<(), Error> {
     current_admin.require_auth();
     Validation::require_admin(env, &current_admin)?;
+    if new_admin == current_admin {
+        return Err(Error::InvalidAdminTransfer);
+    }
     Storage::set_pending_admin_transfer(
         env,
         &PendingAdminTransfer { proposed_by: current_admin.clone(), new_admin: new_admin.clone() },
@@ -72,9 +79,8 @@ pub fn accept_admin_transfer(env: &Env, new_admin: Address) -> Result<(), Error>
     if pending.new_admin != new_admin {
         return Err(Error::Unauthorized);
     }
-    // A transfer whose proposer has since been removed must not complete (#1504).
-    if !Storage::is_admin(env, &pending.proposed_by) {
-        return Err(Error::Unauthorized);
+    if pending.proposed_by == pending.new_admin {
+        return Err(Error::InvalidAdminTransfer);
     }
     Storage::add_admin(env, &new_admin);
     Storage::remove_admin(env, &pending.proposed_by);
@@ -90,6 +96,10 @@ pub fn get_pending_admin_transfer(env: &Env) -> Option<PendingAdminTransfer> {
 pub fn add_admin(env: &Env, existing_admin: Address, new_admin: Address) -> Result<(), Error> {
     existing_admin.require_auth();
     Validation::require_admin(env, &existing_admin)?;
+    // With a multi-admin council, membership changes need a quorum proposal (#1499).
+    if Storage::get_admin_council(env)?.len() > 1 {
+        return Err(Error::Unauthorized);
+    }
     if Storage::is_admin(env, &new_admin) {
         return Ok(());
     }
@@ -102,6 +112,10 @@ pub fn remove_admin(env: &Env, existing_admin: Address, admin_to_remove: Address
     existing_admin.require_auth();
     Validation::require_admin(env, &existing_admin)?;
     let council = Storage::get_admin_council(env)?;
+    // With a multi-admin council, removal needs a quorum proposal (#1499).
+    if council.len() > 1 {
+        return Err(Error::Unauthorized);
+    }
     if council.len() <= 1 {
         return Err(Error::LastAdminCannotBeRemoved);
     }
@@ -146,9 +160,9 @@ pub fn remove_issuer(env: &Env, admin: Address, issuer: Address) -> Result<(), E
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
     Validation::require_not_paused(env)?;
-    // Removing a non-issuer must not decrement stats or emit events (#1505).
-    if !Storage::is_issuer(env, &issuer) {
-        return Ok(());
+    // With a multi-admin council, removal must go through a quorum proposal (#1500).
+    if Storage::get_admin_council(env)?.len() > 1 {
+        return Err(Error::Unauthorized);
     }
     Storage::remove_issuer(env, &issuer);
     Storage::decrement_total_issuers(env);
@@ -933,6 +947,25 @@ pub fn execute_council_action(
                 Events::issuer_removed(env, &issuer, &executor, now);
             }
         }
+        CouncilOperation::AddAdmin(new_admin) => {
+            if !Storage::is_admin(env, &new_admin) {
+                Storage::add_admin(env, &new_admin);
+                Events::admin_added(env, &executor, &new_admin, now);
+            }
+        }
+        CouncilOperation::RemoveAdmin(admin_to_remove) => {
+            let council = Storage::get_admin_council(env)?;
+            if council.len() <= 1 {
+                return Err(Error::LastAdminCannotBeRemoved);
+            }
+            if Storage::is_admin(env, &admin_to_remove) {
+                Storage::remove_admin(env, &admin_to_remove);
+                Events::admin_removed(env, &executor, &admin_to_remove, now);
+            }
+        }
+        CouncilOperation::SetTimelockDelay(delay_seconds) => {
+            Storage::set_council_timelock_delay(env, delay_seconds);
+        }
         CouncilOperation::PauseContract => {
             Storage::set_paused(env, true);
             Events::contract_paused(env, &executor, now);
@@ -952,6 +985,10 @@ pub fn get_council_proposal(env: &Env, proposal_id: u32) -> Option<CouncilPropos
 pub fn set_council_timelock_delay(env: &Env, admin: Address, delay_seconds: u64) -> Result<(), Error> {
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
+    // With a multi-admin council, the delay must be changed by quorum proposal (#1500).
+    if Storage::get_admin_council(env)?.len() > 1 {
+        return Err(Error::Unauthorized);
+    }
     Storage::set_council_timelock_delay(env, delay_seconds);
     Ok(())
 }

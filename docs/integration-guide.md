@@ -53,10 +53,10 @@ npm install @trustlink/contract @stellar/stellar-sdk
 ```
 
 ```typescript
-import { Client } from "@trustlink/contract";
+import { TrustLinkClient } from "@trustlink/contract";
 
-const client = new Client({ rpcUrl: "https://soroban-testnet.stellar.org", contractId: "C..." });
-const result = await client.has_valid_claim({ subject: "G...", claim_type: "KYC_PASSED" });
+const client = new TrustLinkClient({ rpcUrl: "https://soroban-testnet.stellar.org", contractId: "C..." });
+const result = await client.hasValidClaim("G...", "KYC_PASSED");
 ```
 
 ### Why do two packages exist?
@@ -244,9 +244,9 @@ The repository ships **two separate TypeScript packages** that both export a
 class named `TrustLinkClient`. They serve different purposes and are
 intentionally kept separate:
 
-| | `@trustlink/sdk` | `@trustlink/bindings` |
+| | `@trustlink/sdk` | `@trustlink/contract` |
 |---|---|---|
-| **npm install** | `npm install @trustlink/sdk` | `npm install @trustlink/bindings` |
+| **npm install** | `npm install @trustlink/sdk` | `npm install @trustlink/contract` |
 | **Source path** | `sdk/typescript/` | `bindings/typescript/` |
 | **Purpose** | Read-heavy frontends, dApps, dashboards | Server-side signers, scripts, raw access |
 | **Retry / circuit-breaker** | ✅ Automatic on all reads | ✗ |
@@ -261,7 +261,7 @@ intentionally kept separate:
   breaking, and pagination automatically.
 
 - Building a **backend service or script** that creates, revokes, or manages
-  attestations (and holds a secret key) → use **`@trustlink/bindings`**. It
+  attestations (and holds a secret key) → use **`@trustlink/contract`**. It
   exposes every write entry point and handles the full sign-and-submit
   lifecycle.
 
@@ -271,7 +271,7 @@ intentionally kept separate:
 
   ```typescript
   import { TrustLinkClient as ReadClient } from "@trustlink/sdk";
-  import { TrustLinkClient as WriteClient } from "@trustlink/bindings";
+  import { TrustLinkClient as WriteClient } from "@trustlink/contract";
   ```
 
 > If neither package exposes the specific entry point you need, you can always
@@ -325,14 +325,14 @@ const canBorrowLarge = await client.hasAllClaims("GABC...", [
 
 ---
 
-### Using `@trustlink/bindings` (Writes / Backend)
+### Using `@trustlink/contract` (Writes / Backend)
 
 ```bash
-npm install @trustlink/bindings
+npm install @trustlink/contract
 ```
 
 ```typescript
-import { TrustLinkClient } from "@trustlink/bindings";
+import { TrustLinkClient } from "@trustlink/contract";
 import { Keypair } from "@stellar/stellar-sdk";
 
 const client = new TrustLinkClient({
