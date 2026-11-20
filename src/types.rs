@@ -273,6 +273,8 @@ pub struct ClaimTypeConstraints {
 pub enum CouncilOperation {
     RemoveIssuer(Address),
     PauseContract,
+    /// Remove a registered bridge contract via council quorum (issue #1506).
+    RemoveBridge(Address),
 }
 
 #[contracttype]

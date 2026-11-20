@@ -385,6 +385,22 @@ impl Storage {
         env.storage().persistent().extend_ttl(&list_key, ttl, ttl);
     }
 
+    pub fn remove_bridge(env: &Env, bridge: &Address) {
+        env.storage().persistent().remove(&StorageKey::Bridge(bridge.clone()));
+        // Filter the address out of the ordered BridgeList so it stays consistent.
+        let ttl = get_ttl_lifetime(env);
+        let list = Self::get_bridge_list(env);
+        let mut updated = Vec::new(env);
+        for existing in list.iter() {
+            if &existing != bridge {
+                updated.push_back(existing);
+            }
+        }
+        let list_key = StorageKey::BridgeList;
+        env.storage().persistent().set(&list_key, &updated);
+        env.storage().persistent().extend_ttl(&list_key, ttl, ttl);
+    }
+
     pub fn get_bridge_list(env: &Env) -> Vec<Address> {
         env.storage()
             .persistent()
@@ -685,6 +701,12 @@ impl Storage {
 
     pub fn get_limits(env: &Env) -> StorageLimits {
         get_misc_config(env).storage_limits
+    }
+
+    /// Read the current `MiscConfig` bundle (used to capture old values before
+    /// an admin setter mutates one of its fields).
+    pub fn get_misc_config(env: &Env) -> MiscConfig {
+        get_misc_config(env)
     }
 
     pub fn set_limits(env: &Env, limits: &StorageLimits) {

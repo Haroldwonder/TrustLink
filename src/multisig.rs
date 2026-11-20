@@ -20,7 +20,8 @@ use crate::constants::SECS_PER_DAY;
 use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::{
-    Attestation, AttestationOrigin, AuditAction, AuditEntry, Error, MultiSigProposal,
+    Attestation, AttestationOrigin, AuditAction, AuditEntry, CouncilOperation, Error,
+    MultiSigProposal,
 };
 use crate::validation::Validation;
 
@@ -292,6 +293,28 @@ pub fn cancel_multisig_proposal(
     Storage::set_multisig_proposal(env, &proposal);
     Events::multisig_cancelled(env, &proposal_id, &proposer);
     Ok(())
+}
+
+/// Execute a council operation once its proposal has reached quorum.
+///
+/// Dispatches on the [`CouncilOperation`] variant.  For
+/// [`CouncilOperation::RemoveBridge`] this removes the `Bridge(addr)` key and
+/// the `BridgeList` entry and emits the `brg_rem` event, mirroring
+/// `admin::remove_bridge`.
+///
+/// # Errors
+/// - [`Error::NotFound`] — the bridge is not currently registered.
+pub fn execute_council_operation(env: &Env, operation: &CouncilOperation) -> Result<(), Error> {
+    match operation {
+        CouncilOperation::RemoveBridge(bridge) => {
+            if !Storage::is_bridge(env, bridge) {
+                return Err(Error::NotFound);
+            }
+            Storage::remove_bridge(env, bridge);
+            Events::bridge_removed(env, bridge);
+            Ok(())
+        }
+    }
 }
 
 /// List open (unfinalized, unexpired, uncancelled) proposals for a subject.

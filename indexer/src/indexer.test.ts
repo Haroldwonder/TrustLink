@@ -39,6 +39,11 @@ function makeMockDb() {
     checkpoint: { upsert: jest.fn().mockResolvedValue(undefined) },
     eventDeadLetter: { create: jest.fn().mockResolvedValue(undefined) },
     issuer: { count: jest.fn().mockResolvedValue(0) },
+    bridge: {
+      upsert: jest.fn().mockResolvedValue(undefined),
+      update: jest.fn().mockResolvedValue(undefined),
+    },
+    configChange: { create: jest.fn().mockResolvedValue(undefined) },
   };
 }
 
@@ -89,6 +94,79 @@ describe("handleEvent", () => {
       expect.objectContaining({ where: { id: "att-1" } }),
     );
     expect(db.auditEntry.create).toHaveBeenCalled();
+  });
+
+  it("persists a Bridge row on a 'brg_reg' event", async () => {
+    const db = makeMockDb();
+    const ev = {
+      ledger: 200,
+      contractId: "CTEST",
+      ledgerClosedAt: "2024-01-01T00:00:00Z",
+      topic: [{ __topic: "brg_reg" }, { __topic: "bridge-1" }],
+      value: { __data: ["admin-1"] },
+    };
+    await handleEvent(db as never, ev as never, null);
+    expect(db.bridge.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { address: "bridge-1" },
+        create: expect.objectContaining({ address: "bridge-1", removed: false }),
+        update: expect.objectContaining({ removed: false }),
+      }),
+    );
+  });
+
+  it("marks a Bridge row removed on a 'brg_rem' event", async () => {
+    const db = makeMockDb();
+    const ev = {
+      ledger: 201,
+      contractId: "CTEST",
+      ledgerClosedAt: "2024-01-01T00:00:00Z",
+      topic: [{ __topic: "brg_rem" }, { __topic: "bridge-1" }],
+      value: { __data: ["admin-1"] },
+    };
+    await handleEvent(db as never, ev as never, null);
+    expect(db.bridge.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { address: "bridge-1" },
+        data: expect.objectContaining({ removed: true }),
+      }),
+    );
+  });
+
+  it("writes a ConfigChange row on a 'cfg_set' event", async () => {
+    const db = makeMockDb();
+    const ev = {
+      ledger: 202,
+      contractId: "CTEST",
+      ledgerClosedAt: "2024-01-01T00:00:00Z",
+      topic: [{ __topic: "cfg_set" }, { __topic: "fee" }],
+      value: { __data: ["admin-1", 100, 250] },
+    };
+    await handleEvent(db as never, ev as never, null);
+    expect(db.configChange.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          admin: "admin-1",
+          key: "fee",
+          oldValue: "100",
+          newValue: "250",
+          ledger: 202,
+        }),
+      }),
+    );
+  });
+
+  it("ignores unrelated topics without touching bridge or config models", async () => {
+    const db = makeMockDb();
+    const ev = {
+      ledger: 203,
+      topic: [{ __topic: "some_other_topic" }],
+      value: { __data: [] },
+    };
+    await handleEvent(db as never, ev as never, null);
+    expect(db.bridge.upsert).not.toHaveBeenCalled();
+    expect(db.bridge.update).not.toHaveBeenCalled();
+    expect(db.configChange.create).not.toHaveBeenCalled();
   });
 });
 

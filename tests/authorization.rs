@@ -122,6 +122,56 @@ fn test_unauth_cannot_remove_issuer() {
     );
 }
 
+#[test]
+fn test_unauth_cannot_remove_bridge() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, _, unauth, client) = setup(&env);
+    let bridge = Address::generate(&env);
+    client.register_bridge(&admin, &bridge);
+
+    let bridges_before = client.get_bridges();
+    assert_eq!(
+        client.try_remove_bridge(&unauth, &bridge),
+        Err(Ok(Error::Unauthorized))
+    );
+    // The bridge must still be registered after the rejected call.
+    assert_eq!(client.get_bridges(), bridges_before);
+}
+
+#[test]
+fn test_remove_bridge_fails_when_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, _, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+    client.register_bridge(&admin, &bridge);
+    client.pause(&admin);
+
+    let bridges_before = client.get_bridges();
+    assert_eq!(
+        client.try_remove_bridge(&admin, &bridge),
+        Err(Ok(Error::ContractPaused))
+    );
+    assert_eq!(client.get_bridges(), bridges_before);
+}
+
+#[test]
+fn test_register_bridge_fails_when_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, _, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+    client.pause(&admin);
+
+    let bridges_before = client.get_bridges();
+    assert_eq!(
+        client.try_register_bridge(&admin, &bridge),
+        Err(Ok(Error::ContractPaused))
+    );
+    assert_eq!(client.get_bridges(), bridges_before);
+}
+
 // ---------------------------------------------------------------------------
 // 2. Unauthorized issuance actions
 // ---------------------------------------------------------------------------

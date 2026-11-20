@@ -36,6 +36,9 @@ const TOPIC_WL_REM: Symbol = symbol_short!("wl_rem");
 const TOPIC_TPL_DEL: Symbol = symbol_short!("tpl_del");
 const TOPIC_BUNDLE: Symbol = symbol_short!("bundle");
 const TOPIC_MAX_SUBJ: Symbol = symbol_short!("mx_subj");
+const TOPIC_BRG_REG: Symbol = symbol_short!("brg_reg");
+const TOPIC_BRG_REM: Symbol = symbol_short!("brg_rem");
+const TOPIC_CFG_SET: Symbol = symbol_short!("cfg_set");
 
 pub struct Events;
 
@@ -556,6 +559,57 @@ impl Events {
         env.events().publish(
             (TOPIC_CLM_CONS, claim_type.clone()),
             constraints.clone(),
+        );
+    }
+
+    /// Emitted when an admin registers a new bridge contract.
+    ///
+    /// # Event schema
+    /// ```text
+    /// topics: ("brg_reg", bridge: Address)
+    /// data:   (admin: Address, timestamp: u64)
+    /// ```
+    pub fn bridge_registered(env: &Env, bridge: &Address, admin: &Address, timestamp: u64) {
+        env.events().publish(
+            (TOPIC_BRG_REG, bridge.clone()),
+            (admin.clone(), timestamp),
+        );
+    }
+
+    /// Emitted when an admin removes a previously registered bridge contract.
+    ///
+    /// # Event schema
+    /// ```text
+    /// topics: ("brg_rem", bridge: Address)
+    /// data:   (admin: Address, timestamp: u64)
+    /// ```
+    pub fn bridge_removed(env: &Env, bridge: &Address, admin: &Address, timestamp: u64) {
+        env.events().publish(
+            (TOPIC_BRG_REM, bridge.clone()),
+            (admin.clone(), timestamp),
+        );
+    }
+
+    /// Generic config-change event emitted by admin setters.
+    ///
+    /// # Event schema
+    /// ```text
+    /// topics: ("cfg_set", key: Symbol)
+    /// data:   (admin: Address, old_value: Val, new_value: Val)
+    /// ```
+    ///
+    /// Callers convert values with `soroban_sdk::IntoVal::into_val(env)` so a
+    /// single emitter covers bools, u32, u64, i128, `Option<u32>` and structs.
+    pub fn config_changed(
+        env: &Env,
+        admin: &Address,
+        key: Symbol,
+        old_value: soroban_sdk::Val,
+        new_value: soroban_sdk::Val,
+    ) {
+        env.events().publish(
+            (TOPIC_CFG_SET, key),
+            (admin.clone(), old_value, new_value),
         );
     }
 }
