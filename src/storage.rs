@@ -75,6 +75,8 @@ pub enum StorageKey {
     // Attestation requests
     AttestationRequest(String),
     IssuerPendingRequests(Address),
+    SubjectPendingRequests(Address),
+    RequestNonce(Address),
     
     // Bundles
     Bundle(String),
@@ -973,6 +975,74 @@ impl Storage {
         }
         env.storage().persistent().set(&key, &updated);
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // Per-subject request index for get_requests_by_subject
+    pub fn get_subject_request_ids(env: &Env, subject: &Address) -> Vec<String> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::SubjectPendingRequests(subject.clone()))
+            .unwrap_or(Vec::new(env))
+    }
+
+    pub fn add_subject_request(env: &Env, subject: &Address, request_id: &String) {
+        let key = StorageKey::SubjectPendingRequests(subject.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut list = Self::get_subject_request_ids(env, subject);
+        list.push_back(request_id.clone());
+        env.storage().persistent().set(&key, &list);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // Per-subject nonce counter for unique request IDs
+    pub fn get_request_nonce(env: &Env, subject: &Address) -> u64 {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::RequestNonce(subject.clone()))
+            .unwrap_or(0u64)
+    }
+
+    pub fn get_and_increment_request_nonce(env: &Env, subject: &Address) -> u64 {
+        let key = StorageKey::RequestNonce(subject.clone());
+        let ttl = get_ttl_lifetime(env);
+        let current: u64 = env.storage().persistent().get(&key).unwrap_or(0u64);
+        env.storage().persistent().set(&key, &(current + 1));
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+        current
+    }
+
+    // Per-subject request index for get_requests_by_subject
+    pub fn get_subject_request_ids(env: &Env, subject: &Address) -> Vec<String> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::SubjectPendingRequests(subject.clone()))
+            .unwrap_or(Vec::new(env))
+    }
+
+    pub fn add_subject_request(env: &Env, subject: &Address, request_id: &String) {
+        let key = StorageKey::SubjectPendingRequests(subject.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut list = Self::get_subject_request_ids(env, subject);
+        list.push_back(request_id.clone());
+        env.storage().persistent().set(&key, &list);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // Per-subject nonce counter for unique request IDs
+    pub fn get_request_nonce(env: &Env, subject: &Address) -> u64 {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::RequestNonce(subject.clone()))
+            .unwrap_or(0u64)
+    }
+
+    pub fn get_and_increment_request_nonce(env: &Env, subject: &Address) -> u64 {
+        let key = StorageKey::RequestNonce(subject.clone());
+        let ttl = get_ttl_lifetime(env);
+        let current: u64 = env.storage().persistent().get(&key).unwrap_or(0u64);
+        env.storage().persistent().set(&key, &(current + 1));
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+        current
     }
 
     pub fn cleanup_expired_requests(env: &Env, issuer: &Address) {

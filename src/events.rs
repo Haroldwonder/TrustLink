@@ -326,6 +326,7 @@ impl Events {
         issuer: &Address,
         claim_type: &String,
         expires_at: u64,
+        evidence_hash: &Option<soroban_sdk::BytesN<32>>,
     ) {
         env.events().publish(
             (TOPIC_REQ, issuer.clone()),
@@ -334,6 +335,7 @@ impl Events {
                 subject.clone(),
                 claim_type.clone(),
                 expires_at,
+                evidence_hash.clone(),
             ),
         );
     }
