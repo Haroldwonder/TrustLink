@@ -60,4 +60,50 @@ describe("GET /attestations/:subject route regression", () => {
     expect(call.where.subject).toBe(subject);
     expect(call.where).not.toHaveProperty("address");
   });
+
+  it("filters by claim_type, issuer, and revoked query parameters", async () => {
+    const findMany = jest.fn().mockResolvedValue([makeAttestation(subject)]);
+    const app = buildRestServer({ attestation: { findMany } } as never);
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/attestations/${subject}?claim_type=KYC_PASSED&issuer=GISSUER&revoked=false`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          subject,
+          claimType: "KYC_PASSED",
+          issuer: "GISSUER",
+          isRevoked: false,
+        },
+        orderBy: [{ timestamp: "desc" }, { id: "desc" }],
+      }),
+    );
+  });
+
+  it("filters revoked=true and rejects invalid revoked values with 400", async () => {
+    const findMany = jest.fn().mockResolvedValue([]);
+    const app = buildRestServer({ attestation: { findMany } } as never);
+
+    const revokedTrue = await app.inject({
+      method: "GET",
+      url: `/attestations/${subject}?revoked=true`,
+    });
+    expect(revokedTrue.statusCode).toBe(200);
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { subject, isRevoked: true },
+      }),
+    );
+
+    const invalidRevoked = await app.inject({
+      method: "GET",
+      url: `/attestations/${subject}?revoked=maybe`,
+    });
+    expect(invalidRevoked.statusCode).toBe(400);
+    expect(JSON.parse(invalidRevoked.body).error).toContain("revoked");
+  });
 });

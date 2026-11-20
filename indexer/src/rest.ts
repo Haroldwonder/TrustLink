@@ -42,6 +42,9 @@ const attestationsBySubjectSchema = {
     properties: {
       limit: { type: "string", default: "50" },
       after: { type: "string", description: "Cursor for pagination" },
+      claim_type: { type: "string", description: "Filter by claim type" },
+      issuer: { type: "string", description: "Filter by issuer address" },
+      revoked: { type: "string", enum: ["true", "false"], description: "Filter by revocation status" },
     },
   },
   response: {
@@ -373,6 +376,12 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
       return { error: "Invalid from/to timestamp" };
     }
 
+    const rangeError = validateExportDateRange(fromTimestamp, toTimestamp);
+    if (rangeError) {
+      reply.code(400);
+      return { error: rangeError };
+    }
+
     const where = buildAttestationExportWhere({
       issuer: req.query.issuer,
       subject: req.query.subject,
@@ -380,6 +389,15 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
       fromTimestamp,
       toTimestamp,
     });
+
+    const maxRows = getExportMaxRows();
+    if (typeof db.attestation?.count === "function") {
+      const totalMatching = await db.attestation.count({ where });
+      if (totalMatching > maxRows) {
+        reply.code(400);
+        return { error: `Export exceeds maximum allowed rows (${maxRows})` };
+      }
+    }
 
     const contentType = format === "csv" ? "text/csv; charset=utf-8" : "application/json; charset=utf-8";
     const extension = format === "csv" ? "csv" : "json";
@@ -389,7 +407,7 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
       .header("Content-Disposition", `attachment; filename="attestations.${extension}"`)
       .header("Transfer-Encoding", "chunked");
 
-    return reply.send(createAttestationExportStream(db, where, format));
+    return reply.send(createAttestationExportStream(db, where, format, maxRows));
   });
 
   fastify.get("/stats", { schema: statsSchema }, async () => {
@@ -436,10 +454,10 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
     },
   );
 
-  fastify.post<{ Body: { url: string; secret?: string } }>(
+  fastify.post<{ Body: { url: string; secret?: string; eventTypes?: string[] } }>(
     "/webhooks",
     async (req, reply) => {
-      const { url, secret: clientSecret } = req.body ?? {};
+      const { url, secret: clientSecret, eventTypes } = req.body ?? {};
       if (!url) {
         reply.code(400);
         return { error: "url is required" };
@@ -450,6 +468,16 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
       } catch (err) {
         reply.code(400);
         return { error: err instanceof Error ? err.message : "invalid webhook url" };
+      }
+
+      let validatedEventTypes: string[] | undefined;
+      if (eventTypes !== undefined) {
+        try {
+          validatedEventTypes = validateWebhookEventTypes(eventTypes);
+        } catch (err) {
+          reply.code(400);
+          return { error: err instanceof Error ? err.message : "invalid eventTypes" };
+        }
       }
 
       // If client provides a secret, validate it; otherwise generate server-side
@@ -470,6 +498,7 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
           data: {
             url,
             secret_encrypted: secretEncrypted,
+            ...(validatedEventTypes !== undefined ? { eventTypes: validatedEventTypes } : {}),
           },
         });
         
@@ -480,12 +509,83 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
           url: webhook.url,
           secret: secret, // Returned ONLY on creation
           active: webhook.active,
+          eventTypes: webhook.eventTypes ?? validatedEventTypes ?? [],
           rotatedAt: webhook.rotatedAt,
         };
       } catch (err) {
         reply.code(400);
         return { error: err instanceof Error ? err.message : "failed to create webhook" };
       }
+    },
+  );
+
+  fastify.patch<{
+    Params: { id: string };
+    Body: { active?: boolean; url?: string; eventTypes?: string[] };
+  }>(
+    "/webhooks/:id",
+    async (req, reply) => {
+      const { active, url, eventTypes } = req.body ?? {};
+
+      if (active === undefined && url === undefined && eventTypes === undefined) {
+        reply.code(400);
+        return { error: "At least one of active, url, or eventTypes must be provided" };
+      }
+
+      const updateData: { active?: boolean; url?: string; eventTypes?: string[] } = {};
+
+      if (active !== undefined) {
+        if (typeof active !== "boolean") {
+          reply.code(400);
+          return { error: "active must be a boolean" };
+        }
+        updateData.active = active;
+      }
+
+      if (url !== undefined) {
+        if (typeof url !== "string" || !url) {
+          reply.code(400);
+          return { error: "url must be a non-empty string" };
+        }
+        try {
+          await validateWebhookUrl(url);
+        } catch (err) {
+          reply.code(400);
+          return { error: err instanceof Error ? err.message : "invalid webhook url" };
+        }
+        updateData.url = url;
+      }
+
+      if (eventTypes !== undefined) {
+        try {
+          updateData.eventTypes = validateWebhookEventTypes(eventTypes);
+        } catch (err) {
+          reply.code(400);
+          return { error: err instanceof Error ? err.message : "invalid eventTypes" };
+        }
+      }
+
+      const existing = await db.webhook.findUnique({ where: { id: req.params.id } });
+      if (!existing) {
+        reply.code(404);
+        return { error: "Webhook not found" };
+      }
+
+      const updated = await db.webhook.update({
+        where: { id: req.params.id },
+        data: updateData,
+        select: {
+          id: true,
+          url: true,
+          active: true,
+          eventTypes: true,
+          rotatedAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      return updated;
     },
   );
 

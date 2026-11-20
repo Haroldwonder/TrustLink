@@ -190,6 +190,7 @@ model Webhook {
   // rotatedAt tracks when the secret was last rotated
   rotatedAt               DateTime @default(now()) @updatedAt
   active                  Boolean  @default(true)
+  eventTypes              String[] @default([])
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
   
