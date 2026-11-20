@@ -36,6 +36,8 @@ pub fn initialize(env: &Env, admin: Address, ttl_days: Option<u32>) -> Result<()
 
 pub fn transfer_admin(env: &Env, current_admin: Address, new_admin: Address) -> Result<(), Error> {
     current_admin.require_auth();
+    // The new admin must authorize the handover, so a typo cannot lock the contract (#1503).
+    new_admin.require_auth();
     Validation::require_admin(env, &current_admin)?;
     Storage::add_admin(env, &new_admin);
     Storage::remove_admin(env, &current_admin);
@@ -58,10 +60,9 @@ pub fn cancel_admin_transfer(env: &Env, current_admin: Address) -> Result<(), Er
     current_admin.require_auth();
     Validation::require_admin(env, &current_admin)?;
     let pending = Storage::get_pending_admin_transfer(env).ok_or(Error::NotFound)?;
-    if pending.proposed_by != current_admin {
-        return Err(Error::Unauthorized);
-    }
+    // Any admin can clear a pending transfer, including one proposed by an admin who was removed (#1504).
     Storage::remove_pending_admin_transfer(env);
+    Events::admin_transfer_cancelled(env, &current_admin, &pending.proposed_by);
     Ok(())
 }
 
@@ -69,6 +70,10 @@ pub fn accept_admin_transfer(env: &Env, new_admin: Address) -> Result<(), Error>
     new_admin.require_auth();
     let pending = Storage::get_pending_admin_transfer(env).ok_or(Error::NotFound)?;
     if pending.new_admin != new_admin {
+        return Err(Error::Unauthorized);
+    }
+    // A transfer whose proposer has since been removed must not complete (#1504).
+    if !Storage::is_admin(env, &pending.proposed_by) {
         return Err(Error::Unauthorized);
     }
     Storage::add_admin(env, &new_admin);
@@ -819,6 +824,21 @@ pub fn health_check(env: &Env) -> crate::types::HealthStatus {
 // Council actions with timelock (Issue #790)
 // -----------------------------------------------------------------------
 
+/// Start the timelock once enough council members have approved (#1501).
+///
+/// Called from both proposal creation and approval, so a one-member council
+/// reaches quorum at creation.
+fn apply_quorum(env: &Env, proposal: &mut CouncilProposal) -> Result<(), Error> {
+    let council = Storage::get_admin_council(env)?;
+    let quorum = council.len() / 2 + 1;
+    if proposal.approvals.len() >= quorum && proposal.quorum_reached_at.is_none() {
+        let ts = env.ledger().timestamp();
+        proposal.quorum_reached_at = Some(ts);
+        Events::council_timelock_started(env, proposal.id, ts);
+    }
+    Ok(())
+}
+
 pub fn create_council_proposal(
     env: &Env,
     proposer: Address,
@@ -831,7 +851,7 @@ pub fn create_council_proposal(
     let mut approvals: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(env);
     approvals.push_back(proposer.clone());
 
-    let proposal = CouncilProposal {
+    let mut proposal = CouncilProposal {
         id,
         operation,
         proposer: proposer.clone(),
@@ -839,6 +859,7 @@ pub fn create_council_proposal(
         executed: false,
         quorum_reached_at: None,
     };
+    apply_quorum(env, &mut proposal)?;
     Storage::set_proposal(env, &proposal);
     Events::proposal_created(env, id, &proposer);
     Ok(id)
@@ -865,16 +886,7 @@ pub fn approve_council_proposal(
     proposal.approvals.push_back(approver.clone());
     Events::proposal_approved(env, proposal_id, &approver);
 
-    // Simple-majority quorum among the current council.
-    let council = Storage::get_admin_council(env)?;
-    let quorum = council.len() / 2 + 1;
-
-    if proposal.approvals.len() >= quorum && proposal.quorum_reached_at.is_none() {
-        let ts = env.ledger().timestamp();
-        proposal.quorum_reached_at = Some(ts);
-        Events::council_timelock_started(env, proposal_id, ts);
-    }
-
+    apply_quorum(env, &mut proposal)?;
     Storage::set_proposal(env, &proposal);
     Ok(())
 }
@@ -891,7 +903,20 @@ pub fn execute_council_action(
     if proposal.executed {
         return Err(Error::CouncilProposalExecuted);
     }
-    let quorum_at = proposal.quorum_reached_at.ok_or(Error::Unauthorized)?;
+    // Re-check quorum against the current council, so approvals from removed
+    // admins do not count and a shrinking council cannot leave stale quorum (#1502).
+    let council = Storage::get_admin_council(env)?;
+    let mut valid_approvals: u32 = 0;
+    for approver in proposal.approvals.iter() {
+        if Storage::is_admin(env, &approver) {
+            valid_approvals += 1;
+        }
+    }
+    if valid_approvals < council.len() / 2 + 1 {
+        return Err(Error::QuorumNotReached);
+    }
+
+    let quorum_at = proposal.quorum_reached_at.ok_or(Error::QuorumNotReached)?;
 
     let delay = Storage::get_council_timelock_delay(env);
     let now = env.ledger().timestamp();

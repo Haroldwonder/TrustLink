@@ -114,6 +114,6 @@ pub enum Error {
     InvalidAttestation = 51,
     /// Claim type has been deprecated; new attestations cannot be issued for it.
     ClaimTypeDeprecated = 54,
-    /// The bridge source transaction has already produced an attestation (#1510).
-    SourceAlreadyBridged = 57,
+    /// A council proposal was executed before it reached quorum (#1501).
+    QuorumNotReached = 56,
 }
