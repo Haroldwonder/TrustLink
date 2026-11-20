@@ -401,13 +401,11 @@ them. Any registered issuer can attest about any address. This is by design for
 permissionless verification flows, but operators building consent-based systems
 must implement consent logic in their application layer.
 
-**10. `create_attestations_batch` is not pause-gated**
+**10. `create_attestations_batch` is pause-gated**
 
-`create_attestations_batch` does not call `require_not_paused`. Only
-`create_attestation` (single) and `revoke_attestation` (single) are pause-gated.
-If the contract is paused to stop a compromised issuer, that issuer could still
-use the batch function. This is a known gap that should be addressed before
-mainnet.
+`create_attestations_batch` calls `require_not_paused` (see `src/attestation.rs`),
+so pausing the contract also stops batch creation. This item is closed. Reviewers
+do not need to re-check it.
 
 ---
 
