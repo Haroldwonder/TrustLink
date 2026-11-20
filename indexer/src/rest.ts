@@ -1,5 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import Fastify, { FastifyInstance } from "fastify";
+import swagger from "@fastify/swagger";
+import swaggerUi from "@fastify/swagger-ui";
 import { requireApiKey } from "./auth";
 import {
   buildAttestationExportWhere,
@@ -10,7 +12,7 @@ import {
 import { getLastLedger } from "./indexer-state";
 import { getMetrics } from "./metrics";
 import { validateWebhookUrl } from "./webhook-validation";
-import { logger } from "./logger";
+import { getVersionInfo } from "./version";
 
 let rpcClient: any | null = null;
 
@@ -25,6 +27,122 @@ async function getRpcClient() {
   }
   return rpcClient;
 }
+
+// Schema definitions for OpenAPI documentation
+const attestationsBySubjectSchema = {
+  params: {
+    type: "object",
+    required: ["subject"],
+    properties: {
+      subject: { type: "string", description: "Subject wallet address" },
+    },
+  },
+  querystring: {
+    type: "object",
+    properties: {
+      limit: { type: "string", default: "50" },
+      after: { type: "string", description: "Cursor for pagination" },
+    },
+  },
+  response: {
+    200: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              issuer: { type: "string" },
+              subject: { type: "string" },
+              claimType: { type: "string" },
+              timestamp: { type: "string" },
+              expiration: { type: ["string", "null"] },
+              isRevoked: { type: "boolean" },
+            },
+          },
+        },
+        nextCursor: { type: ["string", "null"] },
+      },
+    },
+  },
+};
+
+const attestationsByIssuerSchema = {
+  params: {
+    type: "object",
+    required: ["address"],
+    properties: {
+      address: { type: "string", description: "Issuer wallet address" },
+    },
+  },
+  querystring: {
+    type: "object",
+    properties: {
+      limit: { type: "string", default: "50" },
+      after: { type: "string", description: "Cursor for pagination" },
+    },
+  },
+  response: {
+    200: {
+      type: "object",
+      properties: {
+        items: { type: "array" },
+        nextCursor: { type: ["string", "null"] },
+      },
+    },
+  },
+};
+
+const validClaimSchema = {
+  params: {
+    type: "object",
+    required: ["address", "claim_type"],
+    properties: {
+      address: { type: "string", description: "Subject wallet address" },
+      claim_type: { type: "string", description: "Claim type identifier" },
+    },
+  },
+  response: {
+    200: {
+      type: "object",
+      properties: {
+        valid: { type: "boolean" },
+        attestationId: { type: ["string", "null"] },
+      },
+    },
+  },
+};
+
+const statsSchema = {
+  response: {
+    200: {
+      type: "object",
+      properties: {
+        total_attestations: { type: "integer" },
+        total_revocations: { type: "integer" },
+        total_issuers: { type: "integer" },
+      },
+    },
+  },
+};
+
+const versionSchema = {
+  response: {
+    200: {
+      type: "object",
+      properties: {
+        version: { type: "string", description: "Indexer package version" },
+        buildTimestamp: { type: "string", description: "Build timestamp" },
+        contractId: { type: "string", description: "Stellar contract ID" },
+        network: { type: "string", description: "Network (testnet/mainnet)" },
+        nodeEnv: { type: "string", description: "Node environment" },
+        timestamp: { type: "string", description: "Current server time" },
+      },
+    },
+  },
+};
 
 export function buildRestServer(db: PrismaClient): FastifyInstance {
   const fastify = Fastify({
@@ -49,6 +167,46 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
           };
         },
       },
+    },
+  });
+
+  // Register OpenAPI/Swagger documentation
+  fastify.register(swagger, {
+    openapi: {
+      info: {
+        title: "TrustLink Indexer API",
+        description: "REST API for querying attestations, managing webhooks, and monitoring the indexer",
+        version: "1.0.0",
+      },
+      servers: [
+        { url: "https://indexer.trustlink.io", description: "Production" },
+        { url: "https://indexer-testnet.trustlink.io", description: "Testnet" },
+        { url: "http://localhost:3000", description: "Local development" },
+      ],
+      components: {
+        securitySchemes: {
+          ApiKey: {
+            type: "apiKey",
+            in: "header",
+            name: "X-API-Key",
+            description: "API key for admin endpoints",
+          },
+        },
+      },
+      tags: [
+        { name: "Attestations", description: "Query attestations by subject or issuer" },
+        { name: "Webhooks", description: "Manage webhook subscriptions" },
+        { name: "Admin", description: "Admin operations and monitoring" },
+        { name: "Health", description: "Health check and status endpoints" },
+      ],
+    },
+  });
+
+  fastify.register(swaggerUi, {
+    routePrefix: "/docs",
+    uiConfig: {
+      docExpansion: "list",
+      deepLinking: false,
     },
   });
 
@@ -98,10 +256,15 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
     }
   });
 
+  fastify.get("/version", { schema: versionSchema }, async () => {
+    return getVersionInfo();
+  });
+
   fastify.get("/metrics", async () => getMetrics());
 
   fastify.get<{ Params: { subject: string }; Querystring: { limit?: string; after?: string } }>(
     "/attestations/:subject",
+    { schema: attestationsBySubjectSchema },
     async (req) => {
       const limit = Math.min(parseInt(req.query.limit ?? "50", 10) || 50, 500);
       const after = req.query.after;
@@ -127,6 +290,7 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
 
   fastify.get<{ Params: { address: string; claim_type: string } }>(
     "/subjects/:address/claims/:claim_type/valid",
+    { schema: validClaimSchema },
     async (req, reply) => {
       // Get ledger time from latest checkpoint for consistency with on-chain behavior
       const checkpoint = await db.checkpoint.findUnique({ where: { id: 1 } });
@@ -158,6 +322,7 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
 
   fastify.get<{ Params: { address: string }; Querystring: { limit?: string; after?: string } }>(
     "/issuers/:address/attestations",
+    { schema: attestationsByIssuerSchema },
     async (req) => {
       const limit = Math.min(parseInt(req.query.limit ?? "50", 10) || 50, 500);
       const after = req.query.after;
@@ -227,7 +392,7 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
     return reply.send(createAttestationExportStream(db, where, format));
   });
 
-  fastify.get("/stats", async () => {
+  fastify.get("/stats", { schema: statsSchema }, async () => {
     const [total, revoked, issuers] = await Promise.all([
       db.attestation.count(),
       db.attestation.count({ where: { isRevoked: true } }),

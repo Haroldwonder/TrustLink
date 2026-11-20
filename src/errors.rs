@@ -84,6 +84,10 @@ pub enum Error {
     RequestExpired = 38,
     /// Duplicate request.
     DuplicateRequest = 39,
+    /// Issuer has too many pending requests (rate limit exceeded).
+    IssuerPendingRequestLimitExceeded = 52,
+    /// Subject-issuer pair has too many pending requests (rate limit exceeded).
+    SubjectIssuerPendingRequestLimitExceeded = 53,
 
     // Admin and governance (40-43)
     /// Cannot remove the last admin.

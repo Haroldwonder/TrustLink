@@ -23,22 +23,42 @@ pub fn request_attestation(
 
     let current_time = env.ledger().timestamp();
 
-    // Check if there's already a pending, unexpired request for the same (subject, issuer, claim_type)
+    // Get all pending request IDs for this issuer
     let pending_ids = Storage::get_pending_request_ids(env, &issuer);
+    let pending_count = pending_ids.len();
+
+    // RATE LIMIT: Check issuer's total pending request count
+    // This prevents a spammer from filling the issuer's pending list
+    if pending_count >= crate::types::MAX_PENDING_REQUESTS_PER_ISSUER {
+        return Err(Error::IssuerPendingRequestLimitExceeded);
+    }
+
+    // Check for duplicates and count pending requests for this specific (subject, issuer) pair
+    let mut subject_issuer_pending_count: u32 = 0;
     for existing_id in pending_ids.iter() {
         if let Ok(existing_req) = Storage::get_request(env, &existing_id) {
+            // Only count pending, unexpired requests for this subject-issuer pair
             if existing_req.subject == subject
-                && existing_req.claim_type == claim_type
                 && existing_req.status == RequestStatus::Pending
-                && current_time < existing_req.expires_at {
-                return Err(Error::DuplicateRequest);
+                && current_time < existing_req.expires_at
+            {
+                subject_issuer_pending_count += 1;
+
+                // Check for exact duplicate (same subject + claim_type)
+                if existing_req.claim_type == claim_type {
+                    return Err(Error::DuplicateRequest);
+                }
             }
         }
     }
 
-    // Get and increment the per-subject nonce to prevent ID collisions
-    let nonce = Storage::get_and_increment_request_nonce(env, &subject);
-    let request_id = AttestationRequest::generate_id(env, &subject, &issuer, &claim_type, current_time, nonce);
+    // RATE LIMIT: Check pending requests per (subject, issuer) pair
+    // This prevents a single subject from spamming a specific issuer
+    if subject_issuer_pending_count >= crate::types::MAX_PENDING_REQUESTS_PER_SUBJECT_ISSUER {
+        return Err(Error::SubjectIssuerPendingRequestLimitExceeded);
+    }
+
+    let request_id = AttestationRequest::generate_id(env, &subject, &issuer, &claim_type, current_time);
     let expires_at = current_time + ATTESTATION_REQUEST_TTL_SECS;
     let request = AttestationRequest {
         id: request_id.clone(),

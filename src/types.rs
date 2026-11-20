@@ -19,6 +19,15 @@ pub const ATTESTATION_REQUEST_TTL_SECS: u64 = 7 * 24 * 60 * 60;
 /// Seconds in one day.
 pub const SECS_PER_DAY: u64 = 86_400;
 
+/// Maximum pending requests allowed per issuer.
+/// Prevents a spammer from filling an issuer's pending list and causing
+/// O(n) scans in request_attestation, get_pending_requests, and cleanup_expired_requests.
+pub const MAX_PENDING_REQUESTS_PER_ISSUER: u32 = 100;
+
+/// Maximum pending requests allowed per (subject, issuer) pair.
+/// Prevents a single subject from spamming requests to a specific issuer.
+pub const MAX_PENDING_REQUESTS_PER_SUBJECT_ISSUER: u32 = 10;
+
 /// Status of an attestation request.
 #[contracttype]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
