@@ -24,3 +24,9 @@ name = "fuzz_multisig_lifecycle"
 path = "fuzz_targets/fuzz_multisig_lifecycle.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "fuzz_attestation_requests"
+path = "fuzz_targets/fuzz_attestation_requests.rs"
+test = false
+doc = false
