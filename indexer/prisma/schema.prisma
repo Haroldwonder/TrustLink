@@ -133,6 +133,9 @@ model RawEvent {
   @@index([contractId])
 }
 
+// #1506 / #1518: Migration creating the bridge registry and config-change
+// history tables. See indexer/prisma/migrations/20240101000000_add_bridge_and_config_change/migration.sql
+//
 // #975: Dead-letter table for events that failed processing.
 // Failed events are written here instead of being silently dropped, so
 // operators can inspect and reprocess them. Status transitions:
@@ -301,4 +304,38 @@ model CouncilAction {
 
   @@index([executed])
   @@index([proposer])
+}
+
+// #1506: Bridge registry — tracks on-chain registered bridge contracts.
+// A bridge is registered via `register_bridge` (brg_reg) and deregistered
+// via `remove_bridge` (brg_rem). Removed bridges keep their row for audit
+// purposes (removedAt set, active=false).
+model Bridge {
+  address      String    @id // bridge contract address
+  registeredAt DateTime  @default(now())
+  removedAt    DateTime?
+  active       Boolean   @default(true)
+
+  @@index([active])
+  @@index([registeredAt])
+}
+
+// #1518: Config-change history — one row per admin setter invocation.
+// `key` is the config key Symbol (e.g. "fee", "rate_limit", "chunk_size").
+// `oldValue` / `newValue` hold the serialised values as JSON.
+model ConfigChange {
+  id        String   @id @default(cuid())
+  admin     String
+  key       String
+  oldValue  Json?
+  newValue  Json?
+  ledger    Int
+  timestamp BigInt
+  createdAt DateTime @default(now())
+
+  @@index([key])
+  @@index([ledger])
+  @@index([admin])
+  @@index([createdAt])
+  @@map("config_changes")
 }

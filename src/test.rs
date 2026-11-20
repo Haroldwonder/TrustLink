@@ -13211,6 +13211,313 @@ fn test_get_issuer_tier_unregistered_returns_none() {
     assert_eq!(client.get_issuer_tier(&issuer), None);
 }
 
+// ── Issue #1506: bridge deregistration ───────────────────────────────────────
+
+#[test]
+fn test_remove_bridge_round_trip() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+
+    client.register_bridge(&admin, &bridge);
+    assert!(client.is_bridge(&bridge));
+    assert!(client.get_bridges().iter().any(|b| b == bridge));
+
+    client.remove_bridge(&admin, &bridge);
+    assert!(!client.is_bridge(&bridge));
+    assert!(!client.get_bridges().iter().any(|b| b == bridge));
+}
+
+#[test]
+fn test_removed_bridge_attestation_unauthorized() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let source_chain = String::from_str(&env, "ethereum");
+    let source_tx = String::from_str(&env, "0xabc123");
+
+    client.register_bridge(&admin, &bridge);
+    client.remove_bridge(&admin, &bridge);
+
+    let result = client.try_bridge_attestation(
+        &bridge,
+        &subject,
+        &claim_type,
+        &source_chain,
+        &source_tx,
+        &None,
+    );
+    assert_eq!(result, Err(Ok(types::Error::Unauthorized)));
+}
+
+#[test]
+fn test_remove_bridge_unauthorized() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+    let wrong_admin = Address::generate(&env);
+
+    client.register_bridge(&admin, &bridge);
+
+    let result = client.try_remove_bridge(&wrong_admin, &bridge);
+    assert_eq!(result, Err(Ok(types::Error::Unauthorized)));
+    assert!(client.is_bridge(&bridge));
+}
+
+#[test]
+fn test_remove_bridge_unknown() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+
+    let result = client.try_remove_bridge(&admin, &bridge);
+    assert_eq!(result, Err(Ok(types::Error::NotFound)));
+}
+
+#[test]
+fn test_register_bridge_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+
+    client.pause(&admin);
+
+    let result = client.try_register_bridge(&admin, &bridge);
+    assert_eq!(result, Err(Ok(types::Error::ContractPaused)));
+    assert!(!client.is_bridge(&bridge));
+}
+
+#[test]
+fn test_register_bridge_emits_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+    let timestamp = 1234567890u64;
+    env.ledger().set_timestamp(timestamp);
+
+    client.register_bridge(&admin, &bridge);
+
+    let events = env.events().all();
+    let mut found_event = false;
+    for (_, topic, data) in events {
+        let topic0: soroban_sdk::Symbol =
+            soroban_sdk::TryFromVal::try_from_val(&env, &topic.get(0).unwrap()).unwrap();
+        if topic0 == soroban_sdk::symbol_short!("brg_reg") {
+            let topic1: Address =
+                soroban_sdk::TryFromVal::try_from_val(&env, &topic.get(1).unwrap()).unwrap();
+            let event_data: (Address, u64) =
+                soroban_sdk::TryFromVal::try_from_val(&env, &data).unwrap();
+
+            assert_eq!(topic1, bridge);
+            assert_eq!(event_data.0, admin);
+            assert_eq!(event_data.1, timestamp);
+            found_event = true;
+            break;
+        }
+    }
+    assert!(found_event, "brg_reg event not found");
+}
+
+#[test]
+fn test_remove_bridge_emits_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+    client.register_bridge(&admin, &bridge);
+
+    let timestamp = 1234567890u64;
+    env.ledger().set_timestamp(timestamp);
+
+    client.remove_bridge(&admin, &bridge);
+
+    let events = env.events().all();
+    let mut found_event = false;
+    for (_, topic, data) in events {
+        let topic0: soroban_sdk::Symbol =
+            soroban_sdk::TryFromVal::try_from_val(&env, &topic.get(0).unwrap()).unwrap();
+        if topic0 == soroban_sdk::symbol_short!("brg_rem") {
+            let topic1: Address =
+                soroban_sdk::TryFromVal::try_from_val(&env, &topic.get(1).unwrap()).unwrap();
+            let event_data: (Address, u64) =
+                soroban_sdk::TryFromVal::try_from_val(&env, &data).unwrap();
+
+            assert_eq!(topic1, bridge);
+            assert_eq!(event_data.0, admin);
+            assert_eq!(event_data.1, timestamp);
+            found_event = true;
+            break;
+        }
+    }
+    assert!(found_event, "brg_rem event not found");
+}
+
+// ── Issue #1518: admin config setters emit cfg_set events ────────────────────
+
+/// Assert that a `cfg_set` event was emitted for `key` with the given admin.
+fn assert_cfg_set_event(env: &Env, key: &str, admin: &Address) {
+    let key_sym = soroban_sdk::Symbol::new(env, key);
+    let mut found = false;
+    for (_, topic, data) in env.events().all() {
+        let topic0: soroban_sdk::Symbol =
+            soroban_sdk::TryFromVal::try_from_val(env, &topic.get(0).unwrap()).unwrap();
+        if topic0 != soroban_sdk::symbol_short!("cfg_set") {
+            continue;
+        }
+        let topic1: soroban_sdk::Symbol =
+            soroban_sdk::TryFromVal::try_from_val(env, &topic.get(1).unwrap()).unwrap();
+        if topic1 != key_sym {
+            continue;
+        }
+        let event_admin: Address =
+            soroban_sdk::TryFromVal::try_from_val(env, &data).unwrap();
+        assert_eq!(&event_admin, admin);
+        found = true;
+        break;
+    }
+    assert!(found, "cfg_set event for key {} not found", key);
+}
+
+#[test]
+fn test_set_fee_emits_cfg_set_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let token = register_test_token(&env, &admin);
+    let collector = Address::generate(&env);
+
+    client.set_fee(&admin, &100, &token, &collector);
+    assert_cfg_set_event(&env, "fee", &admin);
+}
+
+#[test]
+fn test_set_rate_limit_emits_cfg_set_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+
+    client.set_rate_limit(&admin, &1_000);
+    assert_cfg_set_event(&env, "rate_limit", &admin);
+}
+
+#[test]
+fn test_set_rate_limit_for_claim_type_emits_cfg_set_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let claim = String::from_str(&env, "KYC_PASSED");
+
+    client.set_rate_limit_for_claim_type(&admin, &claim, &1_000);
+    assert_cfg_set_event(&env, "rate_limit_ct", &admin);
+}
+
+#[test]
+fn test_set_limits_emits_cfg_set_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+
+    client.set_limits(&admin, &10, &100, &1_000);
+    assert_cfg_set_event(&env, "limits", &admin);
+}
+
+#[test]
+fn test_set_chunk_size_emits_cfg_set_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+
+    client.set_chunk_size(&admin, &50);
+    assert_cfg_set_event(&env, "chunk_size", &admin);
+}
+
+#[test]
+fn test_set_decay_config_emits_cfg_set_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+
+    client.set_decay_config(&admin, &Some(1_000), &Some(500));
+    assert_cfg_set_event(&env, "decay", &admin);
+}
+
+#[test]
+fn test_set_council_timelock_delay_emits_cfg_set_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+
+    client.set_council_timelock_delay(&admin, &1_000);
+    assert_cfg_set_event(&env, "timelock", &admin);
+}
+
+#[test]
+fn test_set_registered_claim_type_emits_cfg_set_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+
+    client.set_registered_claim_type(&admin, &true);
+    assert_cfg_set_event(&env, "req_claim_type", &admin);
+}
+
+#[test]
+fn test_set_metadata_hash_only_emits_cfg_set_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+
+    client.set_metadata_hash_only(&admin, &true);
+    assert_cfg_set_event(&env, "meta_hash_only", &admin);
+}
+
+#[test]
+fn test_set_claim_type_constraints_emits_cfg_set_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let claim = String::from_str(&env, "KYC_PASSED");
+
+    client.set_claim_type_constraints(&admin, &claim, &None, &None);
+    assert_cfg_set_event(&env, "claim_constraints", &admin);
+}
+
+#[test]
+fn test_set_multisig_ttl_emits_cfg_set_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+
+    client.set_multisig_ttl(&admin, &1_000);
+    assert_cfg_set_event(&env, "multisig_ttl", &admin);
+}
+
 // ── Issue #1509: bridge revocation and expiry ─────────────────────────────────
 
 #[test]

@@ -219,6 +219,89 @@ mod tests {
     }
 
     #[test]
+    fn test_removed_bridge_cannot_create_attestation() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let trustlink_id = env.register_contract(None, TrustLinkContract);
+        let trustlink = TrustLinkContractClient::new(&env, &trustlink_id);
+
+        let admin = Address::generate(&env);
+        let bridge = Address::generate(&env);
+        let subject = Address::generate(&env);
+        let claim = String::from_str(&env, "KYC_PASSED");
+        let source_chain = String::from_str(&env, "ethereum");
+        let source_tx = String::from_str(&env, "0xabc");
+
+        trustlink.initialize(&admin, &None);
+        trustlink.register_bridge(&admin, &bridge);
+
+        // The registered bridge can mint a Bridged attestation.
+        let id = trustlink.bridge_attestation(
+            &bridge,
+            &subject,
+            &claim,
+            &source_chain,
+            &source_tx,
+        );
+        let attestation = trustlink.get_attestation(&id);
+        assert_eq!(attestation.subject, subject);
+
+        // Remove the bridge.
+        trustlink.remove_bridge(&admin, &bridge);
+
+        // The removed bridge can no longer mint attestations.
+        let result = trustlink.try_bridge_attestation(
+            &bridge,
+            &subject,
+            &claim,
+            &source_chain,
+            &source_tx,
+        );
+        assert_eq!(
+            result,
+            Err(Ok(trustlink::Error::Unauthorized)),
+            "removed bridge should be unauthorized"
+        );
+    }
+
+    #[test]
+    fn test_council_remove_bridge() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let trustlink_id = env.register_contract(None, TrustLinkContract);
+        let trustlink = TrustLinkContractClient::new(&env, &trustlink_id);
+
+        let admin = Address::generate(&env);
+        let bridge = Address::generate(&env);
+
+        trustlink.initialize(&admin, &None);
+        trustlink.register_bridge(&admin, &bridge);
+
+        let op = trustlink::CouncilOperation::RemoveBridge(bridge.clone());
+        let proposal_id = trustlink.propose_council_operation(&admin, &op);
+        trustlink.execute_council_operation(&admin, &proposal_id);
+
+        // The bridge is no longer registered.
+        assert!(!trustlink.is_bridge(&bridge));
+
+        // A `brg_rem` event was emitted.
+        let events = env.events().all();
+        let mut found = false;
+        for (_, topics, _) in events.iter() {
+            for topic in topics.iter() {
+                if let Ok(sym) = soroban_sdk::Symbol::try_from_val(&env, &topic) {
+                    if sym == soroban_sdk::Symbol::new(&env, "brg_rem") {
+                        found = true;
+                    }
+                }
+            }
+        }
+        assert!(found, "brg_rem event should be emitted");
+    }
+
+    #[test]
     fn test_imported_attestation_allows_cross_contract_verification() {
         let env = Env::default();
         env.mock_all_auths();

@@ -1268,6 +1268,34 @@ pub struct DisputeRecord {
 
 ---
 
+#### 52. `BridgedSourceKey { source_chain, source_tx }` *(composite key)*
+
+| Property      | Value                                         |
+|---------------|-----------------------------------------------|
+| Tier          | Persistent                                    |
+| TTL           | Per-key, set on `bridge_attestation`          |
+| Value type    | `String` (attestation ID)                     |
+| Key params    | Source chain `String`, source transaction `String` |
+| Written by    | `bridge_attestation` (internal)               |
+| Read by       | `bridge_attestation` (duplicate-source check) |
+
+This key is **not** a `StorageKey` enum variant. It is a separate
+`#[contracttype]` struct used to avoid consuming an enum slot. It maps a bridge
+source reference to the attestation created from it, so the same source
+transaction cannot be bridged twice, even in a later ledger (#1510).
+
+**Rust type:**
+```rust
+#[contracttype]
+pub struct BridgedSourceKey {
+    pub source_chain: String,
+    pub source_tx:    String,
+}
+// stored value: String (attestation ID)
+```
+
+---
+
 ## Summary table
 
 | # | Key | Tier | Value type | Key params |
@@ -1323,6 +1351,7 @@ pub struct DisputeRecord {
 | 49 | `Delegation(Address, Address, String)` | Persistent | `Delegation` | delegator, delegate, claim type |
 | 50 | `DelegatorIndex(Address)` | Persistent | `Vec<(Address, String)>` | delegator |
 | 51 | `Dispute(String)` | Persistent | `DisputeRecord` | attestation ID |
+| — | `BridgedSourceKey { source_chain, source_tx }` (composite key, #52) | Persistent | `String` | source chain, source tx |
 
 ---
 

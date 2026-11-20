@@ -108,6 +108,16 @@ pub enum StorageKey {
     EndorserIndex(Address),
 }
 
+/// Composite key mapping a bridge source transaction to the attestation it
+/// created. Stored as a separate `contracttype` struct so it doesn't count
+/// against the `StorageKey` enum variant limit (#1510).
+#[contracttype]
+#[derive(Clone)]
+pub struct BridgedSourceKey {
+    pub source_chain: String,
+    pub source_tx: String,
+}
+
 /// Composite key for per-issuer-per-claim-type last issuance timestamps.
 /// Stored as a separate `contracttype` struct so it doesn't count against
 /// the `StorageKey` enum variant limit.
@@ -367,6 +377,20 @@ impl Storage {
         env.storage().persistent().has(&StorageKey::Bridge(address.clone()))
     }
 
+    pub fn is_source_bridged(env: &Env, source_chain: &String, source_tx: &String) -> bool {
+        let key = BridgedSourceKey { source_chain: source_chain.clone(), source_tx: source_tx.clone() };
+        env.storage().persistent().has(&key)
+    }
+
+    /// Record that this source transaction produced `attestation_id`, so a
+    /// later relay of the same transaction is rejected (#1510).
+    pub fn set_source_bridged(env: &Env, source_chain: &String, source_tx: &String, attestation_id: &String) {
+        let key = BridgedSourceKey { source_chain: source_chain.clone(), source_tx: source_tx.clone() };
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, attestation_id);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
     pub fn add_bridge(env: &Env, bridge: &Address) {
         let key = StorageKey::Bridge(bridge.clone());
         let ttl = get_ttl_lifetime(env);
@@ -382,6 +406,22 @@ impl Storage {
         list.push_back(bridge.clone());
         let list_key = StorageKey::BridgeList;
         env.storage().persistent().set(&list_key, &list);
+        env.storage().persistent().extend_ttl(&list_key, ttl, ttl);
+    }
+
+    pub fn remove_bridge(env: &Env, bridge: &Address) {
+        env.storage().persistent().remove(&StorageKey::Bridge(bridge.clone()));
+        // Filter the address out of the ordered BridgeList so it stays consistent.
+        let ttl = get_ttl_lifetime(env);
+        let list = Self::get_bridge_list(env);
+        let mut updated = Vec::new(env);
+        for existing in list.iter() {
+            if &existing != bridge {
+                updated.push_back(existing);
+            }
+        }
+        let list_key = StorageKey::BridgeList;
+        env.storage().persistent().set(&list_key, &updated);
         env.storage().persistent().extend_ttl(&list_key, ttl, ttl);
     }
 
@@ -685,6 +725,12 @@ impl Storage {
 
     pub fn get_limits(env: &Env) -> StorageLimits {
         get_misc_config(env).storage_limits
+    }
+
+    /// Read the current `MiscConfig` bundle (used to capture old values before
+    /// an admin setter mutates one of its fields).
+    pub fn get_misc_config(env: &Env) -> MiscConfig {
+        get_misc_config(env)
     }
 
     pub fn set_limits(env: &Env, limits: &StorageLimits) {

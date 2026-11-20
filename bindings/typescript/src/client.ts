@@ -365,6 +365,11 @@ export class TrustLinkClient {
     return this.invoke("register_bridge", [addr(admin.publicKey()), addr(bridgeContract)], admin);
   }
 
+  /** Remove a registered bridge contract. Admin only. */
+  async removeBridge(admin: Keypair, bridgeContract: string): Promise<string> {
+    return this.invoke("remove_bridge", [addr(admin.publicKey()), addr(bridgeContract)], admin);
+  }
+
   /** Return true if the address is a registered bridge contract. */
   async isBridge(address: string): Promise<boolean> {
     return this.simulate("is_bridge", [addr(address)]) as Promise<boolean>;

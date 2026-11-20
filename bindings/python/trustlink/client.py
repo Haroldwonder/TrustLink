@@ -574,6 +574,25 @@ class TrustLinkClient:
             self._addr(issuer),
         )
 
+    def remove_bridge(self, admin_secret: str, bridge: str) -> None:
+        """Remove a registered bridge contract (admin only).
+
+        Once removed, the bridge can no longer mint ``Bridged`` attestations;
+        any subsequent ``bridge_attestation`` call from it fails with
+        ``Unauthorized``.
+
+        Args:
+            admin_secret: Admin secret key
+            bridge: Bridge contract address to remove
+        """
+        admin_addr = Keypair.from_secret(admin_secret).public_key
+        self._invoke(
+            admin_secret,
+            "remove_bridge",
+            self._addr(admin_addr),
+            self._addr(bridge),
+        )
+
     def propose_attestation(
         self,
         issuer_secret: str,
