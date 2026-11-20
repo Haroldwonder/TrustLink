@@ -42,3 +42,28 @@ To confirm the job would catch the audit-class failure:
    variant errors — proving a clean checkout does not hide the break behind cache.
 
 Do not merge such a test PR; close it after the red X is observed.
+
+## Rust toolchain pinning
+
+`rust-toolchain.toml` pins `channel` to an exact version (e.g. `1.xx.0`)
+rather than `stable`, so the compiler does not change underneath us when a new
+stable release ships. This keeps WASM builds reproducible (identical hashes
+across machines and CI runs) and prevents new warnings or errors from
+appearing without any code change.
+
+### Bumping the toolchain
+
+Dependabot is configured for the `rust-toolchain` ecosystem and opens a PR
+whenever a newer Rust release is available. Review the PR, let CI (including
+the Clean Build job) go green, and merge it.
+
+To bump manually:
+
+1. Update `channel` in `rust-toolchain.toml` to the new exact version.
+2. Run the Clean Build steps locally (or trigger the `Clean Build` workflow via
+   `workflow_dispatch`) to confirm `cargo check --lib`, `cargo test`, and the
+   `wasm32-unknown-unknown` release build all succeed.
+3. Verify WASM hash stability: build the release WASM before and after the
+   bump and compare hashes. Any difference should be explainable by the
+   compiler change; if not, investigate before merging.
+=======

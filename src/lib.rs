@@ -31,7 +31,7 @@ pub(crate) mod callback {
     }
 }
 
-use soroban_sdk::{contract, contractimpl, Address, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Vec};
 use crate::events::Events;
 use crate::storage::Storage;
 use crate::types::{
@@ -115,8 +115,52 @@ impl TrustLinkContract {
         admin::register_issuer(&env, admin, issuer)
     }
 
+    /// Remove a registered issuer.
+    ///
+    /// Issue #1507: after removal, every attestation previously issued by
+    /// `issuer` is treated as invalid by all `has_*` / `get_valid_claims` /
+    /// `get_attestation_by_type` queries (strict mode), even if the
+    /// attestation itself is not revoked or expired. Use
+    /// [`revoke_all_from_issuer`] to additionally mark them revoked on-chain.
     pub fn remove_issuer(env: Env, admin: Address, issuer: Address) -> Result<(), Error> {
         admin::remove_issuer(&env, admin, issuer)
+    }
+
+    /// Emergency path: revoke every attestation issued by `issuer`.
+    ///
+    /// Issue #1507: lets the admin invalidate all attestations of a
+    /// compromised or misbehaving issuer in a single call. Attestations are
+    /// marked revoked (with `reason`) and the issuer is removed from the
+    /// registry. Returns the number of attestations revoked.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — `admin` is not a registered administrator.
+    /// - [`Error::ContractPaused`] — contract is paused.
+    pub fn revoke_all_from_issuer(
+        env: Env,
+        admin: Address,
+        issuer: Address,
+        reason: Option<String>,
+    ) -> Result<u32, Error> {
+        admin::revoke_all_from_issuer(&env, admin, issuer, reason)
+    }
+
+    /// Emergency path: admin-revoke a single attestation regardless of issuer.
+    ///
+    /// Issue #1507: the admin can revoke any attestation, including ones
+    /// minted by an issuer that has already been removed.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — `admin` is not a registered administrator.
+    /// - [`Error::NotFound`] — `attestation_id` does not exist.
+    /// - [`Error::ContractPaused`] — contract is paused.
+    pub fn admin_revoke_attestation(
+        env: Env,
+        admin: Address,
+        attestation_id: String,
+        reason: Option<String>,
+    ) -> Result<(), Error> {
+        admin::admin_revoke_attestation(&env, admin, attestation_id, reason)
     }
 
     #[must_use]
@@ -212,6 +256,10 @@ impl TrustLinkContract {
 
     pub fn register_bridge(env: Env, admin: Address, bridge_contract: Address) -> Result<(), Error> {
         admin::register_bridge(&env, admin, bridge_contract)
+    }
+
+    pub fn remove_bridge(env: Env, admin: Address, bridge: Address) -> Result<(), Error> {
+        admin::remove_bridge(&env, admin, bridge)
     }
 
     pub fn is_bridge(env: Env, address: Address) -> bool {
@@ -626,20 +674,40 @@ impl TrustLinkContract {
     // Query
     // -----------------------------------------------------------------------
 
+    /// Returns `true` if `subject` holds a valid attestation of `claim_type`.
+    ///
+    /// Issue #1507 (strict mode): attestations whose issuer is no longer a
+    /// registered issuer are treated as invalid, in addition to the usual
+    /// revoked / expired / not-yet-valid checks.
     #[must_use]
     pub fn has_valid_claim(env: Env, subject: Address, claim_type: String) -> bool {
         query::has_valid_claim(&env, subject, claim_type)
     }
 
+    /// Returns `true` if `subject` holds a valid attestation of `claim_type`
+    /// issued by `issuer`.
+    ///
+    /// Issue #1507 (strict mode): returns `false` if `issuer` is not a
+    /// currently registered issuer.
     pub fn has_valid_claim_from_issuer(env: Env, subject: Address, claim_type: String, issuer: Address) -> bool {
         query::has_valid_claim_from_issuer(&env, subject, claim_type, issuer)
     }
 
+    /// Returns `true` if `subject` holds a valid attestation for at least one
+    /// of `claim_types`.
+    ///
+    /// Issue #1507 (strict mode): attestations from removed issuers are
+    /// ignored.
     #[must_use]
     pub fn has_any_claim(env: Env, subject: Address, claim_types: Vec<String>) -> bool {
         query::has_any_claim(&env, subject, claim_types)
     }
 
+    /// Returns `true` if `subject` holds a valid attestation for every one of
+    /// `claim_types`.
+    ///
+    /// Issue #1507 (strict mode): attestations from removed issuers are
+    /// ignored.
     #[must_use]
     pub fn has_all_claims(env: Env, subject: Address, claim_types: Vec<String>) -> bool {
         query::has_all_claims(&env, subject, claim_types)
@@ -738,11 +806,20 @@ impl TrustLinkContract {
         query::get_issuer_attestation_count(&env, issuer)
     }
 
+    /// Return the distinct claim types for which `subject` holds a valid
+    /// attestation.
+    ///
+    /// Issue #1507 (strict mode): attestations from removed issuers are
+    /// excluded.
     #[must_use]
     pub fn get_valid_claims(env: Env, subject: Address) -> Vec<String> {
         query::get_valid_claims(&env, subject)
     }
 
+    /// Return the most recent valid attestation of `claim_type` for `subject`.
+    ///
+    /// Issue #1507 (strict mode): attestations from removed issuers are
+    /// skipped.
     #[must_use]
     pub fn get_attestation_by_type(env: Env, subject: Address, claim_type: String) -> Option<Attestation> {
         query::get_attestation_by_type(&env, subject, claim_type)
@@ -828,7 +905,15 @@ impl TrustLinkContract {
         multisig::get_multisig_ttl(&env)
     }
 
+    /// Set the multi-sig proposal TTL, in days.
+    ///
+    /// Issue #1519: `days` must be in `1..=MAX_MULTISIG_TTL_DAYS`; `0` would
+    /// make every new proposal expire at creation. Out-of-range values are
+    /// rejected with [`Error::InvalidConfigValue`].
     pub fn set_multisig_ttl(env: Env, admin: Address, days: u32) -> Result<(), Error> {
+        if days == 0 || days > crate::constants::MAX_MULTISIG_TTL_DAYS {
+            return Err(Error::InvalidConfigValue);
+        }
         multisig::set_multisig_ttl(&env, admin, days)
     }
 
@@ -845,8 +930,8 @@ impl TrustLinkContract {
     // Attestation requests
     // -----------------------------------------------------------------------
 
-    pub fn request_attestation(env: Env, subject: Address, issuer: Address, claim_type: String) -> Result<String, Error> {
-        request::request_attestation(&env, subject, issuer, claim_type)
+    pub fn request_attestation(env: Env, subject: Address, issuer: Address, claim_type: String, evidence_hash: Option<BytesN<32>>) -> Result<String, Error> {
+        request::request_attestation(&env, subject, issuer, claim_type, evidence_hash)
     }
 
     pub fn fulfill_request(env: Env, issuer: Address, request_id: String, expiration: Option<u64>) -> Result<String, Error> {
@@ -872,6 +957,16 @@ impl TrustLinkContract {
 
     pub fn cleanup_expired_requests(env: Env, issuer: Address) -> Result<(), Error> {
         request::cleanup_expired_requests(&env, issuer)
+    }
+
+    #[must_use]
+    pub fn get_requests_by_subject(env: Env, subject: Address, start: u32, limit: u32) -> Vec<AttestationRequest> {
+        request::get_requests_by_subject(&env, subject, start, limit)
+    }
+
+    #[must_use]
+    pub fn get_requests_by_subject(env: Env, subject: Address, start: u32, limit: u32) -> Vec<AttestationRequest> {
+        request::get_requests_by_subject(&env, subject, start, limit)
     }
 
     // -----------------------------------------------------------------------

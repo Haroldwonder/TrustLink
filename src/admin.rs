@@ -1,4 +1,4 @@
-use soroban_sdk::{token::TokenClient, Address, Env, String, Vec};
+use soroban_sdk::{token::TokenClient, Address, Env, IntoVal, String, Vec};
 
 use crate::events::Events;
 use crate::storage::Storage;
@@ -27,7 +27,8 @@ pub fn initialize(env: &Env, admin: Address, ttl_days: Option<u32>) -> Result<()
     council.push_back(admin.clone());
     Storage::set_admin_council(env, &council);
     Storage::set_version(env, &String::from_str(env, env!("CARGO_PKG_VERSION")));
-    Storage::set_fee_config(env, &FeeConfig { attestation_fee: 0, fee_collector: admin.clone(), fee_token: None });
+    // The contract itself is the default collector, never an admin (#1516, ADR-012).
+    Storage::set_fee_config(env, &FeeConfig { attestation_fee: 0, fee_collector: env.current_contract_address(), fee_token: None });
     Storage::set_ttl_config(env, &TtlConfig { ttl_days: days });
     Events::admin_initialized(env, &admin, env.ledger().timestamp());
     Ok(())
@@ -35,7 +36,13 @@ pub fn initialize(env: &Env, admin: Address, ttl_days: Option<u32>) -> Result<()
 
 pub fn transfer_admin(env: &Env, current_admin: Address, new_admin: Address) -> Result<(), Error> {
     current_admin.require_auth();
+    // The new admin must authorize the handover, so a typo cannot lock the contract (#1503).
+    new_admin.require_auth();
     Validation::require_admin(env, &current_admin)?;
+    // A self-transfer would empty the council, so reject it (#1498).
+    if new_admin == current_admin {
+        return Err(Error::InvalidAdminTransfer);
+    }
     Storage::add_admin(env, &new_admin);
     Storage::remove_admin(env, &current_admin);
     Events::admin_transferred(env, &current_admin, &new_admin);
@@ -45,6 +52,9 @@ pub fn transfer_admin(env: &Env, current_admin: Address, new_admin: Address) -> 
 pub fn propose_admin_transfer(env: &Env, current_admin: Address, new_admin: Address) -> Result<(), Error> {
     current_admin.require_auth();
     Validation::require_admin(env, &current_admin)?;
+    if new_admin == current_admin {
+        return Err(Error::InvalidAdminTransfer);
+    }
     Storage::set_pending_admin_transfer(
         env,
         &PendingAdminTransfer { proposed_by: current_admin.clone(), new_admin: new_admin.clone() },
@@ -57,10 +67,9 @@ pub fn cancel_admin_transfer(env: &Env, current_admin: Address) -> Result<(), Er
     current_admin.require_auth();
     Validation::require_admin(env, &current_admin)?;
     let pending = Storage::get_pending_admin_transfer(env).ok_or(Error::NotFound)?;
-    if pending.proposed_by != current_admin {
-        return Err(Error::Unauthorized);
-    }
+    // Any admin can clear a pending transfer, including one proposed by an admin who was removed (#1504).
     Storage::remove_pending_admin_transfer(env);
+    Events::admin_transfer_cancelled(env, &current_admin, &pending.proposed_by);
     Ok(())
 }
 
@@ -69,6 +78,9 @@ pub fn accept_admin_transfer(env: &Env, new_admin: Address) -> Result<(), Error>
     let pending = Storage::get_pending_admin_transfer(env).ok_or(Error::NotFound)?;
     if pending.new_admin != new_admin {
         return Err(Error::Unauthorized);
+    }
+    if pending.proposed_by == pending.new_admin {
+        return Err(Error::InvalidAdminTransfer);
     }
     Storage::add_admin(env, &new_admin);
     Storage::remove_admin(env, &pending.proposed_by);
@@ -84,6 +96,10 @@ pub fn get_pending_admin_transfer(env: &Env) -> Option<PendingAdminTransfer> {
 pub fn add_admin(env: &Env, existing_admin: Address, new_admin: Address) -> Result<(), Error> {
     existing_admin.require_auth();
     Validation::require_admin(env, &existing_admin)?;
+    // With a multi-admin council, membership changes need a quorum proposal (#1499).
+    if Storage::get_admin_council(env)?.len() > 1 {
+        return Err(Error::Unauthorized);
+    }
     if Storage::is_admin(env, &new_admin) {
         return Ok(());
     }
@@ -96,6 +112,10 @@ pub fn remove_admin(env: &Env, existing_admin: Address, admin_to_remove: Address
     existing_admin.require_auth();
     Validation::require_admin(env, &existing_admin)?;
     let council = Storage::get_admin_council(env)?;
+    // With a multi-admin council, removal needs a quorum proposal (#1499).
+    if council.len() > 1 {
+        return Err(Error::Unauthorized);
+    }
     if council.len() <= 1 {
         return Err(Error::LastAdminCannotBeRemoved);
     }
@@ -126,6 +146,10 @@ pub fn register_issuer(env: &Env, admin: Address, issuer: Address) -> Result<(),
     if Storage::is_bridge(env, &issuer) {
         return Err(Error::Unauthorized);
     }
+    // Re-registering an existing issuer must not bump stats or emit events (#1505).
+    if Storage::is_issuer(env, &issuer) {
+        return Ok(());
+    }
     Storage::add_issuer(env, &issuer);
     Storage::increment_total_issuers(env);
     Events::issuer_registered(env, &issuer, &admin, env.ledger().timestamp());
@@ -136,6 +160,10 @@ pub fn remove_issuer(env: &Env, admin: Address, issuer: Address) -> Result<(), E
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
     Validation::require_not_paused(env)?;
+    // With a multi-admin council, removal must go through a quorum proposal (#1500).
+    if Storage::get_admin_council(env)?.len() > 1 {
+        return Err(Error::Unauthorized);
+    }
     Storage::remove_issuer(env, &issuer);
     Storage::decrement_total_issuers(env);
     Events::issuer_removed(env, &issuer, &admin, env.ledger().timestamp());
@@ -255,10 +283,32 @@ pub fn get_confidence_score(env: &Env, attestation_id: String) -> Option<u32> {
     Some(decayed as u32)
 }
 
+/// Set the decay configuration used by [`get_confidence_score`].
+///
+/// # Bounds
+/// - `revocation_weight` must be `<= MAX_REVOCATION_WEIGHT` (100, i.e. a percentage).
+/// - `half_life_days` must be `<= MAX_HALF_LIFE_DAYS`.
+///
+/// # Errors
+/// - [`Error::Unauthorized`] — caller is not an admin.
+/// - [`Error::InvalidConfigValue`] — a field is out of range.
 pub fn set_decay_config(env: &Env, admin: Address, config: DecayConfig) -> Result<(), Error> {
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
+    if config.revocation_weight > crate::constants::MAX_REVOCATION_WEIGHT {
+        return Err(Error::InvalidConfigValue);
+    }
+    if config.half_life_days > crate::constants::MAX_HALF_LIFE_DAYS {
+        return Err(Error::InvalidConfigValue);
+    }
     Storage::set_decay_config(env, &config);
+    Events::config_changed(
+        env,
+        &admin,
+        soroban_sdk::symbol_short!("decay"),
+        old.into_val(env),
+        config.into_val(env),
+    );
     Ok(())
 }
 
@@ -333,10 +383,31 @@ pub fn get_issuer_tier(env: &Env, issuer: Address) -> Option<IssuerTier> {
 pub fn register_bridge(env: &Env, admin: Address, bridge_contract: Address) -> Result<(), Error> {
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
+    Validation::require_not_paused(env)?;
     if Storage::is_issuer(env, &bridge_contract) {
         return Err(Error::Unauthorized);
     }
     Storage::add_bridge(env, &bridge_contract);
+    Events::bridge_registered(env, &bridge_contract, &admin, env.ledger().timestamp());
+    Events::config_changed(
+        env,
+        &admin,
+        soroban_sdk::symbol_short!("brg_reg"),
+        false.into_val(env),
+        true.into_val(env),
+    );
+    Ok(())
+}
+
+pub fn remove_bridge(env: &Env, admin: Address, bridge_contract: Address) -> Result<(), Error> {
+    admin.require_auth();
+    Validation::require_admin(env, &admin)?;
+    Validation::require_not_paused(env)?;
+    if !Storage::is_bridge(env, &bridge_contract) {
+        return Err(Error::NotFound);
+    }
+    Storage::remove_bridge(env, &bridge_contract);
+    Events::bridge_removed(env, &bridge_contract, &admin, env.ledger().timestamp());
     Ok(())
 }
 
@@ -386,22 +457,50 @@ pub fn set_fee(env: &Env, admin: Address, fee: i128, collector: Address, fee_tok
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
     validate_fee_config(env, fee, &fee_token)?;
-    if admin == collector {
+    // Reject any council member as collector, not only the caller (#1516, ADR-012).
+    if Storage::is_admin(env, &collector) {
         return Err(Error::Unauthorized);
     }
+    let old_fee = Storage::get_fee_config(env).map(|c| c.attestation_fee).unwrap_or(0);
     let fee_config = FeeConfig { attestation_fee: fee, fee_collector: collector.clone(), fee_token };
     Storage::set_fee_config(env, &fee_config);
     if let Some(mut config) = Storage::get_contract_config(env) {
         config.fee_config = fee_config;
         Storage::set_contract_config(env, &config);
     }
+    Events::config_changed(
+        env,
+        &admin,
+        soroban_sdk::symbol_short!("fee"),
+        old_fee.into_val(env),
+        fee.into_val(env),
+    );
     Ok(())
 }
 
+/// Set the global minimum issuance interval (in seconds) between attestations
+/// from the same issuer.
+///
+/// # Bounds
+/// - `min_issuance_interval` must be `<= MAX_RATE_LIMIT` seconds.
+///
+/// # Errors
+/// - [`Error::Unauthorized`] — caller is not an admin.
+/// - [`Error::InvalidConfigValue`] — `min_issuance_interval` exceeds the maximum.
 pub fn set_rate_limit(env: &Env, admin: Address, min_issuance_interval: u64) -> Result<(), Error> {
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
+    if min_issuance_interval > crate::constants::MAX_RATE_LIMIT {
+        return Err(Error::InvalidConfigValue);
+    }
     Storage::set_rate_limit_config(env, &RateLimitConfig { min_issuance_interval });
+    Events::config_changed(
+        env,
+        &admin,
+        soroban_sdk::symbol_short!("rate_lim"),
+        old.into_val(env),
+        min_issuance_interval.into_val(env),
+    );
     Ok(())
 }
 
@@ -414,8 +513,12 @@ pub fn get_rate_limit(env: &Env) -> Option<RateLimitConfig> {
 /// When set, this overrides the global rate limit for the specified claim type.
 /// If not set, the global rate limit applies.
 ///
+/// # Bounds
+/// - `interval_secs` must be `<= MAX_RATE_LIMIT` seconds.
+///
 /// # Errors
 /// - [`Error::Unauthorized`] — caller is not an admin.
+/// - [`Error::InvalidConfigValue`] — `interval_secs` exceeds the maximum.
 pub fn set_rate_limit_for_claim_type(
     env: &Env,
     admin: Address,
@@ -425,7 +528,17 @@ pub fn set_rate_limit_for_claim_type(
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
     Validation::validate_claim_type(&claim_type)?;
+    if interval_secs > crate::constants::MAX_RATE_LIMIT {
+        return Err(Error::InvalidConfigValue);
+    }
     Storage::set_claim_type_rate_limit(env, &claim_type, interval_secs);
+    Events::config_changed(
+        env,
+        &admin,
+        soroban_sdk::symbol_short!("rate_clm"),
+        old.into_val(env),
+        interval_secs.into_val(env),
+    );
     Ok(())
 }
 
@@ -467,8 +580,16 @@ pub fn set_require_registered_claim_type(env: &Env, admin: Address, require: boo
     Validation::require_admin(env, &admin)?;
 
     let mut config = Storage::get_contract_config(env).unwrap_or_else(|| ContractConfig::default_for(env));
+    let old = config.require_registered_claim_type;
     config.require_registered_claim_type = require;
     Storage::set_contract_config(env, &config);
+    Events::config_changed(
+        env,
+        &admin,
+        soroban_sdk::symbol_short!("reg_ct"),
+        old.into_val(env),
+        require.into_val(env),
+    );
     Ok(())
 }
 
@@ -482,12 +603,21 @@ pub fn set_metadata_hash_only(env: &Env, admin: Address, enabled: bool) -> Resul
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
 
+    let mut old = false;
     if let Some(mut config) = Storage::get_contract_config(env) {
+        old = config.metadata_hash_only;
         config.metadata_hash_only = enabled;
         Storage::set_contract_config(env, &config);
     }
     // If no config is stored yet, the flag defaults to false (no-op when disabling).
     // Enabling before any config exists is a no-op; callers should store config first.
+    Events::config_changed(
+        env,
+        &admin,
+        soroban_sdk::symbol_short!("meta_hsh"),
+        old.into_val(env),
+        enabled.into_val(env),
+    );
     Ok(())
 }
 
@@ -524,18 +654,33 @@ pub fn get_max_attestations_per_subject(env: &Env) -> Option<u32> {
 /// new size, producing inconsistently-sized chunks. A full index migration is
 /// required to normalise an existing index to a new chunk size.
 ///
+/// # Bounds
+/// - `chunk_size` must be in `1..=MAX_CHUNK_SIZE`.
+///
 /// # Errors
 /// - [`Error::Unauthorized`] — caller is not a registered admin.
 /// - [`Error::InvalidChunkSize`] — `chunk_size` is 0.
+/// - [`Error::InvalidConfigValue`] — `chunk_size` exceeds `MAX_CHUNK_SIZE`.
 pub fn set_chunk_size(env: &Env, admin: Address, chunk_size: u32) -> Result<(), Error> {
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
     if chunk_size == 0 {
         return Err(Error::InvalidChunkSize);
     }
+    if chunk_size > crate::constants::MAX_CHUNK_SIZE {
+        return Err(Error::InvalidConfigValue);
+    }
     let mut config = Storage::get_contract_config(env).unwrap_or_else(|| ContractConfig::default_for(env));
+    let old = config.chunk_size;
     config.chunk_size = chunk_size;
     Storage::set_contract_config(env, &config);
+    Events::config_changed(
+        env,
+        &admin,
+        soroban_sdk::symbol_short!("chunk"),
+        old.into_val(env),
+        chunk_size.into_val(env),
+    );
     Ok(())
 }
 
@@ -569,10 +714,29 @@ pub fn get_limits(env: &Env) -> StorageLimits {
     Storage::get_limits(env)
 }
 
+/// Set the global attestation limits.
+///
+/// # Bounds
+/// - `max_attestations_per_issuer` must be `>= 1`.
+/// - `max_attestations_per_subject` must be `>= 1`.
+///
+/// # Errors
+/// - [`Error::Unauthorized`] — caller is not an admin.
+/// - [`Error::InvalidConfigValue`] — either limit is 0.
 pub fn set_limits(env: &Env, admin: Address, max_attestations_per_issuer: u32, max_attestations_per_subject: u32) -> Result<(), Error> {
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
+    if max_attestations_per_issuer == 0 || max_attestations_per_subject == 0 {
+        return Err(Error::InvalidConfigValue);
+    }
     Storage::set_limits(env, &StorageLimits { max_attestations_per_issuer, max_attestations_per_subject });
+    Events::config_changed(
+        env,
+        &admin,
+        soroban_sdk::symbol_short!("limits"),
+        old.max_attestations_per_issuer.into_val(env),
+        max_attestations_per_issuer.into_val(env),
+    );
     Ok(())
 }
 
@@ -639,8 +803,16 @@ pub fn set_claim_type_constraints(env: &Env, admin: Address, claim_type: String,
     // If min is set but require_metadata is false, warn but allow (for compatibility)
     // In practice, this config is confusing but not technically invalid
 
+    let old = Storage::get_claim_type_constraints(env, &claim_type);
     Storage::set_claim_type_constraints(env, &claim_type, &constraints);
-    Events::claim_type_constraints_updated(env, &claim_type, &Some(constraints));
+    Events::claim_type_constraints_updated(env, &claim_type, &Some(constraints.clone()));
+    Events::config_changed(
+        env,
+        &admin,
+        soroban_sdk::symbol_short!("ct_cons"),
+        old.into_val(env),
+        constraints.into_val(env),
+    );
     Ok(())
 }
 
@@ -811,6 +983,21 @@ pub fn health_check(env: &Env) -> crate::types::HealthStatus {
 // Council actions with timelock (Issue #790)
 // -----------------------------------------------------------------------
 
+/// Start the timelock once enough council members have approved (#1501).
+///
+/// Called from both proposal creation and approval, so a one-member council
+/// reaches quorum at creation.
+fn apply_quorum(env: &Env, proposal: &mut CouncilProposal) -> Result<(), Error> {
+    let council = Storage::get_admin_council(env)?;
+    let quorum = council.len() / 2 + 1;
+    if proposal.approvals.len() >= quorum && proposal.quorum_reached_at.is_none() {
+        let ts = env.ledger().timestamp();
+        proposal.quorum_reached_at = Some(ts);
+        Events::council_timelock_started(env, proposal.id, ts);
+    }
+    Ok(())
+}
+
 pub fn create_council_proposal(
     env: &Env,
     proposer: Address,
@@ -823,7 +1010,7 @@ pub fn create_council_proposal(
     let mut approvals: soroban_sdk::Vec<Address> = soroban_sdk::Vec::new(env);
     approvals.push_back(proposer.clone());
 
-    let proposal = CouncilProposal {
+    let mut proposal = CouncilProposal {
         id,
         operation,
         proposer: proposer.clone(),
@@ -831,6 +1018,7 @@ pub fn create_council_proposal(
         executed: false,
         quorum_reached_at: None,
     };
+    apply_quorum(env, &mut proposal)?;
     Storage::set_proposal(env, &proposal);
     Events::proposal_created(env, id, &proposer);
     Ok(id)
@@ -857,16 +1045,7 @@ pub fn approve_council_proposal(
     proposal.approvals.push_back(approver.clone());
     Events::proposal_approved(env, proposal_id, &approver);
 
-    // Simple-majority quorum among the current council.
-    let council = Storage::get_admin_council(env)?;
-    let quorum = council.len() / 2 + 1;
-
-    if proposal.approvals.len() >= quorum && proposal.quorum_reached_at.is_none() {
-        let ts = env.ledger().timestamp();
-        proposal.quorum_reached_at = Some(ts);
-        Events::council_timelock_started(env, proposal_id, ts);
-    }
-
+    apply_quorum(env, &mut proposal)?;
     Storage::set_proposal(env, &proposal);
     Ok(())
 }
@@ -883,7 +1062,20 @@ pub fn execute_council_action(
     if proposal.executed {
         return Err(Error::CouncilProposalExecuted);
     }
-    let quorum_at = proposal.quorum_reached_at.ok_or(Error::Unauthorized)?;
+    // Re-check quorum against the current council, so approvals from removed
+    // admins do not count and a shrinking council cannot leave stale quorum (#1502).
+    let council = Storage::get_admin_council(env)?;
+    let mut valid_approvals: u32 = 0;
+    for approver in proposal.approvals.iter() {
+        if Storage::is_admin(env, &approver) {
+            valid_approvals += 1;
+        }
+    }
+    if valid_approvals < council.len() / 2 + 1 {
+        return Err(Error::QuorumNotReached);
+    }
+
+    let quorum_at = proposal.quorum_reached_at.ok_or(Error::QuorumNotReached)?;
 
     let delay = Storage::get_council_timelock_delay(env);
     let now = env.ledger().timestamp();
@@ -893,9 +1085,31 @@ pub fn execute_council_action(
 
     match proposal.operation.clone() {
         CouncilOperation::RemoveIssuer(issuer) => {
-            Storage::remove_issuer(env, &issuer);
-            Storage::decrement_total_issuers(env);
-            Events::issuer_removed(env, &issuer, &executor, now);
+            // Skip non-issuers so stats and events stay accurate (#1505).
+            if Storage::is_issuer(env, &issuer) {
+                Storage::remove_issuer(env, &issuer);
+                Storage::decrement_total_issuers(env);
+                Events::issuer_removed(env, &issuer, &executor, now);
+            }
+        }
+        CouncilOperation::AddAdmin(new_admin) => {
+            if !Storage::is_admin(env, &new_admin) {
+                Storage::add_admin(env, &new_admin);
+                Events::admin_added(env, &executor, &new_admin, now);
+            }
+        }
+        CouncilOperation::RemoveAdmin(admin_to_remove) => {
+            let council = Storage::get_admin_council(env)?;
+            if council.len() <= 1 {
+                return Err(Error::LastAdminCannotBeRemoved);
+            }
+            if Storage::is_admin(env, &admin_to_remove) {
+                Storage::remove_admin(env, &admin_to_remove);
+                Events::admin_removed(env, &executor, &admin_to_remove, now);
+            }
+        }
+        CouncilOperation::SetTimelockDelay(delay_seconds) => {
+            Storage::set_council_timelock_delay(env, delay_seconds);
         }
         CouncilOperation::PauseContract => {
             Storage::set_paused(env, true);
@@ -913,15 +1127,92 @@ pub fn get_council_proposal(env: &Env, proposal_id: u32) -> Option<CouncilPropos
     Storage::get_proposal(env, proposal_id)
 }
 
+/// Set the delay (in seconds) between a council proposal reaching quorum and
+/// being executable.
+///
+/// # Bounds
+/// - `delay_seconds` must be `<= MAX_TIMELOCK_SECS`.
+///
+/// # Errors
+/// - [`Error::Unauthorized`] — caller is not an admin.
+/// - [`Error::InvalidConfigValue`] — `delay_seconds` exceeds the maximum.
 pub fn set_council_timelock_delay(env: &Env, admin: Address, delay_seconds: u64) -> Result<(), Error> {
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
+    if delay_seconds > crate::constants::MAX_TIMELOCK_SECS {
+        return Err(Error::InvalidConfigValue);
+    }
     Storage::set_council_timelock_delay(env, delay_seconds);
+    Events::config_changed(
+        env,
+        &admin,
+        soroban_sdk::symbol_short!("tl_delay"),
+        old.into_val(env),
+        delay_seconds.into_val(env),
+    );
     Ok(())
 }
 
 pub fn get_council_timelock_delay(env: &Env) -> u64 {
     Storage::get_council_timelock_delay(env)
+}
+
+// -----------------------------------------------------------------------
+// Emergency revocation (Issue #1507)
+// -----------------------------------------------------------------------
+
+/// Emergency path: revoke every attestation issued by `issuer`.
+///
+/// Removing an issuer does not invalidate the attestations it already issued.
+/// This admin-only entry point lets the council respond to a compromised or
+/// misbehaving issuer by revoking all of its attestations in one call.
+///
+/// Attestations that are already revoked are skipped. Returns the number of
+/// attestations revoked.
+///
+/// # Errors
+/// - [`Error::Unauthorized`] — caller is not an admin.
+pub fn revoke_all_from_issuer(env: &Env, admin: Address, issuer: Address) -> Result<u32, Error> {
+    admin.require_auth();
+    Validation::require_admin(env, &admin)?;
+
+    let ids = Storage::get_issuer_attestation_ids(env, &issuer);
+    let mut revoked: u32 = 0;
+    for id in ids.iter() {
+        if let Ok(mut attestation) = Storage::get_attestation(env, &id) {
+            if attestation.revoked {
+                continue;
+            }
+            attestation.revoked = true;
+            Storage::set_attestation(env, &attestation);
+            Events::attestation_revoked(env, &id, &admin, env.ledger().timestamp());
+            revoked += 1;
+        }
+    }
+    Ok(revoked)
+}
+
+/// Emergency path: revoke a single attestation as an admin.
+///
+/// Unlike [`crate::attestation::revoke_attestation`], the caller does not need
+/// to be the attestation's issuer, allowing the council to revoke fraudulent
+/// attestations minted by a compromised issuer.
+///
+/// # Errors
+/// - [`Error::Unauthorized`] — caller is not an admin.
+/// - [`Error::NotFound`] — no attestation with `attestation_id` exists.
+pub fn admin_revoke_attestation(env: &Env, admin: Address, attestation_id: String) -> Result<(), Error> {
+    admin.require_auth();
+    Validation::require_admin(env, &admin)?;
+
+    let mut attestation = Storage::get_attestation(env, &attestation_id)?;
+    if attestation.revoked {
+        return Ok(());
+    }
+    attestation.revoked = true;
+    Storage::set_attestation(env, &attestation);
+    Events::attestation_revoked(env, &attestation_id, &admin, env.ledger().timestamp());
+    Ok(())
 }
 
 // -----------------------------------------------------------------------

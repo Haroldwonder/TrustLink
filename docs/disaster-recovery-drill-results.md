@@ -8,6 +8,8 @@ This document records the execution and results of disaster recovery drills for 
 
 ## Drill Execution Log
 
+> **Note:** All three drills are recorded with the same date (2026-06-27). `docs/disaster-recovery.md` schedules them for Q2, Q3 and Q4 2026. The drill owners need to confirm the actual dates.
+
 ### Drill #1: Indexer Database Loss (Testnet)
 
 **Drill Date:** 2026-06-27  

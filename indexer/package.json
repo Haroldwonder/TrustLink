@@ -2,6 +2,9 @@
   "name": "trustlink-indexer",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": ">=20 <21"
+  },
   "scripts": {
     "build": "tsc && node -e \"require('fs').copyFileSync('src/schema.graphql','dist/schema.graphql')\"",
     "start": "node dist/index.js",

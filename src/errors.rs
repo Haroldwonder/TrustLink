@@ -118,4 +118,7 @@ pub enum Error {
     InvalidAttestation = 51,
     /// Claim type has been deprecated; new attestations cannot be issued for it.
     ClaimTypeDeprecated = 54,
+    /// Issue #1519: An admin setter received an out-of-range value (e.g. zero
+    /// multisig TTL, unbounded chunk size, zero limits, revocation_weight > 100).
+    InvalidConfigValue = 55,
 }

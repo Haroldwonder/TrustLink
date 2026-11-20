@@ -94,11 +94,16 @@ const WATCHED = new Set([
   "wl_rem",
   "wl_on",
   "wl_off",
+  // Bridge lifecycle (#1506)
+  "brg_reg",
+  "brg_rem",
+  // Admin config changes (#1518)
+  "cfg_set",
 ]);
 
 import { getLastLedger, setLastLedger } from "./indexer-state";
 
-export async function startIndexer(db: PrismaClient, redis: Redis | null = null): Promise<void> {
+export async function startIndexer(db: PrismaClient, redis: Redis | null = null, signal?: AbortSignal): Promise<void> {
   const rpc = new SorobanRpc.Server(RPC_URL, { allowHttp: true });
 
   // Initialize archival scheduler (runs every 6 hours, configurable)
@@ -145,7 +150,7 @@ export async function startIndexer(db: PrismaClient, redis: Redis | null = null)
 
   // ── Live polling ───────────────────────────────────────────────────────────
   logger.info("Live polling for new events");
-  while (true) {
+  while (!signal?.aborted) {
     await sleep(POLL_MS);
     const { sequence: latest } = await rpc.getLatestLedger();
     if (cursor <= latest) {
@@ -476,6 +481,87 @@ export async function handleEvent(
       await db.multisigProposal.updateMany({
         where: { id: proposalId, finalized: false },
         data: { finalized: true },
+      });
+      return;
+    }
+
+    // ── Bridge lifecycle (#1506) ─────────────────────────────────────────────
+
+    if (topicStr === "brg_reg" || topicStr === "brg_rem") {
+      // topics=[brg_reg|brg_rem, bridge]  data=[admin]
+      const bridgeAddr = ev.topic[1]
+        ? String(scValToNative(ev.topic[1]))
+        : String(data[0]);
+      const admin = data[0] != null ? String(data[0]) : "";
+      const registered = topicStr === "brg_reg";
+
+      await (db as unknown as {
+        bridge: {
+          upsert: (args: { where: { address: string }; update: Record<string, unknown>; create: Record<string, unknown> }) => Promise<unknown>;
+          deleteMany: (args: { where: { address: string } }) => Promise<unknown>;
+        };
+      }).bridge.upsert({
+        where: { address: bridgeAddr },
+        update: { registered, admin, ledger: ev.ledger },
+        create: { address: bridgeAddr, registered, admin, ledger: ev.ledger },
+      });
+
+      if (!registered) {
+        await (db as unknown as {
+          bridge: { deleteMany: (args: { where: { address: string } }) => Promise<unknown> };
+        }).bridge.deleteMany({ where: { address: bridgeAddr } });
+      }
+
+      await cacheInvalidate(redis, `bridge:${bridgeAddr}`);
+      pubsub.publish(registered ? "onBridgeRegistered" : "onBridgeRemoved", {
+        [registered ? "onBridgeRegistered" : "onBridgeRemoved"]: {
+          bridge: bridgeAddr,
+          admin,
+          ledger: ev.ledger,
+          timestamp: new Date().toISOString(),
+        },
+      });
+      return;
+    }
+
+    // ── Admin config changes (#1518) ─────────────────────────────────────────
+
+    if (topicStr === "cfg_set") {
+      // topics=[cfg_set, key]  data=[admin, old_value, new_value]
+      const key = ev.topic[1] ? String(scValToNative(ev.topic[1])) : "";
+      const admin = data[0] != null ? String(data[0]) : "";
+      const oldValue = data[1] != null ? String(data[1]) : null;
+      const newValue = data[2] != null ? String(data[2]) : null;
+      const timestamp = BigInt(
+        ev.ledgerClosedAt
+          ? Math.floor(new Date(ev.ledgerClosedAt).getTime() / 1000)
+          : Date.now() / 1000,
+      );
+
+      await (db as unknown as {
+        configChange: {
+          create: (args: { data: Record<string, unknown> }) => Promise<unknown>;
+        };
+      }).configChange.create({
+        data: {
+          key,
+          admin,
+          oldValue,
+          newValue,
+          ledger: ev.ledger,
+          timestamp,
+        },
+      });
+
+      pubsub.publish("onConfigChanged", {
+        onConfigChanged: {
+          key,
+          admin,
+          oldValue,
+          newValue,
+          ledger: ev.ledger,
+          timestamp: new Date().toISOString(),
+        },
       });
       return;
     }
@@ -1003,6 +1089,9 @@ function normalizeEventType(topic: string): EventType | null {
     req_no:   EventTypes.REQUEST_EXPIRED,
     req_cncl: EventTypes.REQUEST_EXPIRED,
     req_exp:  EventTypes.REQUEST_EXPIRED,
+    brg_reg:  EventTypes.BRIDGE_REGISTERED,
+    brg_rem:  EventTypes.BRIDGE_REMOVED,
+    cfg_set:  EventTypes.CONFIG_CHANGED,
   };
   return mapping[topic] ?? null;
 }

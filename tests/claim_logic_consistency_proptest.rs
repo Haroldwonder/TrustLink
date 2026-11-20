@@ -44,6 +44,29 @@ fn attestation_state_strategy() -> impl Strategy<Value = AttestationState> {
     ]
 }
 
+/// Registration state of the issuer that minted the attestations.
+///
+/// Attestations from a `Removed` issuer must never be honoured by any of the
+/// `has_*` queries, regardless of the attestation's own status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IssuerState {
+    Registered,
+    Removed,
+}
+
+fn issuer_state_strategy() -> impl Strategy<Value = IssuerState> {
+    prop_oneof![
+        Just(IssuerState::Registered),
+        Just(IssuerState::Removed),
+    ]
+}
+
+/// Apply the issuer registration state: if the issuer has been removed, the
+/// attestation must be treated as invalid by every query.
+fn effective_valid(issuer_state: IssuerState, attestation_valid: bool) -> bool {
+    issuer_state == IssuerState::Registered && attestation_valid
+}
+
 /// Generate a random claim type string.
 fn random_claim_type(env: &Env, idx: u32) -> String {
     String::from_str(env, &format!("CLAIM_TYPE_{}", idx))
@@ -61,9 +84,11 @@ proptest! {
 
     /// has_valid_claim(subject, claim) should equal has_any_claim(subject, [claim])
     /// Invariant: Single-claim OR with one element equals the basic check.
+    /// Also: attestations from a removed issuer are never valid.
     #[test]
     fn prop_single_claim_or_equals_basic_check(
         state in attestation_state_strategy(),
+        issuer_state in issuer_state_strategy(),
     ) {
         let env = Env::default();
         env.mock_all_auths();
@@ -105,6 +130,10 @@ proptest! {
             }
         };
 
+        if issuer_state == IssuerState::Removed {
+            client.remove_issuer(&admin, &issuer);
+        }
+
         let basic_check = client.has_valid_claim(&subject, &claim_type);
 
         let claim_vec: Vec<String> = Vec::new(&env);
@@ -116,6 +145,22 @@ proptest! {
             "has_valid_claim({}) != has_any_claim([{}]): basic={}, any={}",
             basic_check, claim_type, basic_check, any_claim
         );
+
+        // Attestations from a removed issuer must never be honoured.
+        if issuer_state == IssuerState::Removed {
+            prop_assert!(
+                !basic_check,
+                "has_valid_claim returned true for attestation of removed issuer"
+            );
+            prop_assert!(
+                !any_claim,
+                "has_any_claim returned true for attestation of removed issuer"
+            );
+            prop_assert!(
+                !client.has_valid_claim_from_issuer(&subject, &claim_type, &issuer),
+                "has_valid_claim_from_issuer returned true for removed issuer"
+            );
+        }
     }
 
     // ── OR-logic consistency ────────────────────────────────────────────────
@@ -126,6 +171,7 @@ proptest! {
     fn prop_any_claim_or_consistency(
         states_a in prop::collection::vec(attestation_state_strategy(), 1..3),
         states_b in prop::collection::vec(attestation_state_strategy(), 1..3),
+        issuer_state in issuer_state_strategy(),
     ) {
         let env = Env::default();
         env.mock_all_auths();
@@ -221,11 +267,15 @@ proptest! {
             }
         }
 
+        if issuer_state == IssuerState::Removed {
+            client.remove_issuer(&admin, &issuer);
+        }
+
         // Reset to base time for the final query.
         env.ledger().with_mut(|l| l.timestamp = 10_000);
 
-        // Expected: A OR B
-        let expected_any = any_a_valid || any_b_valid;
+        // Expected: A OR B, with removed-issuer attestations treated as invalid.
+        let expected_any = effective_valid(issuer_state, any_a_valid || any_b_valid);
 
         let claim_vec: Vec<String> = Vec::new(&env);
         let claim_vec = claim_vec.push_back(claim_a.clone()).push_back(claim_b.clone());
@@ -233,9 +283,16 @@ proptest! {
 
         prop_assert_eq!(
             actual_any, expected_any,
-            "has_any_claim([A, B])={}, expected A({}) OR B({})={}",
-            actual_any, any_a_valid, any_b_valid, expected_any
+            "has_any_claim([A, B])={}, expected A({}) OR B({})={} (issuer_state={:?})",
+            actual_any, any_a_valid, any_b_valid, expected_any, issuer_state
         );
+
+        if issuer_state == IssuerState::Removed {
+            prop_assert!(
+                !actual_any,
+                "has_any_claim returned true for attestations of removed issuer"
+            );
+        }
     }
 
     // ── AND-logic consistency ───────────────────────────────────────────────
@@ -246,6 +303,7 @@ proptest! {
     fn prop_all_claims_and_consistency(
         states_a in prop::collection::vec(attestation_state_strategy(), 1..3),
         states_b in prop::collection::vec(attestation_state_strategy(), 1..3),
+        issuer_state in issuer_state_strategy(),
     ) {
         let env = Env::default();
         env.mock_all_auths();
@@ -341,11 +399,15 @@ proptest! {
             }
         }
 
+        if issuer_state == IssuerState::Removed {
+            client.remove_issuer(&admin, &issuer);
+        }
+
         // Reset to base time for the final query.
         env.ledger().with_mut(|l| l.timestamp = 10_000);
 
-        // Expected: A AND B
-        let expected_all = any_a_valid && any_b_valid;
+        // Expected: A AND B, with removed-issuer attestations treated as invalid.
+        let expected_all = effective_valid(issuer_state, any_a_valid && any_b_valid);
 
         let claim_vec: Vec<String> = Vec::new(&env);
         let claim_vec = claim_vec.push_back(claim_a.clone()).push_back(claim_b.clone());
@@ -353,9 +415,16 @@ proptest! {
 
         prop_assert_eq!(
             actual_all, expected_all,
-            "has_all_claims([A, B])={}, expected A({}) AND B({})={}",
-            actual_all, any_a_valid, any_b_valid, expected_all
+            "has_all_claims([A, B])={}, expected A({}) AND B({})={} (issuer_state={:?})",
+            actual_all, any_a_valid, any_b_valid, expected_all, issuer_state
         );
+
+        if issuer_state == IssuerState::Removed {
+            prop_assert!(
+                !actual_all,
+                "has_all_claims returned true for attestations of removed issuer"
+            );
+        }
     }
 
     // ── Implication: ALL implies ANY ────────────────────────────────────────
@@ -368,6 +437,7 @@ proptest! {
     fn prop_all_claims_implies_any_claim(
         states_a in prop::collection::vec(attestation_state_strategy(), 1..3),
         states_b in prop::collection::vec(attestation_state_strategy(), 1..3),
+        issuer_state in issuer_state_strategy(),
     ) {
         let env = Env::default();
         env.mock_all_auths();
@@ -461,6 +531,10 @@ proptest! {
             if status == trustlink::types::AttestationStatus::Valid {
                 any_b_valid = true;
             }
+        }
+
+        if issuer_state == IssuerState::Removed {
+            client.remove_issuer(&admin, &issuer);
         }
 
         // Reset to base time for the final query.
@@ -478,6 +552,15 @@ proptest! {
             "has_all_claims([A, B])={} but has_any_claim([A, B])={} - implication violated",
             has_all, has_any
         );
+
+        // Attestations from a removed issuer must never be honoured.
+        if issuer_state == IssuerState::Removed {
+            prop_assert!(
+                !has_all && !has_any,
+                "removed issuer attestations still honoured: all={}, any={}",
+                has_all, has_any
+            );
+        }
     }
 
     // ── Single-issuer consistency ───────────────────────────────────────────
@@ -487,7 +570,8 @@ proptest! {
     /// This should imply has_valid_claim(subject, claim) if the issuer is valid.
     #[test]
     fn prop_issuer_scoped_implies_global_valid(
-        issuer_state in attestation_state_strategy(),
+        attestation_state in attestation_state_strategy(),
+        issuer_state in issuer_state_strategy(),
     ) {
         let env = Env::default();
         env.mock_all_auths();
@@ -504,7 +588,7 @@ proptest! {
 
         let now: u64 = 10_000;
 
-        let id = match issuer_state {
+        let id = match attestation_state {
             AttestationState::Valid => {
                 client.create_attestation(&issuer, &subject, &claim_type, &None, &None, &None)
             }
@@ -529,6 +613,10 @@ proptest! {
             }
         };
 
+        if issuer_state == IssuerState::Removed {
+            client.remove_issuer(&admin, &issuer);
+        }
+
         let issuer_check = client.has_valid_claim_from_issuer(&subject, &claim_type, &issuer);
         let global_check = client.has_valid_claim(&subject, &claim_type);
 
@@ -545,5 +633,17 @@ proptest! {
             "With single issuer, issuer-specific and global should match: issuer={}, global={}",
             issuer_check, global_check
         );
+
+        // Attestations from a removed issuer must never be honoured.
+        if issuer_state == IssuerState::Removed {
+            prop_assert!(
+                !issuer_check,
+                "has_valid_claim_from_issuer returned true for removed issuer"
+            );
+            prop_assert!(
+                !global_check,
+                "has_valid_claim returned true for attestation of removed issuer"
+            );
+        }
     }
 }

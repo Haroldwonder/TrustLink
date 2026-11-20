@@ -88,6 +88,34 @@ export function validateAddress(addr: string): void {
 }
 
 /**
+ * Validates an array of Stellar addresses.
+ * @param addresses - The array of addresses to validate
+ * @param fieldName - Name of the field for error messages
+ * @throws TrustLinkValidationError if the input is not an array or is empty
+ * @throws InvalidAddressError if any element is not a valid address
+ */
+export function validateAddressArray(
+  addresses: string[],
+  fieldName: string = "addresses"
+): void {
+  if (!Array.isArray(addresses)) {
+    throw new TrustLinkValidationError(
+      `Invalid ${fieldName}: expected an array of addresses`
+    );
+  }
+
+  if (addresses.length === 0) {
+    throw new TrustLinkValidationError(
+      `Invalid ${fieldName}: array cannot be empty`
+    );
+  }
+
+  for (const addr of addresses) {
+    validateAddress(addr);
+  }
+}
+
+/**
  * Validates a claim type string.
  * @param claimType - The claim type to validate
  * @throws InvalidClaimTypeError if the claim type is invalid

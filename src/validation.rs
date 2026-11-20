@@ -11,11 +11,28 @@
 //!   been set up yet, or [`Error::Unauthorized`] if the addresses differ.
 //! - [`Validation::require_issuer`] — verifies the caller is present in the
 //!   issuer registry. Returns [`Error::Unauthorized`] if not registered.
+//! - [`Validation::require_attestation_owner`] — verifies the caller is the
+//!   issuer of a specific attestation, *without* consulting the issuer
+//!   registry. Returns [`Error::Unauthorized`] if the addresses differ.
 //! - [`Validation::require_bridge`] — verifies the caller is present in the
 //!   bridge registry. Returns [`Error::Unauthorized`] if not registered.
+//!
+//! ## Registry-backed vs. ownership-based authorization
+//!
+//! Operations that *create* trust (creating, renewing or amending
+//! attestations) must be gated on current registration via
+//! [`Validation::require_issuer`] / [`Validation::require_authorized_creator`]:
+//! an off-boarded issuer must not be able to mint new claims.
+//!
+//! Operations that *reduce* trust (revoking an attestation, or shortening its
+//! validity) are safety operations and must remain available to the address
+//! that originally issued the attestation, even after an admin has removed it
+//! from the registry (issue #1508). Those paths use
+//! [`Validation::require_attestation_owner`], which authorises purely on
+//! `attestation.issuer == caller` plus `caller.require_auth()`.
 
 use crate::storage::Storage;
-use crate::types::Error;
+use crate::types::{Attestation, Error};
 use soroban_sdk::{Address, Env, String};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -78,6 +95,38 @@ impl Validation {
         if !Storage::is_issuer(env, caller) {
             return Err(Error::Unauthorized);
         }
+        Ok(())
+    }
+
+    /// Assert that `caller` is the issuer of `attestation`, without consulting
+    /// the issuer registry.
+    ///
+    /// This is the authorization guard for *safety* operations that reduce
+    /// trust — revoking an attestation, or shortening its expiration. Such
+    /// operations must stay available to the address that originally issued
+    /// the attestation even after an admin has removed it from the registry
+    /// (issue #1508); otherwise an off-boarded issuer cannot clean up after
+    /// itself. It must **not** be used for operations that create trust
+    /// (create / renew / amend), which continue to require
+    /// [`Validation::require_issuer`] or
+    /// [`Validation::require_authorized_creator`].
+    ///
+    /// The caller's authorization is enforced via `caller.require_auth()`.
+    ///
+    /// # Errors
+    /// - [`Error::Unauthorized`] — `caller` is not the attestation's issuer.
+    pub fn require_attestation_owner(
+        env: &Env,
+        caller: &Address,
+        attestation: &Attestation,
+    ) -> Result<(), Error> {
+        caller.require_auth();
+        if &attestation.issuer != caller {
+            return Err(Error::Unauthorized);
+        }
+        // Touch `env` so the signature stays uniform with the other guards and
+        // future revisions can add environment-dependent checks.
+        let _ = env;
         Ok(())
     }
 

@@ -24,6 +24,8 @@ These examples show how to interact with TrustLink from JavaScript/Node.js backe
 | Example | Description | Learn About |
 |---------|-------------|-------------|
 | [**anchor-integration/**](anchor-integration/) | Stellar anchor KYC flow | Sequence diagrams and anchor integration patterns |
+| [**attestation-requests/**](attestation-requests/) | Attestation request lifecycle | Requesting, listing, fulfilling, rejecting, and verifying attestations |
+| [**endorsements/**](endorsements/) | Endorsements & confidence scores | Endorsing attestations, reading confidence scores, decay configuration |
 | [**issuer-cli/**](issuer-cli/) | Issuer command-line tool | Creating, managing, and revoking attestations |
 | [**freelance-reputation/**](freelance-reputation/) | Marketplace reputation scoring | Endorsement-weighted reputation systems |
 
@@ -133,6 +135,17 @@ cargo test
 ```
 
 JavaScript examples may include integration tests. Check each example's README for instructions.
+
+### Continuous Integration
+
+Every example is built in CI so that broken examples are caught before merge. On any pull request that touches `examples/` or `src/`, the workflow:
+
+- Runs `cargo check` for each Rust example (Soroban contracts and Rust-based tooling)
+- Type-checks each TypeScript example with `tsc --noEmit` (and lints where configured)
+- Syntax-checks each Python example
+
+The Node.js version used by CI is read from the repository's root [`.nvmrc`](../.nvmrc), so use the same version locally to reproduce CI results. Before opening a PR that adds or modifies an example, make sure it passes the corresponding check locally.
+=======
 
 ## Deployment
 

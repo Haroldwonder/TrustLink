@@ -122,6 +122,56 @@ fn test_unauth_cannot_remove_issuer() {
     );
 }
 
+#[test]
+fn test_unauth_cannot_remove_bridge() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, _, unauth, client) = setup(&env);
+    let bridge = Address::generate(&env);
+    client.register_bridge(&admin, &bridge);
+
+    let bridges_before = client.get_bridges();
+    assert_eq!(
+        client.try_remove_bridge(&unauth, &bridge),
+        Err(Ok(Error::Unauthorized))
+    );
+    // The bridge must still be registered after the rejected call.
+    assert_eq!(client.get_bridges(), bridges_before);
+}
+
+#[test]
+fn test_remove_bridge_fails_when_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, _, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+    client.register_bridge(&admin, &bridge);
+    client.pause(&admin);
+
+    let bridges_before = client.get_bridges();
+    assert_eq!(
+        client.try_remove_bridge(&admin, &bridge),
+        Err(Ok(Error::ContractPaused))
+    );
+    assert_eq!(client.get_bridges(), bridges_before);
+}
+
+#[test]
+fn test_register_bridge_fails_when_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, _, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+    client.pause(&admin);
+
+    let bridges_before = client.get_bridges();
+    assert_eq!(
+        client.try_register_bridge(&admin, &bridge),
+        Err(Ok(Error::ContractPaused))
+    );
+    assert_eq!(client.get_bridges(), bridges_before);
+}
+
 // ---------------------------------------------------------------------------
 // 2. Unauthorized issuance actions
 // ---------------------------------------------------------------------------
@@ -189,6 +239,87 @@ fn test_issuer_b_cannot_revoke_issuer_a_attestation() {
         client.get_global_stats().total_revocations,
         stats_before.total_revocations
     );
+}
+
+// ---------------------------------------------------------------------------
+// 3b. Removed issuers retain revocation rights only
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_removed_issuer_can_revoke_own_attestation() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, _, client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    let attestation_id =
+        client.create_attestation(&issuer, &subject, &kyc(&env), &None, &None, &None);
+
+    client.remove_issuer(&admin, &issuer);
+    assert!(!client.is_issuer(&issuer));
+
+    client.revoke_attestation(&issuer, &attestation_id, &None);
+    assert!(client.get_attestation(&attestation_id).revoked);
+}
+
+#[test]
+fn test_removed_issuer_cannot_create_renew_or_amend() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, _, client) = setup(&env);
+    let subject = Address::generate(&env);
+
+    let attestation_id =
+        client.create_attestation(&issuer, &subject, &kyc(&env), &None, &None, &None);
+
+    client.remove_issuer(&admin, &issuer);
+    assert!(!client.is_issuer(&issuer));
+
+    // Cannot create new attestations.
+    assert_eq!(
+        client.try_create_attestation(&issuer, &subject, &kyc(&env), &None, &None, &None),
+        Err(Ok(Error::Unauthorized))
+    );
+
+    // Cannot renew existing attestations.
+    assert_eq!(
+        client.try_renew_attestation(&issuer, &attestation_id, &None),
+        Err(Ok(Error::Unauthorized))
+    );
+
+    // Cannot amend expiration to extend validity.
+    assert_eq!(
+        client.try_update_expiration(&issuer, &attestation_id, &u64::MAX),
+        Err(Ok(Error::Unauthorized))
+    );
+}
+
+#[test]
+fn test_non_owner_cannot_revoke_attestation() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer_a, _, client) = setup(&env);
+    let issuer_b = Address::generate(&env);
+    let subject = Address::generate(&env);
+    client.register_issuer(&admin, &issuer_b);
+
+    let attestation_id =
+        client.create_attestation(&issuer_a, &subject, &kyc(&env), &None, &None, &None);
+
+    // A registered issuer that does not own the attestation cannot revoke it.
+    assert_eq!(
+        client.try_revoke_attestation(&issuer_b, &attestation_id, &None),
+        Err(Ok(Error::Unauthorized))
+    );
+    assert!(!client.get_attestation(&attestation_id).revoked);
+
+    // A removed issuer likewise cannot revoke attestations it did not issue.
+    client.remove_issuer(&admin, &issuer_b);
+    assert_eq!(
+        client.try_revoke_attestation(&issuer_b, &attestation_id, &None),
+        Err(Ok(Error::Unauthorized))
+    );
+    assert!(!client.get_attestation(&attestation_id).revoked);
 }
 
 // ---------------------------------------------------------------------------

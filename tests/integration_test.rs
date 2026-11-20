@@ -219,6 +219,89 @@ mod tests {
     }
 
     #[test]
+    fn test_removed_bridge_cannot_create_attestation() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let trustlink_id = env.register_contract(None, TrustLinkContract);
+        let trustlink = TrustLinkContractClient::new(&env, &trustlink_id);
+
+        let admin = Address::generate(&env);
+        let bridge = Address::generate(&env);
+        let subject = Address::generate(&env);
+        let claim = String::from_str(&env, "KYC_PASSED");
+        let source_chain = String::from_str(&env, "ethereum");
+        let source_tx = String::from_str(&env, "0xabc");
+
+        trustlink.initialize(&admin, &None);
+        trustlink.register_bridge(&admin, &bridge);
+
+        // The registered bridge can mint a Bridged attestation.
+        let id = trustlink.bridge_attestation(
+            &bridge,
+            &subject,
+            &claim,
+            &source_chain,
+            &source_tx,
+        );
+        let attestation = trustlink.get_attestation(&id);
+        assert_eq!(attestation.subject, subject);
+
+        // Remove the bridge.
+        trustlink.remove_bridge(&admin, &bridge);
+
+        // The removed bridge can no longer mint attestations.
+        let result = trustlink.try_bridge_attestation(
+            &bridge,
+            &subject,
+            &claim,
+            &source_chain,
+            &source_tx,
+        );
+        assert_eq!(
+            result,
+            Err(Ok(trustlink::Error::Unauthorized)),
+            "removed bridge should be unauthorized"
+        );
+    }
+
+    #[test]
+    fn test_council_remove_bridge() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let trustlink_id = env.register_contract(None, TrustLinkContract);
+        let trustlink = TrustLinkContractClient::new(&env, &trustlink_id);
+
+        let admin = Address::generate(&env);
+        let bridge = Address::generate(&env);
+
+        trustlink.initialize(&admin, &None);
+        trustlink.register_bridge(&admin, &bridge);
+
+        let op = trustlink::CouncilOperation::RemoveBridge(bridge.clone());
+        let proposal_id = trustlink.propose_council_operation(&admin, &op);
+        trustlink.execute_council_operation(&admin, &proposal_id);
+
+        // The bridge is no longer registered.
+        assert!(!trustlink.is_bridge(&bridge));
+
+        // A `brg_rem` event was emitted.
+        let events = env.events().all();
+        let mut found = false;
+        for (_, topics, _) in events.iter() {
+            for topic in topics.iter() {
+                if let Ok(sym) = soroban_sdk::Symbol::try_from_val(&env, &topic) {
+                    if sym == soroban_sdk::Symbol::new(&env, "brg_rem") {
+                        found = true;
+                    }
+                }
+            }
+        }
+        assert!(found, "brg_rem event should be emitted");
+    }
+
+    #[test]
     fn test_imported_attestation_allows_cross_contract_verification() {
         let env = Env::default();
         env.mock_all_auths();
@@ -245,6 +328,234 @@ mod tests {
 
         let approved = lending.try_request_loan(&borrower, &trustlink_id, &1_000, &500);
         assert!(approved.is_ok());
+    }
+
+    // ── Removed-issuer invalidation (issue #1507) ────────────────────────────
+    // Documented behaviour: attestations issued by an issuer that has since
+    // been removed are treated as invalid by every `has_*` query and by
+    // `get_valid_claims` / `get_attestation_by_type`. Downstream contracts
+    // therefore stop honouring them immediately after `remove_issuer`.
+
+    #[test]
+    fn test_removed_issuer_attestation_no_longer_valid() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (trustlink, admin, issuer, subject) = setup_trustlink(&env);
+        let kyc_claim = String::from_str(&env, "KYC_PASSED");
+
+        env.ledger().with_mut(|li| li.timestamp = 5_000);
+        let id = trustlink.create_attestation(&issuer, &subject, &kyc_claim, &None, &None, &None);
+
+        assert!(trustlink.has_valid_claim(&subject, &kyc_claim));
+        assert!(trustlink.has_valid_claim_from_issuer(&subject, &kyc_claim, &issuer));
+        assert!(trustlink.has_any_claim(&subject, &soroban_sdk::vec![&env, kyc_claim.clone()]));
+        assert!(trustlink.has_all_claims(&subject, &soroban_sdk::vec![&env, kyc_claim.clone()]));
+        assert_eq!(trustlink.get_valid_claims(&subject).len(), 1);
+        assert!(trustlink
+            .get_attestation_by_type(&subject, &kyc_claim)
+            .is_some());
+
+        trustlink.remove_issuer(&admin, &issuer);
+
+        // The attestation record itself is untouched...
+        let stored = trustlink.get_attestation(&id);
+        assert!(!stored.revoked);
+
+        // ...but it no longer counts as a valid claim anywhere.
+        assert!(!trustlink.has_valid_claim(&subject, &kyc_claim));
+        assert!(!trustlink.has_valid_claim_from_issuer(&subject, &kyc_claim, &issuer));
+        assert!(!trustlink.has_any_claim(&subject, &soroban_sdk::vec![&env, kyc_claim.clone()]));
+        assert!(!trustlink.has_all_claims(&subject, &soroban_sdk::vec![&env, kyc_claim.clone()]));
+        assert_eq!(trustlink.get_valid_claims(&subject).len(), 0);
+        assert!(trustlink
+            .get_attestation_by_type(&subject, &kyc_claim)
+            .is_none());
+    }
+
+    #[test]
+    fn test_removed_issuer_does_not_invalidate_other_issuers() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (trustlink, admin, issuer_a, subject) = setup_trustlink(&env);
+        let issuer_b = Address::generate(&env);
+        trustlink.register_issuer(&admin, &issuer_b);
+        let kyc_claim = String::from_str(&env, "KYC_PASSED");
+
+        env.ledger().with_mut(|li| li.timestamp = 5_000);
+        trustlink.create_attestation(&issuer_a, &subject, &kyc_claim, &None, &None, &None);
+        trustlink.create_attestation(&issuer_b, &subject, &kyc_claim, &None, &None, &None);
+
+        trustlink.remove_issuer(&admin, &issuer_a);
+
+        assert!(trustlink.has_valid_claim(&subject, &kyc_claim));
+        assert!(!trustlink.has_valid_claim_from_issuer(&subject, &kyc_claim, &issuer_a));
+        assert!(trustlink.has_valid_claim_from_issuer(&subject, &kyc_claim, &issuer_b));
+        assert_eq!(trustlink.get_valid_claims(&subject).len(), 1);
+    }
+
+    #[test]
+    fn test_removed_issuer_attestation_denied_by_lending_contract() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let trustlink_id = env.register_contract(None, TrustLinkContract);
+        let trustlink = TrustLinkContractClient::new(&env, &trustlink_id);
+
+        let lending_id = env.register_contract(None, LendingContract);
+        let lending = LendingContractClient::new(&env, &lending_id);
+
+        let admin = Address::generate(&env);
+        let issuer = Address::generate(&env);
+        let borrower = Address::generate(&env);
+        let kyc_claim = String::from_str(&env, "KYC_PASSED");
+
+        trustlink.initialize(&admin, &None);
+        trustlink.register_issuer(&admin, &issuer);
+
+        env.ledger().with_mut(|li| li.timestamp = 5_000);
+        trustlink.create_attestation(&issuer, &borrower, &kyc_claim, &None, &None, &None);
+
+        let approved = lending.try_request_loan(&borrower, &trustlink_id, &1_000, &500);
+        assert!(approved.is_ok());
+
+        // Issuer is compromised -> removed. Existing attestations must stop
+        // satisfying the downstream KYC gate without any per-attestation revoke.
+        trustlink.remove_issuer(&admin, &issuer);
+
+        let denied = lending.try_request_loan(&borrower, &trustlink_id, &1_000, &500);
+        assert!(denied.is_err());
+    }
+
+    #[test]
+    fn test_admin_revoke_all_from_issuer_emergency_path() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (trustlink, admin, issuer, subject) = setup_trustlink(&env);
+        let kyc_claim = String::from_str(&env, "KYC_PASSED");
+        let aml_claim = String::from_str(&env, "AML_CLEARED");
+
+        env.ledger().with_mut(|li| li.timestamp = 5_000);
+        let id1 = trustlink.create_attestation(&issuer, &subject, &kyc_claim, &None, &None, &None);
+        let id2 = trustlink.create_attestation(&issuer, &subject, &aml_claim, &None, &None, &None);
+
+        assert!(trustlink.has_valid_claim(&subject, &kyc_claim));
+        assert!(trustlink.has_valid_claim(&subject, &aml_claim));
+
+        // Emergency path: admin revokes every attestation from the issuer
+        // while the issuer is still registered.
+        trustlink.revoke_all_from_issuer(&admin, &issuer);
+
+        assert!(trustlink.get_attestation(&id1).revoked);
+        assert!(trustlink.get_attestation(&id2).revoked);
+        assert!(!trustlink.has_valid_claim(&subject, &kyc_claim));
+        assert!(!trustlink.has_valid_claim(&subject, &aml_claim));
+        assert_eq!(trustlink.get_valid_claims(&subject).len(), 0);
+    }
+
+    // ── Admin setter bounds (issue #1519) ────────────────────────────────────
+
+    #[test]
+    fn test_set_multisig_ttl_bounds() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (trustlink, admin, _issuer, _subject) = setup_trustlink(&env);
+
+        // Zero TTL would expire proposals at creation -> rejected.
+        assert!(trustlink.try_set_multisig_ttl(&admin, &0).is_err());
+        // Absurdly large TTL -> rejected.
+        assert!(trustlink
+            .try_set_multisig_ttl(&admin, &u32::MAX)
+            .is_err());
+        // A sane value is accepted.
+        assert!(trustlink.try_set_multisig_ttl(&admin, &7).is_ok());
+    }
+
+    #[test]
+    fn test_set_chunk_size_bounds() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (trustlink, admin, _issuer, _subject) = setup_trustlink(&env);
+
+        assert!(trustlink.try_set_chunk_size(&admin, &0).is_err());
+        assert!(trustlink
+            .try_set_chunk_size(&admin, &u32::MAX)
+            .is_err());
+        assert!(trustlink.try_set_chunk_size(&admin, &100).is_ok());
+    }
+
+    #[test]
+    fn test_set_limits_bounds() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (trustlink, admin, _issuer, _subject) = setup_trustlink(&env);
+
+        // Zero limits silently block all issuance -> rejected.
+        assert!(trustlink.try_set_limits(&admin, &0, &10).is_err());
+        assert!(trustlink.try_set_limits(&admin, &10, &0).is_err());
+        assert!(trustlink.try_set_limits(&admin, &10, &10).is_ok());
+    }
+
+    #[test]
+    fn test_set_decay_config_bounds() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (trustlink, admin, _issuer, _subject) = setup_trustlink(&env);
+
+        // revocation_weight is a percentage: > 100 is out of range.
+        assert!(trustlink
+            .try_set_decay_config(&admin, &101, &30)
+            .is_err());
+        // half_life_days has an upper bound.
+        assert!(trustlink
+            .try_set_decay_config(&admin, &50, &u32::MAX)
+            .is_err());
+        assert!(trustlink.try_set_decay_config(&admin, &50, &30).is_ok());
+    }
+
+    #[test]
+    fn test_set_rate_limit_bounds() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (trustlink, admin, issuer, _subject) = setup_trustlink(&env);
+        let kyc_claim = String::from_str(&env, "KYC_PASSED");
+
+        // u64::MAX would halt the issuer forever -> rejected.
+        assert!(trustlink
+            .try_set_rate_limit(&admin, &issuer, &u64::MAX)
+            .is_err());
+        assert!(trustlink
+            .try_set_rate_limit_for_claim_type(&admin, &issuer, &kyc_claim, &u64::MAX)
+            .is_err());
+        assert!(trustlink
+            .try_set_rate_limit(&admin, &issuer, &10)
+            .is_ok());
+        assert!(trustlink
+            .try_set_rate_limit_for_claim_type(&admin, &issuer, &kyc_claim, &10)
+            .is_ok());
+    }
+
+    #[test]
+    fn test_set_council_timelock_delay_bounds() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (trustlink, admin, _issuer, _subject) = setup_trustlink(&env);
+
+        // A huge delay would permanently block council actions -> rejected.
+        assert!(trustlink
+            .try_set_council_timelock_delay(&admin, &u64::MAX)
+            .is_err());
+        assert!(trustlink
+            .try_set_council_timelock_delay(&admin, &86_400)
+            .is_ok());
     }
 }
 
