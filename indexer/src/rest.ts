@@ -13,8 +13,28 @@ import { getLastLedger } from "./indexer-state";
 import { getMetrics } from "./metrics";
 import { validateWebhookUrl } from "./webhook-validation";
 import { getVersionInfo } from "./version";
+import { StrKey } from "@stellar/stellar-sdk";
 
 let rpcClient: any | null = null;
+
+// Parse and validate MAX_LAG_LEDGERS at startup (fail fast on invalid values)
+let MAX_LAG: number;
+try {
+  const lagStr = process.env.MAX_LAG_LEDGERS ?? "10";
+  const parsed = parseInt(lagStr, 10);
+  if (isNaN(parsed) || parsed < 0) {
+    throw new Error(`Invalid MAX_LAG_LEDGERS: "${lagStr}" is not a valid non-negative integer`);
+  }
+  MAX_LAG = parsed;
+} catch (err) {
+  console.error("Failed to parse MAX_LAG_LEDGERS:", err instanceof Error ? err.message : err);
+  process.exit(1);
+}
+
+// Helper to validate Stellar addresses (Ed25519 public key or contract)
+function isValidStellarAddress(address: string): boolean {
+  return StrKey.isValidEd25519PublicKey(address) || StrKey.isValidContract(address);
+}
 
 async function getRpcClient() {
   if (!rpcClient) {
@@ -236,7 +256,6 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
   });
 
   fastify.get("/ready", async (_request, reply) => {
-    const MAX_LAG = parseInt(process.env.MAX_LAG_LEDGERS ?? "10", 10);
     try {
       const checkpoint = await db.checkpoint.findUnique({ where: { id: 1 } });
       const rpc = await getRpcClient();
@@ -265,11 +284,28 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
   fastify.get<{ Params: { subject: string }; Querystring: { limit?: string; after?: string } }>(
     "/attestations/:subject",
     { schema: attestationsBySubjectSchema },
-    async (req) => {
+    async (req, reply) => {
+      const { subject } = req.params;
+      
+      // Validate address format
+      if (!isValidStellarAddress(subject)) {
+        reply.code(400);
+        return { error: "Invalid address: must be a valid Ed25519 public key or contract" };
+      }
+
       const limit = Math.min(parseInt(req.query.limit ?? "50", 10) || 50, 500);
       const after = req.query.after;
 
-      const where: Record<string, any> = { subject: req.params.subject };
+      // Validate cursor format - must be a positive integer if provided
+      if (after !== undefined) {
+        const cursorNum = parseInt(after, 10);
+        if (isNaN(cursorNum) || cursorNum <= 0) {
+          reply.code(400);
+          return { error: "Invalid cursor: must be a positive integer" };
+        }
+      }
+
+      const where: Record<string, any> = { subject };
       const cursor = after ? { id: after } : undefined;
 
       const attestations = await db.attestation.findMany({
@@ -292,6 +328,14 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
     "/subjects/:address/claims/:claim_type/valid",
     { schema: validClaimSchema },
     async (req, reply) => {
+      const { address } = req.params;
+      
+      // Validate address format
+      if (!isValidStellarAddress(address)) {
+        reply.code(400);
+        return { error: "Invalid address: must be a valid Ed25519 public key or contract" };
+      }
+
       // Get ledger time from latest checkpoint for consistency with on-chain behavior
       const checkpoint = await db.checkpoint.findUnique({ where: { id: 1 } });
       // Use ledger sequence as the time source (falls back to 0 if no checkpoint)
@@ -299,7 +343,7 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
 
       const attestation = await db.attestation.findFirst({
         where: {
-          subject: req.params.address,
+          subject: address,
           claimType: req.params.claim_type,
           isRevoked: false,
           // Filter out expired attestations: expiration IS NULL OR expiration > ledgerTime
@@ -323,11 +367,28 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
   fastify.get<{ Params: { address: string }; Querystring: { limit?: string; after?: string } }>(
     "/issuers/:address/attestations",
     { schema: attestationsByIssuerSchema },
-    async (req) => {
+    async (req, reply) => {
+      const { address } = req.params;
+      
+      // Validate address format
+      if (!isValidStellarAddress(address)) {
+        reply.code(400);
+        return { error: "Invalid address: must be a valid Ed25519 public key or contract" };
+      }
+
       const limit = Math.min(parseInt(req.query.limit ?? "50", 10) || 50, 500);
       const after = req.query.after;
 
-      const where: Record<string, any> = { issuer: req.params.address };
+      // Validate cursor format - must be a positive integer if provided
+      if (after !== undefined) {
+        const cursorNum = parseInt(after, 10);
+        if (isNaN(cursorNum) || cursorNum <= 0) {
+          reply.code(400);
+          return { error: "Invalid cursor: must be a positive integer" };
+        }
+      }
+
+      const where: Record<string, any> = { issuer: address };
       const cursor = after ? { id: after } : undefined;
 
       const attestations = await db.attestation.findMany({
@@ -577,7 +638,14 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
   }>("/admin/webhook-failures", async (req, reply) => {
     const { status, eventType, limit: limitStr, offset: offsetStr, sort } = req.query;
     const limit = Math.min(parseInt(limitStr ?? "50", 10) || 50, 200);
-    const offset = parseInt(offsetStr ?? "0", 10) || 0;
+    
+    // Validate offset: must be a non-negative integer
+    const offset = parseInt(offsetStr ?? "0", 10);
+    if (isNaN(offset) || offset < 0 || !Number.isInteger(offset)) {
+      reply.code(400);
+      return { error: "Invalid offset: must be a non-negative integer" };
+    }
+    
     const orderBy = sort === "asc" ? "asc" : "desc";
 
     const where: Record<string, unknown> = {};
