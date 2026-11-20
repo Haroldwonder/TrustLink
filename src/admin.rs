@@ -27,7 +27,8 @@ pub fn initialize(env: &Env, admin: Address, ttl_days: Option<u32>) -> Result<()
     council.push_back(admin.clone());
     Storage::set_admin_council(env, &council);
     Storage::set_version(env, &String::from_str(env, env!("CARGO_PKG_VERSION")));
-    Storage::set_fee_config(env, &FeeConfig { attestation_fee: 0, fee_collector: admin.clone(), fee_token: None });
+    // The contract itself is the default collector, never an admin (#1516, ADR-012).
+    Storage::set_fee_config(env, &FeeConfig { attestation_fee: 0, fee_collector: env.current_contract_address(), fee_token: None });
     Storage::set_ttl_config(env, &TtlConfig { ttl_days: days });
     Events::admin_initialized(env, &admin, env.ledger().timestamp());
     Ok(())
@@ -394,7 +395,8 @@ pub fn set_fee(env: &Env, admin: Address, fee: i128, collector: Address, fee_tok
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
     validate_fee_config(env, fee, &fee_token)?;
-    if admin == collector {
+    // Reject any council member as collector, not only the caller (#1516, ADR-012).
+    if Storage::is_admin(env, &collector) {
         return Err(Error::Unauthorized);
     }
     let fee_config = FeeConfig { attestation_fee: fee, fee_collector: collector.clone(), fee_token };
