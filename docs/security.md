@@ -61,9 +61,10 @@ key. It is set once during `initialize` and can be transferred atomically via
   registered issuer, and the admin is not automatically an issuer.
 - Revoke an attestation they did not issue — revocation is scoped to the
   original issuer of each attestation.
-- Modify or delete an existing attestation's content — attestations are
-  immutable once written; only the `revoked` flag and `expiration` field can
-  be updated, and only by the original issuer.
+- Change an existing attestation's content except through the issuer's own
+  operations. Only the original issuer can call `amend_attestation`, which
+  replaces `metadata` and keeps the previous value in version history. The issuer
+  can also update the `revoked` flag and the `expiration` field.
 - Impersonate an issuer — `require_auth` is called on the actual transaction
   signer; passing a different address as a parameter does not grant that
   address's permissions.
@@ -401,13 +402,11 @@ them. Any registered issuer can attest about any address. This is by design for
 permissionless verification flows, but operators building consent-based systems
 must implement consent logic in their application layer.
 
-**10. `create_attestations_batch` is not pause-gated**
+**10. `create_attestations_batch` is pause-gated**
 
-`create_attestations_batch` does not call `require_not_paused`. Only
-`create_attestation` (single) and `revoke_attestation` (single) are pause-gated.
-If the contract is paused to stop a compromised issuer, that issuer could still
-use the batch function. This is a known gap that should be addressed before
-mainnet.
+`create_attestations_batch` calls `require_not_paused` (see `src/attestation.rs`),
+so pausing the contract also stops batch creation. This item is closed. Reviewers
+do not need to re-check it.
 
 ---
 

@@ -55,6 +55,11 @@ pub fn set_fee(
 
 A warning event alone would allow the misconfiguration to proceed, creating ongoing confusion and trust issues in the network.
 
+## Update (#1516)
+
+- The check covers every council member. `set_fee()` rejects a `collector` that is any current admin, not only the caller.
+- `initialize()` sets the default `fee_collector` to the contract's own address, so a fresh deployment never reports an admin as the collector.
+
 ## Consequences
 
 **Positive**

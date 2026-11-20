@@ -10,6 +10,7 @@ import {
 import { getLastLedger } from "./indexer-state";
 import { getMetrics } from "./metrics";
 import { validateWebhookUrl } from "./webhook-validation";
+import { logger } from "./logger";
 
 let rpcClient: any | null = null;
 
@@ -26,7 +27,30 @@ async function getRpcClient() {
 }
 
 export function buildRestServer(db: PrismaClient): FastifyInstance {
-  const fastify = Fastify({ logger: false });
+  const fastify = Fastify({
+    logger: {
+      level: logger.level,
+      transport: {
+        target: "pino/file",
+        options: {
+          destination: 1, // stdout
+        },
+      },
+      serializers: {
+        req(request) {
+          return {
+            method: request.method,
+            url: request.url,
+            headers: {
+              ...request.headers,
+              "x-api-key": request.headers["x-api-key"] ? "[REDACTED]" : undefined,
+            },
+            correlationId: request.headers["x-correlation-id"],
+          };
+        },
+      },
+    },
+  });
 
   fastify.get("/health", async (_request, reply) => {
     let dbConnected = false;
@@ -207,23 +231,44 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
     const [total, revoked, issuers] = await Promise.all([
       db.attestation.count(),
       db.attestation.count({ where: { isRevoked: true } }),
-      db.attestation.findMany({
-        distinct: ["issuer"],
-        select: { issuer: true },
-      }),
+      db.issuer.count(),
     ]);
     return {
       total_attestations: total,
       total_revocations: revoked,
-      total_issuers: issuers.length,
+      total_issuers: issuers,
     };
   });
 
-  fastify.get("/webhooks", async () =>
-    db.webhook.findMany({
-      select: { id: true, url: true, active: true, rotatedAt: true, createdAt: true },
-      orderBy: { createdAt: "desc" },
-    }),
+  fastify.get<{ Querystring: { limit?: string; after?: string; active?: string } }>(
+    "/webhooks",
+    async (req) => {
+      const limit = Math.min(parseInt(req.query.limit ?? "50", 10) || 50, 500);
+      const after = req.query.after;
+      const activeFilter = req.query.active === "false" ? false : req.query.active === "true" ? true : undefined;
+
+      const where: Record<string, any> = {};
+      if (activeFilter !== undefined) {
+        where.active = activeFilter;
+      }
+
+      const cursor = after ? { id: after } : undefined;
+
+      const webhooks = await db.webhook.findMany({
+        where,
+        select: { id: true, url: true, active: true, rotatedAt: true, createdAt: true },
+        orderBy: { createdAt: "desc" },
+        take: limit + 1,
+        skip: cursor ? 1 : 0,
+        cursor,
+      });
+
+      const hasMore = webhooks.length > limit;
+      const items = webhooks.slice(0, limit);
+      const nextCursor = hasMore ? items[items.length - 1]?.id : null;
+
+      return { items, nextCursor };
+    },
   );
 
   fastify.post<{ Body: { url: string; secret?: string } }>(
@@ -324,6 +369,8 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
           },
         });
         
+        const gracePeriodDays = parseInt(process.env.WEBHOOK_ROTATION_GRACE_DAYS ?? "7", 10);
+        
         reply.code(200);
         // Return the NEW plaintext secret ONLY once
         return {
@@ -331,7 +378,8 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
           url: webhook.url,
           secret: newSecret, // New secret returned once
           rotatedAt: new Date(),
-          graceMessage: "Old secret will be accepted for 7 days via X-TrustLink-Signature-Next header",
+          gracePeriodDays,
+          graceMessage: `Old secret will be accepted for ${gracePeriodDays} days via X-TrustLink-Signature-Next header`,
         };
       } catch (err) {
         reply.code(500);

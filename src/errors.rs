@@ -114,4 +114,6 @@ pub enum Error {
     InvalidAttestation = 51,
     /// Claim type has been deprecated; new attestations cannot be issued for it.
     ClaimTypeDeprecated = 54,
+    /// The new admin must be a different address from the current admin (#1498).
+    InvalidAdminTransfer = 55,
 }

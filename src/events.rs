@@ -241,6 +241,13 @@ impl Events {
         );
     }
 
+    pub fn admin_transfer_cancelled(env: &Env, cancelled_by: &Address, proposed_by: &Address) {
+        env.events().publish(
+            (symbol_short!("adm_xcl"), cancelled_by.clone()),
+            proposed_by.clone(),
+        );
+    }
+
     pub fn admin_added(env: &Env, by_admin: &Address, new_admin: &Address, timestamp: u64) {
         env.events().publish(
             (TOPIC_ADM_ADD, by_admin.clone()),
