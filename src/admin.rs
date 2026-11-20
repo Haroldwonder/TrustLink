@@ -36,6 +36,10 @@ pub fn initialize(env: &Env, admin: Address, ttl_days: Option<u32>) -> Result<()
 pub fn transfer_admin(env: &Env, current_admin: Address, new_admin: Address) -> Result<(), Error> {
     current_admin.require_auth();
     Validation::require_admin(env, &current_admin)?;
+    // A self-transfer would empty the council, so reject it (#1498).
+    if new_admin == current_admin {
+        return Err(Error::InvalidAdminTransfer);
+    }
     Storage::add_admin(env, &new_admin);
     Storage::remove_admin(env, &current_admin);
     Events::admin_transferred(env, &current_admin, &new_admin);
@@ -45,6 +49,9 @@ pub fn transfer_admin(env: &Env, current_admin: Address, new_admin: Address) -> 
 pub fn propose_admin_transfer(env: &Env, current_admin: Address, new_admin: Address) -> Result<(), Error> {
     current_admin.require_auth();
     Validation::require_admin(env, &current_admin)?;
+    if new_admin == current_admin {
+        return Err(Error::InvalidAdminTransfer);
+    }
     Storage::set_pending_admin_transfer(
         env,
         &PendingAdminTransfer { proposed_by: current_admin.clone(), new_admin: new_admin.clone() },
@@ -69,6 +76,9 @@ pub fn accept_admin_transfer(env: &Env, new_admin: Address) -> Result<(), Error>
     let pending = Storage::get_pending_admin_transfer(env).ok_or(Error::NotFound)?;
     if pending.new_admin != new_admin {
         return Err(Error::Unauthorized);
+    }
+    if pending.proposed_by == pending.new_admin {
+        return Err(Error::InvalidAdminTransfer);
     }
     Storage::add_admin(env, &new_admin);
     Storage::remove_admin(env, &pending.proposed_by);
