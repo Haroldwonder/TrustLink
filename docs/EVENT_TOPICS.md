@@ -200,6 +200,51 @@ Emitted when the admin sets the max attestations per subject limit.
 - **Topics in Event:** `(mx_subj, admin)`
 - **Data:** `("max_per_subject", limit)`
 
+### `brg_reg`
+Emitted when the admin registers a bridge contract as an authorized source of `Bridged` attestations.
+
+- **Topic:** `brg_reg`
+- **Indexed:** Yes
+- **Topics in Event:** `(brg_reg, bridge)`
+- **Data:** `(admin, timestamp)`
+- **Bridge Filter:** Yes
+
+### `brg_rem`
+Emitted when the admin removes a bridge contract. After removal, `bridge_attestation` calls from that bridge fail with `Unauthorized`.
+
+- **Topic:** `brg_rem`
+- **Indexed:** Yes
+- **Topics in Event:** `(brg_rem, bridge)`
+- **Data:** `(admin, timestamp)`
+- **Bridge Filter:** Yes
+
+### `cfg_set`
+Generic configuration-change event emitted by every admin configuration setter. It records the acting admin, the previous value, and the new value so indexers can reconstruct the contract's configuration history.
+
+- **Topic:** `cfg_set`
+- **Indexed:** Yes (indexed by config key, so indexers can subscribe per-setting)
+- **Topics in Event:** `(cfg_set, key)` — `key` is a `Symbol` identifying the setting
+- **Data:** `(admin, old_value, new_value)`
+
+Config keys emitted by each setter:
+
+| Setter | `key` Symbol |
+|---|---|
+| `set_fee` | `fee` |
+| `set_rate_limit` | `rate_limit` |
+| `set_rate_limit_for_claim_type` | `rate_lim_ct` |
+| `set_limits` | `limits` |
+| `set_chunk_size` | `chunk_size` |
+| `set_decay_config` | `decay_cfg` |
+| `set_council_timelock_delay` | `tl_delay` |
+| `set_registered_claim_type` | `clm_type` |
+| `set_metadata_hash_only` | `meta_hash` |
+| `set_claim_type_constraints` | `clm_constr` |
+| `set_multisig_ttl` | `ms_ttl` |
+| `register_bridge` | `bridge` |
+| `remove_bridge` | `bridge` |
+| `set_max_attestations_per_subject` | `max_per_subject` (also emits `mx_subj`) |
+
 ---
 
 ## Compliance & Requests
@@ -517,6 +562,12 @@ subscription {
 ### For Administrative Actions
 `adm_init`, `adm_xfer`, `adm_add`, `adm_rem`, `adm_prop`, `paused`, `unpaused`
 
+### For Bridge Management
+`brg_reg`, `brg_rem`
+
+### For Configuration History
+`cfg_set` (subscribe with a key filter, e.g. `(cfg_set, fee)`, to watch a single setting)
+
 ### For Council Governance
 `cncl_ini`, `prop_new`, `prop_ok`, `prop_exe`, `tl_start`
 
@@ -535,8 +586,11 @@ The indexer currently prioritizes the following topics for real-time indexing:
 - `ms_actv`
 - `iss_reg`
 - `rate_limit_set`
+- `brg_reg`
+- `brg_rem`
+- `cfg_set`
 
-Other events are logged but may not be immediately queryable via GraphQL subscriptions. Use direct ledger event watching via the SDK for comprehensive event monitoring.
+`cfg_set` events are persisted with their config key so configuration history can be queried per setting. Other events are logged but may not be immediately queryable via GraphQL subscriptions. Use direct ledger event watching via the SDK for comprehensive event monitoring.
 
 ---
 

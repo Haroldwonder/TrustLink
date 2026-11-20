@@ -214,6 +214,10 @@ impl TrustLinkContract {
         admin::register_bridge(&env, admin, bridge_contract)
     }
 
+    pub fn remove_bridge(env: Env, admin: Address, bridge: Address) -> Result<(), Error> {
+        admin::remove_bridge(&env, admin, bridge)
+    }
+
     pub fn is_bridge(env: Env, address: Address) -> bool {
         admin::is_bridge(&env, address)
     }

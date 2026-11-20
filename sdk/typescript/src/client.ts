@@ -403,6 +403,32 @@ export class TrustLinkClient {
   }
 
   /**
+   * Removes a bridge from the registry, revoking its ability to mint
+   * `Bridged` attestations. Emits a `brg_rem` event on-chain.
+   * @param admin - Stellar address of the admin performing the removal.
+   * @param bridge - Stellar address of the bridge to remove.
+   * @returns Simulation result for the transaction.
+   * @throws {InvalidAddressError} If any address format is invalid.
+   * @throws {NotInitializedError} If the contract has not been initialized.
+   * @throws {UnauthorizedError} If the caller is not the admin.
+   * @throws {PausedError} If the contract is paused.
+   * @throws {TrustLinkError} For other contract errors.
+   */
+  async removeBridge(
+    admin: string,
+    bridge: string
+  ): Promise<SorobanRpc.Api.SimulateTransactionResponse> {
+    validateAddress(admin);
+    validateAddress(bridge);
+    return this.simulateForSigning(
+      admin,
+      "remove_bridge",
+      this.addr(admin),
+      this.addr(bridge)
+    );
+  }
+
+  /**
    * Returns the pending admin transfer if one exists.
    * @returns Pending transfer details or null.
    * @throws {NotInitializedError} If the contract has not been initialized.

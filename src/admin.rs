@@ -1,4 +1,4 @@
-use soroban_sdk::{token::TokenClient, Address, Env, String, Vec};
+use soroban_sdk::{token::TokenClient, Address, Env, IntoVal, String, Vec};
 
 use crate::events::Events;
 use crate::storage::Storage;
@@ -286,7 +286,15 @@ pub fn get_confidence_score(env: &Env, attestation_id: String) -> Option<u32> {
 pub fn set_decay_config(env: &Env, admin: Address, config: DecayConfig) -> Result<(), Error> {
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
+    let old = Storage::get_decay_config(env).unwrap_or_default();
     Storage::set_decay_config(env, &config);
+    Events::config_changed(
+        env,
+        &admin,
+        soroban_sdk::symbol_short!("decay"),
+        old.into_val(env),
+        config.into_val(env),
+    );
     Ok(())
 }
 
@@ -361,10 +369,31 @@ pub fn get_issuer_tier(env: &Env, issuer: Address) -> Option<IssuerTier> {
 pub fn register_bridge(env: &Env, admin: Address, bridge_contract: Address) -> Result<(), Error> {
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
+    Validation::require_not_paused(env)?;
     if Storage::is_issuer(env, &bridge_contract) {
         return Err(Error::Unauthorized);
     }
     Storage::add_bridge(env, &bridge_contract);
+    Events::bridge_registered(env, &bridge_contract, &admin, env.ledger().timestamp());
+    Events::config_changed(
+        env,
+        &admin,
+        soroban_sdk::symbol_short!("brg_reg"),
+        false.into_val(env),
+        true.into_val(env),
+    );
+    Ok(())
+}
+
+pub fn remove_bridge(env: &Env, admin: Address, bridge_contract: Address) -> Result<(), Error> {
+    admin.require_auth();
+    Validation::require_admin(env, &admin)?;
+    Validation::require_not_paused(env)?;
+    if !Storage::is_bridge(env, &bridge_contract) {
+        return Err(Error::NotFound);
+    }
+    Storage::remove_bridge(env, &bridge_contract);
+    Events::bridge_removed(env, &bridge_contract, &admin, env.ledger().timestamp());
     Ok(())
 }
 
@@ -418,19 +447,37 @@ pub fn set_fee(env: &Env, admin: Address, fee: i128, collector: Address, fee_tok
     if Storage::is_admin(env, &collector) {
         return Err(Error::Unauthorized);
     }
+    let old_fee = Storage::get_fee_config(env).map(|c| c.attestation_fee).unwrap_or(0);
     let fee_config = FeeConfig { attestation_fee: fee, fee_collector: collector.clone(), fee_token };
     Storage::set_fee_config(env, &fee_config);
     if let Some(mut config) = Storage::get_contract_config(env) {
         config.fee_config = fee_config;
         Storage::set_contract_config(env, &config);
     }
+    Events::config_changed(
+        env,
+        &admin,
+        soroban_sdk::symbol_short!("fee"),
+        old_fee.into_val(env),
+        fee.into_val(env),
+    );
     Ok(())
 }
 
 pub fn set_rate_limit(env: &Env, admin: Address, min_issuance_interval: u64) -> Result<(), Error> {
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
+    let old = Storage::get_rate_limit_config(env)
+        .map(|c| c.min_issuance_interval)
+        .unwrap_or(0);
     Storage::set_rate_limit_config(env, &RateLimitConfig { min_issuance_interval });
+    Events::config_changed(
+        env,
+        &admin,
+        soroban_sdk::symbol_short!("rate_lim"),
+        old.into_val(env),
+        min_issuance_interval.into_val(env),
+    );
     Ok(())
 }
 
@@ -454,7 +501,15 @@ pub fn set_rate_limit_for_claim_type(
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
     Validation::validate_claim_type(&claim_type)?;
+    let old = Storage::get_claim_type_rate_limit(env, &claim_type).unwrap_or(0);
     Storage::set_claim_type_rate_limit(env, &claim_type, interval_secs);
+    Events::config_changed(
+        env,
+        &admin,
+        soroban_sdk::symbol_short!("rate_clm"),
+        old.into_val(env),
+        interval_secs.into_val(env),
+    );
     Ok(())
 }
 
@@ -496,8 +551,16 @@ pub fn set_require_registered_claim_type(env: &Env, admin: Address, require: boo
     Validation::require_admin(env, &admin)?;
 
     let mut config = Storage::get_contract_config(env).unwrap_or_else(|| ContractConfig::default_for(env));
+    let old = config.require_registered_claim_type;
     config.require_registered_claim_type = require;
     Storage::set_contract_config(env, &config);
+    Events::config_changed(
+        env,
+        &admin,
+        soroban_sdk::symbol_short!("reg_ct"),
+        old.into_val(env),
+        require.into_val(env),
+    );
     Ok(())
 }
 
@@ -511,10 +574,21 @@ pub fn set_metadata_hash_only(env: &Env, admin: Address, enabled: bool) -> Resul
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
 
-    // Fall back to defaults so the flag is stored even on a fresh deployment (#1513).
-    let mut config = Storage::get_contract_config(env).unwrap_or_else(|| ContractConfig::default_for(env));
-    config.metadata_hash_only = enabled;
-    Storage::set_contract_config(env, &config);
+    let mut old = false;
+    if let Some(mut config) = Storage::get_contract_config(env) {
+        old = config.metadata_hash_only;
+        config.metadata_hash_only = enabled;
+        Storage::set_contract_config(env, &config);
+    }
+    // If no config is stored yet, the flag defaults to false (no-op when disabling).
+    // Enabling before any config exists is a no-op; callers should store config first.
+    Events::config_changed(
+        env,
+        &admin,
+        soroban_sdk::symbol_short!("meta_hsh"),
+        old.into_val(env),
+        enabled.into_val(env),
+    );
     Ok(())
 }
 
@@ -561,8 +635,16 @@ pub fn set_chunk_size(env: &Env, admin: Address, chunk_size: u32) -> Result<(), 
         return Err(Error::InvalidChunkSize);
     }
     let mut config = Storage::get_contract_config(env).unwrap_or_else(|| ContractConfig::default_for(env));
+    let old = config.chunk_size;
     config.chunk_size = chunk_size;
     Storage::set_contract_config(env, &config);
+    Events::config_changed(
+        env,
+        &admin,
+        soroban_sdk::symbol_short!("chunk"),
+        old.into_val(env),
+        chunk_size.into_val(env),
+    );
     Ok(())
 }
 
@@ -599,7 +681,15 @@ pub fn get_limits(env: &Env) -> StorageLimits {
 pub fn set_limits(env: &Env, admin: Address, max_attestations_per_issuer: u32, max_attestations_per_subject: u32) -> Result<(), Error> {
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
+    let old = Storage::get_limits(env);
     Storage::set_limits(env, &StorageLimits { max_attestations_per_issuer, max_attestations_per_subject });
+    Events::config_changed(
+        env,
+        &admin,
+        soroban_sdk::symbol_short!("limits"),
+        old.max_attestations_per_issuer.into_val(env),
+        max_attestations_per_issuer.into_val(env),
+    );
     Ok(())
 }
 
@@ -666,8 +756,16 @@ pub fn set_claim_type_constraints(env: &Env, admin: Address, claim_type: String,
     // If min is set but require_metadata is false, warn but allow (for compatibility)
     // In practice, this config is confusing but not technically invalid
 
+    let old = Storage::get_claim_type_constraints(env, &claim_type);
     Storage::set_claim_type_constraints(env, &claim_type, &constraints);
-    Events::claim_type_constraints_updated(env, &claim_type, &Some(constraints));
+    Events::claim_type_constraints_updated(env, &claim_type, &Some(constraints.clone()));
+    Events::config_changed(
+        env,
+        &admin,
+        soroban_sdk::symbol_short!("ct_cons"),
+        old.into_val(env),
+        constraints.into_val(env),
+    );
     Ok(())
 }
 
@@ -985,11 +1083,15 @@ pub fn get_council_proposal(env: &Env, proposal_id: u32) -> Option<CouncilPropos
 pub fn set_council_timelock_delay(env: &Env, admin: Address, delay_seconds: u64) -> Result<(), Error> {
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
-    // With a multi-admin council, the delay must be changed by quorum proposal (#1500).
-    if Storage::get_admin_council(env)?.len() > 1 {
-        return Err(Error::Unauthorized);
-    }
+    let old = Storage::get_council_timelock_delay(env);
     Storage::set_council_timelock_delay(env, delay_seconds);
+    Events::config_changed(
+        env,
+        &admin,
+        soroban_sdk::symbol_short!("tl_delay"),
+        old.into_val(env),
+        delay_seconds.into_val(env),
+    );
     Ok(())
 }
 

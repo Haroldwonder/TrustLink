@@ -239,6 +239,71 @@ impl TrustLinkClient {
         scval_to_bool(&val)
     }
 
+    /// Check whether `address` is a currently registered bridge contract.
+    ///
+    /// Mirrors the on-chain `is_bridge` view.
+    pub async fn is_bridge(&self, address: &str) -> Result<bool> {
+        let args = vec![scval_address(address)?];
+        let val = self
+            .rpc
+            .simulate(&self.contract_id_hex, "is_bridge", args)
+            .await?;
+        scval_to_bool(&val)
+    }
+
+    // ─── Admin operations (write) ──────────────────────────────────────────────
+    //
+    // This crate is a read-only client: every method above only *simulates* a
+    // transaction. State-changing admin entry points such as `register_bridge`
+    // and `remove_bridge` must be submitted as real, signed transactions by the
+    // caller. The helpers below build the exact argument vector the contract
+    // expects so it can be dropped into a transaction builder.
+    //
+    // Contract entry point: `remove_bridge(admin: Address, bridge: Address)`
+    //   - Requires `admin` authorization.
+    //   - Removes the `Bridge(bridge)` key and its `BridgeList` entry.
+    //   - Emits a `brg_rem` event.
+    //   - Fails with `Unauthorized` if `admin` is not an admin.
+    //   - After removal, `bridge_attestation` calls from `bridge` fail with
+    //     `Unauthorized`.
+
+    /// Build the argument vector for the `remove_bridge(admin, bridge)`
+    /// contract entry point.
+    ///
+    /// The returned [`ScVal`]s can be passed to a transaction builder (e.g.
+    /// `stellar-cli` or `soroban-client`) together with the contract ID and
+    /// function name `"remove_bridge"` to submit a signed invocation.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use trustlink_client::{TrustLinkClient, Networks};
+    /// # #[tokio::main] async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = TrustLinkClient::new("C...", Networks::TESTNET)?;
+    /// let args = client.remove_bridge_args("GADMIN...", "CBRIDGE...")?;
+    /// // ... submit `remove_bridge` with `args` via your transaction builder.
+    /// # Ok(()) }
+    /// ```
+    pub fn remove_bridge_args(
+        &self,
+        admin: &str,
+        bridge: &str,
+    ) -> Result<Vec<stellar_xdr::curr::ScVal>> {
+        Ok(vec![scval_address(admin)?, scval_address(bridge)?])
+    }
+
+    /// Build the argument vector for the `register_bridge(admin, bridge)`
+    /// contract entry point.
+    ///
+    /// See [`Self::remove_bridge_args`] for how to submit the invocation.
+    pub fn register_bridge_args(
+        &self,
+        admin: &str,
+        bridge: &str,
+    ) -> Result<Vec<stellar_xdr::curr::ScVal>> {
+        Ok(vec![scval_address(admin)?, scval_address(bridge)?])
+    }
+
     /// Fetch contract-wide counters (total attestations, revocations, and
     /// registered issuers).
     pub async fn get_global_stats(&self) -> Result<GlobalStats> {

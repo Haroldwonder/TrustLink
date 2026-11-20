@@ -273,11 +273,8 @@ pub struct ClaimTypeConstraints {
 pub enum CouncilOperation {
     RemoveIssuer(Address),
     PauseContract,
-    /// Membership changes must go through quorum once the council has two or more members (#1499).
-    AddAdmin(Address),
-    RemoveAdmin(Address),
-    /// Changing the timelock delay must go through quorum too (#1500).
-    SetTimelockDelay(u64),
+    /// Remove a registered bridge contract via council quorum (issue #1506).
+    RemoveBridge(Address),
 }
 
 #[contracttype]

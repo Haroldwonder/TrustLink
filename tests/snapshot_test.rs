@@ -329,3 +329,75 @@ fn snapshot_after_multisig_activation() {
     // Subject holds a valid claim.
     assert!(client.has_valid_claim(&subject, &claim_type));
 }
+
+// ── 12. Bridge registration / removal ────────────────────────────────────────
+
+/// Snapshot: contract state after registering a bridge.
+/// Captures: Bridge(addr) key, BridgeList entry, `brg_reg` event.
+#[test]
+fn snapshot_after_bridge_registered() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|l| l.timestamp = 1_000);
+
+    let client = deploy(&env);
+    let admin = Address::generate(&env);
+    let bridge = Address::generate(&env);
+
+    client.initialize(&admin, &None);
+    client.register_bridge(&admin, &bridge);
+
+    assert!(client.is_bridge(&bridge));
+    let bridges = client.get_bridges();
+    assert_eq!(bridges.len(), 1);
+    assert_eq!(bridges.get(0).unwrap(), bridge);
+}
+
+/// Snapshot: contract state after removing a bridge.
+/// Captures: Bridge(addr) key removed, BridgeList entry removed, `brg_rem` event.
+#[test]
+fn snapshot_after_bridge_removed() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|l| l.timestamp = 1_000);
+
+    let client = deploy(&env);
+    let admin = Address::generate(&env);
+    let bridge = Address::generate(&env);
+
+    client.initialize(&admin, &None);
+    client.register_bridge(&admin, &bridge);
+    client.remove_bridge(&admin, &bridge);
+
+    assert!(!client.is_bridge(&bridge));
+    assert_eq!(client.get_bridges().len(), 0);
+}
+
+// ── 13. Admin configuration changes ──────────────────────────────────────────
+
+/// Snapshot: contract state after admin configuration setters run.
+/// Captures: FeeConfig, ChunkSize, MultiSigTtl updates and the `cfg_set`
+/// events emitted by `set_fee`, `set_chunk_size` and `set_multisig_ttl`.
+#[test]
+fn snapshot_after_config_set() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().with_mut(|l| l.timestamp = 1_000);
+
+    let client = deploy(&env);
+    let admin = Address::generate(&env);
+    let fee_token = Address::generate(&env);
+
+    client.initialize(&admin, &None);
+
+    client.set_fee(&admin, &Some(fee_token.clone()), &100);
+    let fee = client.get_fee_config();
+    assert_eq!(fee.attestation_fee, 100);
+    assert_eq!(fee.fee_token, Some(fee_token));
+
+    client.set_chunk_size(&admin, &25);
+    assert_eq!(client.get_chunk_size(), 25);
+
+    client.set_multisig_ttl(&admin, &3_600);
+    assert_eq!(client.get_multisig_ttl(), 3_600);
+}
