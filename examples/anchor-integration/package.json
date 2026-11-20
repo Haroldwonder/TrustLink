@@ -4,6 +4,9 @@
   "private": true,
   "description": "Runnable Stellar Anchor + TrustLink integration flow example",
   "type": "module",
+  "engines": {
+    "node": ">=20 <21"
+  },
   "scripts": {
     "start": "node flow.mjs",
     "test": "node --test flow.test.mjs"

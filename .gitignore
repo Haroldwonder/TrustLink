@@ -25,3 +25,13 @@ Thumbs.db
 docs/formal/__*
 docs/formal/TLCResults/
 docs/formal/*.log
+
+# PR scratch files (root-level, see issue #1739)
+/PR_*
+/PUSH_AND_PR_*
+/create_pr.ps1
+/pr-workflow.ipynb
+/FIXES_NEEDED.md
+/ISSUE_FIXES.md
+/CHANGES_SUMMARY.md
+/IMPLEMENTATION_COMPLETE.md

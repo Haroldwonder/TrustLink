@@ -11,6 +11,9 @@
     "test:watch": "vitest"
   },
   "license": "MIT",
+  "engines": {
+    "node": ">=20 <21"
+  },
   "peerDependencies": {
     "react": ">=18.0.0"
   },
