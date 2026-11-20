@@ -50,6 +50,12 @@ class TrustLinkClient:
             retry_attempts=5,
             retry_base_ms=500,
         )
+
+    The client can also be used as a context manager, which closes the
+    underlying HTTP session on exit::
+
+        with TrustLinkClient(contract_id, rpc_url) as client:
+            client.has_valid_claim(subject, "KYC_PASSED")
     """
 
     def __init__(
@@ -80,6 +86,25 @@ class TrustLinkClient:
         self._retry_attempts = retry_attempts
         self._retry_base_ms = retry_base_ms
         self._retry_max_ms = retry_max_ms
+
+    # ─── Lifecycle ─────────────────────────────────────────────────────────────
+
+    def close(self) -> None:
+        """Close the underlying HTTP session.
+
+        Safe to call multiple times; subsequent calls are no-ops.
+        """
+        session = getattr(self.server, "session", None)
+        if session is not None:
+            session.close()
+
+    def __enter__(self) -> "TrustLinkClient":
+        """Enter the context manager, returning this client."""
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Exit the context manager, closing the HTTP session."""
+        self.close()
 
     # ─── Read Operations ───────────────────────────────────────────────────────
 
