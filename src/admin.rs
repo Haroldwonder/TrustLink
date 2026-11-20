@@ -154,6 +154,10 @@ pub fn remove_issuer(env: &Env, admin: Address, issuer: Address) -> Result<(), E
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
     Validation::require_not_paused(env)?;
+    // With a multi-admin council, removal must go through a quorum proposal (#1500).
+    if Storage::get_admin_council(env)?.len() > 1 {
+        return Err(Error::Unauthorized);
+    }
     Storage::remove_issuer(env, &issuer);
     Storage::decrement_total_issuers(env);
     Events::issuer_removed(env, &issuer, &admin, env.ledger().timestamp());
@@ -931,6 +935,9 @@ pub fn execute_council_action(
                 Events::admin_removed(env, &executor, &admin_to_remove, now);
             }
         }
+        CouncilOperation::SetTimelockDelay(delay_seconds) => {
+            Storage::set_council_timelock_delay(env, delay_seconds);
+        }
         CouncilOperation::PauseContract => {
             Storage::set_paused(env, true);
             Events::contract_paused(env, &executor, now);
@@ -950,6 +957,10 @@ pub fn get_council_proposal(env: &Env, proposal_id: u32) -> Option<CouncilPropos
 pub fn set_council_timelock_delay(env: &Env, admin: Address, delay_seconds: u64) -> Result<(), Error> {
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
+    // With a multi-admin council, the delay must be changed by quorum proposal (#1500).
+    if Storage::get_admin_council(env)?.len() > 1 {
+        return Err(Error::Unauthorized);
+    }
     Storage::set_council_timelock_delay(env, delay_seconds);
     Ok(())
 }
