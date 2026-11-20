@@ -490,12 +490,10 @@ pub fn set_metadata_hash_only(env: &Env, admin: Address, enabled: bool) -> Resul
     admin.require_auth();
     Validation::require_admin(env, &admin)?;
 
-    if let Some(mut config) = Storage::get_contract_config(env) {
-        config.metadata_hash_only = enabled;
-        Storage::set_contract_config(env, &config);
-    }
-    // If no config is stored yet, the flag defaults to false (no-op when disabling).
-    // Enabling before any config exists is a no-op; callers should store config first.
+    // Fall back to defaults so the flag is stored even on a fresh deployment (#1513).
+    let mut config = Storage::get_contract_config(env).unwrap_or_else(|| ContractConfig::default_for(env));
+    config.metadata_hash_only = enabled;
+    Storage::set_contract_config(env, &config);
     Ok(())
 }
 
