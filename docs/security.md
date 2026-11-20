@@ -507,8 +507,13 @@ score = tier_score + endorsement_bonus
 | `tier_score` — issuer is **Premium** | 90 |
 | `endorsement_bonus` — +2 per endorsement, max | +10 |
 
-So the minimum possible score is **30** (Basic tier, no endorsements) and the
-maximum is **100** (Premium tier, 5+ endorsements).
+Without a decay configuration, the minimum possible score is **30** (Basic tier,
+no endorsements) and the maximum is **100** (Premium tier, 5+ endorsements).
+
+When `set_decay_config` has been called, two more factors multiply the score: an
+inactivity factor based on `half_life_days`, and a revocation factor based on
+`revocation_weight`. With decay configured, the score can fall well below 30,
+close to 0. The 30–100 range does not hold in that case.
 
 ### Interpretation
 
