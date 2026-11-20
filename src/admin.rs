@@ -59,10 +59,9 @@ pub fn cancel_admin_transfer(env: &Env, current_admin: Address) -> Result<(), Er
     current_admin.require_auth();
     Validation::require_admin(env, &current_admin)?;
     let pending = Storage::get_pending_admin_transfer(env).ok_or(Error::NotFound)?;
-    if pending.proposed_by != current_admin {
-        return Err(Error::Unauthorized);
-    }
+    // Any admin can clear a pending transfer, including one proposed by an admin who was removed (#1504).
     Storage::remove_pending_admin_transfer(env);
+    Events::admin_transfer_cancelled(env, &current_admin, &pending.proposed_by);
     Ok(())
 }
 
@@ -70,6 +69,10 @@ pub fn accept_admin_transfer(env: &Env, new_admin: Address) -> Result<(), Error>
     new_admin.require_auth();
     let pending = Storage::get_pending_admin_transfer(env).ok_or(Error::NotFound)?;
     if pending.new_admin != new_admin {
+        return Err(Error::Unauthorized);
+    }
+    // A transfer whose proposer has since been removed must not complete (#1504).
+    if !Storage::is_admin(env, &pending.proposed_by) {
         return Err(Error::Unauthorized);
     }
     Storage::add_admin(env, &new_admin);
