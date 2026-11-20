@@ -8,6 +8,10 @@ For a full list of changes see the [CHANGELOG](../CHANGELOG.md). For storage int
 
 ## How Soroban contract upgrades work
 
+> **Warning:** `src/` does not define an `upgrade` or a `migrate` function. The
+> `-- upgrade` and `-- migrate` invocations below will fail with a missing-function
+> error until the contract exposes them. Check the contract before following these steps.
+
 When a new WASM is uploaded and installed via `stellar contract upload` followed by `stellar contract upgrade`, the contract's executable code is replaced atomically. **All on-chain storage is preserved** — no keys are deleted or rewritten. The new WASM begins reading the same raw XDR bytes the old WASM wrote.
 
 Adding a new storage key is always safe. Changing the shape of an existing stored struct is a breaking change that requires a dedicated admin-only migration function to be called once by the admin immediately after the upgrade.
