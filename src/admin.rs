@@ -890,6 +890,19 @@ pub fn execute_council_action(
     if proposal.executed {
         return Err(Error::CouncilProposalExecuted);
     }
+    // Re-check quorum against the current council, so approvals from removed
+    // admins do not count and a shrinking council cannot leave stale quorum (#1502).
+    let council = Storage::get_admin_council(env)?;
+    let mut valid_approvals: u32 = 0;
+    for approver in proposal.approvals.iter() {
+        if Storage::is_admin(env, &approver) {
+            valid_approvals += 1;
+        }
+    }
+    if valid_approvals < council.len() / 2 + 1 {
+        return Err(Error::QuorumNotReached);
+    }
+
     let quorum_at = proposal.quorum_reached_at.ok_or(Error::QuorumNotReached)?;
 
     let delay = Storage::get_council_timelock_delay(env);
