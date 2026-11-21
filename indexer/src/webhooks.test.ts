@@ -498,3 +498,112 @@ describe("database consistency", () => {
     expect(lastUpdate.data.attemptCount).toEqual({ increment: 1 });
   });
 });
+
+// ── #1706 & #1704: eventTypes filtering and PATCH /webhooks/:id ──────────────
+
+describe("webhook eventTypes filtering and PATCH /webhooks/:id", () => {
+  let db: ReturnType<typeof makeMockDb>;
+
+  beforeEach(() => {
+    db = makeMockDb();
+    db.webhookFailure.create.mockResolvedValue({});
+  });
+
+  it("dispatchWebhooks filters by eventTypes and skips inactive webhooks", async () => {
+    mockFetch.mockResolvedValue({ ok: true, status: 200 });
+    db.webhook.findMany.mockResolvedValue([
+      { id: "wh-all", url: "https://all.example.com", secret_encrypted: "enc1", active: true, eventTypes: [] },
+      { id: "wh-rev", url: "https://rev.example.com", secret_encrypted: "enc2", active: true, eventTypes: ["attestation.revoked"] },
+      { id: "wh-crt", url: "https://crt.example.com", secret_encrypted: "enc3", active: true, eventTypes: ["attestation.created"] },
+      { id: "wh-off", url: "https://off.example.com", secret_encrypted: "enc4", active: false, eventTypes: ["attestation.revoked"] },
+    ]);
+
+    await dispatchWebhooks(db as never, "attestation.revoked", { id: "att-1" });
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const calledUrls = mockFetch.mock.calls.map((c) => c[0]);
+    expect(calledUrls).toContain("https://all.example.com");
+    expect(calledUrls).toContain("https://rev.example.com");
+    expect(calledUrls).not.toContain("https://crt.example.com");
+    expect(calledUrls).not.toContain("https://off.example.com");
+  });
+
+  it("POST /webhooks validates eventTypes and PATCH /webhooks/:id pauses, resumes, and updates url/eventTypes", async () => {
+    const { buildRestServer } = await import("./rest");
+    const { validateWebhookUrl } = await import("./webhook-validation");
+
+    const webhookRecord = {
+      id: "wh-1",
+      url: "https://example.com/hook",
+      active: true,
+      eventTypes: ["attestation.revoked"],
+      rotatedAt: new Date("2024-01-01T00:00:00.000Z"),
+      createdAt: new Date("2024-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2024-01-01T00:00:00.000Z"),
+    };
+
+    const restDb = {
+      webhook: {
+        create: jest.fn().mockResolvedValue(webhookRecord),
+        findUnique: jest.fn().mockResolvedValue(webhookRecord),
+        update: jest.fn().mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+          ...webhookRecord,
+          ...data,
+        })),
+      },
+    };
+
+    const app = buildRestServer(restDb as never);
+
+    // Invalid eventTypes on POST -> 400
+    const badPost = await app.inject({
+      method: "POST",
+      url: "/webhooks",
+      payload: { url: "https://example.com/hook", eventTypes: ["unknown.event"] },
+    });
+    expect(badPost.statusCode).toBe(400);
+
+    // Pause webhook via PATCH -> 200
+    const pauseRes = await app.inject({
+      method: "PATCH",
+      url: "/webhooks/wh-1",
+      payload: { active: false },
+    });
+    expect(pauseRes.statusCode).toBe(200);
+    expect(JSON.parse(pauseRes.body).active).toBe(false);
+
+    // Resume + update url + eventTypes via PATCH -> 200
+    const resumeRes = await app.inject({
+      method: "PATCH",
+      url: "/webhooks/wh-1",
+      payload: {
+        active: true,
+        url: "https://example.com/new-hook",
+        eventTypes: ["attestation.created", "attestation.revoked"],
+      },
+    });
+    expect(resumeRes.statusCode).toBe(200);
+    const body = JSON.parse(resumeRes.body);
+    expect(body.active).toBe(true);
+    expect(body.url).toBe("https://example.com/new-hook");
+    expect(body.eventTypes).toEqual(["attestation.created", "attestation.revoked"]);
+    expect(validateWebhookUrl).toHaveBeenCalledWith("https://example.com/new-hook");
+
+    // Empty PATCH body -> 400
+    const emptyPatch = await app.inject({
+      method: "PATCH",
+      url: "/webhooks/wh-1",
+      payload: {},
+    });
+    expect(emptyPatch.statusCode).toBe(400);
+
+    // Non-existent webhook -> 404
+    restDb.webhook.findUnique.mockResolvedValueOnce(null);
+    const notFoundPatch = await app.inject({
+      method: "PATCH",
+      url: "/webhooks/missing",
+      payload: { active: false },
+    });
+    expect(notFoundPatch.statusCode).toBe(404);
+  });
+});
