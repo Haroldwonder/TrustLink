@@ -5048,3 +5048,908 @@ A successful implementation will make "src/storage.rs" easier to understand, red
 
 <!-- handsoff-issue-1034 -->
 - #1034: Add a postmortem ADR documenting the main-branch build-breakage root cause and remediation
+
+export class LimitExceeded extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LimitExceeded";
+  }
+}
+
+export class DuplicateEndorsement extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DuplicateEndorsement";
+  }
+}
+
+export interface Endorsement {
+  attestationId: string;
+  endorser: string;
+  createdAt: number;
+}
+
+export interface EndorsementConfig {
+  maxEndorsements: number;
+}
+
+const DEFAULT_CONFIG: EndorsementConfig = {
+  maxEndorsements: 100,
+};
+
+export class EndorsementManager {
+  private endorsements = new Map<string, Endorsement[]>();
+
+  private endorsementIndex = new Map<string, Set<string>>();
+
+  private readonly maxEndorsements: number;
+
+  constructor(config: Partial<EndorsementConfig> = {}) {
+    this.maxEndorsements =
+      config.maxEndorsements ?? DEFAULT_CONFIG.maxEndorsements;
+
+    if (
+      !Number.isInteger(this.maxEndorsements) ||
+      this.maxEndorsements < 1
+    ) {
+      throw new Error("Maximum endorsements must be a positive integer");
+    }
+  }
+
+  private getAttestationKey(attestationId: string): string {
+    return attestationId;
+  }
+
+  private getEndorsementKey(
+    attestationId: string,
+    endorser: string
+  ): string {
+    return JSON.stringify([attestationId, endorser]);
+  }
+
+  endorse(
+    attestationId: string,
+    endorser: string
+  ): Endorsement {
+    if (!attestationId || !endorser) {
+      throw new Error("Attestation ID and endorser are required");
+    }
+
+    const key = this.getAttestationKey(attestationId);
+    const endorsementKey = this.getEndorsementKey(
+      attestationId,
+      endorser
+    );
+
+    // O(1) duplicate lookup using the keyed index.
+    if (this.endorsementIndex.get(key)?.has(endorser)) {
+      throw new DuplicateEndorsement(
+        "This address has already endorsed this attestation"
+      );
+    }
+
+    const currentEndorsements = this.endorsements.get(key) ?? [];
+
+    // Enforce the configurable maximum.
+    if (currentEndorsements.length >= this.maxEndorsements) {
+      throw new LimitExceeded(
+        `Maximum of ${this.maxEndorsements} endorsements reached`
+      );
+    }
+
+    const endorsement: Endorsement = {
+      attestationId,
+      endorser,
+      createdAt: Date.now(),
+    };
+
+    currentEndorsements.push(endorsement);
+
+    this.endorsements.set(key, currentEndorsements);
+
+    let index = this.endorsementIndex.get(key);
+
+    if (!index) {
+      index = new Set<string>();
+      this.endorsementIndex.set(key, index);
+    }
+
+    index.add(endorser);
+
+    return endorsement;
+  }
+
+  getEndorsements(attestationId: string): Endorsement[] {
+    const results = this.endorsements.get(attestationId) ?? [];
+
+    return [...results];
+  }
+
+  hasEndorsed(
+    attestationId: string,
+    endorser: string
+  ): boolean {
+    return (
+      this.endorsementIndex
+        .get(attestationId)
+        ?.has(endorser) ?? false
+    );
+  }
+
+  getEndorsementCount(attestationId: string): number {
+    return this.endorsements.get(attestationId)?.length ?? 0;
+  }
+
+  getMaximumEndorsements(): number {
+    return this.maxEndorsements;
+  }
+
+  removeEndorsement(
+    attestationId: string,
+    endorser: string
+  ): boolean {
+    const current = this.endorsements.get(attestationId);
+
+    if (!current) {
+      return false;
+    }
+
+    const index = current.findIndex(
+      (item) => item.endorser === endorser
+    );
+
+    if (index === -1) {
+      return false;
+    }
+
+    current.splice(index, 1);
+
+    this.endorsementIndex.get(attestationId)?.delete(endorser);
+
+    if (current.length === 0) {
+      this.endorsements.delete(attestationId);
+      this.endorsementIndex.delete(attestationId);
+    }
+
+    return true;
+  }
+
+  clearAttestation(attestationId: string): void {
+    this.endorsements.delete(attestationId);
+    this.endorsementIndex.delete(attestationId);
+  }
+}
+
+/**
+ * ATTESTATION ENDORSEMENT MANAGEMENT SYSTEM
+ *
+ * Features:
+ * - Configurable endorsement limits.
+ * - Keyed duplicate endorsement detection.
+ * - O(1) average duplicate lookup.
+ * - Custom error handling.
+ * - Endorsement removal.
+ * - Endorsement retrieval.
+ * - Pagination.
+ * - Configuration validation.
+ * - Statistics and reporting.
+ * - Batch endorsement processing.
+ * - Input validation.
+ */
+
+export interface Endorsement {
+  id: string;
+  attestationId: string;
+  endorser: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface EndorsementConfig {
+  maxEndorsements: number;
+  allowRemoval: boolean;
+  allowBatch: boolean;
+  caseSensitive: boolean;
+}
+
+export interface EndorsementStatistics {
+  totalEndorsements: number;
+  maximumEndorsements: number;
+  remainingCapacity: number;
+  isFull: boolean;
+}
+
+export interface BatchEndorsementResult {
+  successful: Endorsement[];
+  failed: Array<{
+    endorser: string;
+    error: string;
+  }>;
+}
+
+export interface PaginationOptions {
+  offset: number;
+  limit: number;
+}
+
+export interface PaginatedEndorsements {
+  data: Endorsement[];
+  total: number;
+  offset: number;
+  limit: number;
+  hasMore: boolean;
+}
+
+export class LimitExceeded extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LimitExceeded";
+    Object.setPrototypeOf(this, LimitExceeded.prototype);
+  }
+}
+
+export class DuplicateEndorsement extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DuplicateEndorsement";
+    Object.setPrototypeOf(this, DuplicateEndorsement.prototype);
+  }
+}
+
+export class InvalidEndorsement extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidEndorsement";
+    Object.setPrototypeOf(this, InvalidEndorsement.prototype);
+  }
+}
+
+export class EndorsementNotFound extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "EndorsementNotFound";
+    Object.setPrototypeOf(this, EndorsementNotFound.prototype);
+  }
+}
+
+export class EndorsementConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "EndorsementConfigurationError";
+    Object.setPrototypeOf(
+      this,
+      EndorsementConfigurationError.prototype
+    );
+  }
+}
+
+const DEFAULT_CONFIG: EndorsementConfig = {
+  maxEndorsements: 100,
+  allowRemoval: true,
+  allowBatch: true,
+  caseSensitive: true,
+};
+
+export class EndorsementManager {
+  private endorsements: Map<string, Endorsement[]>;
+
+  /**
+   * Keyed duplicate index:
+   *
+   * attestationId -> Set of endorsers
+   *
+   * This avoids scanning the endorsement list.
+   */
+  private endorsementIndex: Map<string, Set<string>>;
+
+  /**
+   * Direct lookup by composite endorsement key.
+   */
+  private endorsementLookup: Map<string, Endorsement>;
+
+  private readonly config: EndorsementConfig;
+
+  private totalEndorsements = 0;
+
+  constructor(config: Partial<EndorsementConfig> = {}) {
+    this.config = {
+      ...DEFAULT_CONFIG,
+      ...config,
+    };
+
+    this.validateConfiguration();
+
+    this.endorsements = new Map();
+    this.endorsementIndex = new Map();
+    this.endorsementLookup = new Map();
+  }
+
+  private validateConfiguration(): void {
+    const maximum = this.config.maxEndorsements;
+
+    if (
+      !Number.isInteger(maximum) ||
+      maximum < 1
+    ) {
+      throw new EndorsementConfigurationError(
+        "Maximum endorsements must be a positive integer"
+      );
+    }
+
+    if (typeof this.config.allowRemoval !== "boolean") {
+      throw new EndorsementConfigurationError(
+        "allowRemoval must be a boolean"
+      );
+    }
+
+    if (typeof this.config.allowBatch !== "boolean") {
+      throw new EndorsementConfigurationError(
+        "allowBatch must be a boolean"
+      );
+    }
+
+    if (typeof this.config.caseSensitive !== "boolean") {
+      throw new EndorsementConfigurationError(
+        "caseSensitive must be a boolean"
+      );
+    }
+  }
+
+  private normalizeAttestationId(
+    attestationId: string
+  ): string {
+    if (typeof attestationId !== "string") {
+      throw new InvalidEndorsement(
+        "Attestation ID must be a string"
+      );
+    }
+
+    const normalized = attestationId.trim();
+
+    if (!normalized) {
+      throw new InvalidEndorsement(
+        "Attestation ID cannot be empty"
+      );
+    }
+
+    return normalized;
+  }
+
+  private normalizeEndorser(
+    endorser: string
+  ): string {
+    if (typeof endorser !== "string") {
+      throw new InvalidEndorsement(
+        "Endorser must be a string"
+      );
+    }
+
+    const normalized = endorser.trim();
+
+    if (!normalized) {
+      throw new InvalidEndorsement(
+        "Endorser cannot be empty"
+      );
+    }
+
+    return this.config.caseSensitive
+      ? normalized
+      : normalized.toLowerCase();
+  }
+
+  /**
+   * Composite key avoids collisions between
+   * different attestations and endorsers.
+   */
+  private createCompositeKey(
+    attestationId: string,
+    endorser: string
+  ): string {
+    return JSON.stringify([
+      attestationId,
+      endorser,
+    ]);
+  }
+
+  private createEndorsementId(): string {
+    return [
+      "endorsement",
+      Date.now().toString(36),
+      Math.random().toString(36).slice(2),
+    ].join("-");
+  }
+
+  private getIndex(
+    attestationId: string
+  ): Set<string> {
+    let index = this.endorsementIndex.get(
+      attestationId
+    );
+
+    if (!index) {
+      index = new Set<string>();
+
+      this.endorsementIndex.set(
+        attestationId,
+        index
+      );
+    }
+
+    return index;
+  }
+
+  /**
+   * Creates an endorsement.
+   *
+   * Duplicate detection is performed using
+   * the keyed Set rather than scanning arrays.
+   */
+  endorse(
+    attestationId: string,
+    endorser: string
+  ): Endorsement {
+    const normalizedAttestation =
+      this.normalizeAttestationId(attestationId);
+
+    const normalizedEndorser =
+      this.normalizeEndorser(endorser);
+
+    const compositeKey = this.createCompositeKey(
+      normalizedAttestation,
+      normalizedEndorser
+    );
+
+    const index = this.endorsementIndex.get(
+      normalizedAttestation
+    );
+
+    /**
+     * Acceptance criterion:
+     * Keyed duplicate check.
+     *
+     * Average O(1) lookup.
+     */
+    if (index?.has(normalizedEndorser)) {
+      throw new DuplicateEndorsement(
+        "Endorser has already endorsed this attestation"
+      );
+    }
+
+    /**
+     * Enforce the maximum before modifying storage.
+     */
+    const currentCount =
+      index?.size ?? 0;
+
+    if (
+      currentCount >= this.config.maxEndorsements
+    ) {
+      throw new LimitExceeded(
+        `Attestation has reached its maximum of ${this.config.maxEndorsements} endorsements`
+      );
+    }
+
+    const now = Date.now();
+
+    const endorsement: Endorsement = {
+      id: this.createEndorsementId(),
+      attestationId: normalizedAttestation,
+      endorser: normalizedEndorser,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const existing =
+      this.endorsements.get(normalizedAttestation) ?? [];
+
+    existing.push(endorsement);
+
+    this.endorsements.set(
+      normalizedAttestation,
+      existing
+    );
+
+    this.getIndex(
+      normalizedAttestation
+    ).add(normalizedEndorser);
+
+    this.endorsementLookup.set(
+      compositeKey,
+      endorsement
+    );
+
+    this.totalEndorsements++;
+
+    return { ...endorsement };
+  }
+
+  /**
+   * Checks whether an address has endorsed
+   * a particular attestation.
+   */
+  hasEndorsed(
+    attestationId: string,
+    endorser: string
+  ): boolean {
+    const normalizedAttestation =
+      this.normalizeAttestationId(attestationId);
+
+    const normalizedEndorser =
+      this.normalizeEndorser(endorser);
+
+    return (
+      this.endorsementIndex
+        .get(normalizedAttestation)
+        ?.has(normalizedEndorser) ?? false
+    );
+  }
+
+  /**
+   * Retrieves an individual endorsement.
+   */
+  getEndorsement(
+    attestationId: string,
+    endorser: string
+  ): Endorsement | undefined {
+    const normalizedAttestation =
+      this.normalizeAttestationId(attestationId);
+
+    const normalizedEndorser =
+      this.normalizeEndorser(endorser);
+
+    const key = this.createCompositeKey(
+      normalizedAttestation,
+      normalizedEndorser
+    );
+
+    const endorsement =
+      this.endorsementLookup.get(key);
+
+    return endorsement
+      ? { ...endorsement }
+      : undefined;
+  }
+
+  /**
+   * Retrieves every endorsement for an attestation.
+   */
+  getEndorsements(
+    attestationId: string
+  ): Endorsement[] {
+    const normalized =
+      this.normalizeAttestationId(attestationId);
+
+    const results =
+      this.endorsements.get(normalized) ?? [];
+
+    return results.map((item) => ({
+      ...item,
+    }));
+  }
+
+  /**
+   * Returns the endorsement count.
+   *
+   * Uses the index instead of scanning the list.
+   */
+  getEndorsementCount(
+    attestationId: string
+  ): number {
+    const normalized =
+      this.normalizeAttestationId(attestationId);
+
+    return (
+      this.endorsementIndex.get(normalized)?.size ?? 0
+    );
+  }
+
+  /**
+   * Returns remaining endorsement capacity.
+   */
+  getRemainingCapacity(
+    attestationId: string
+  ): number {
+    const count =
+      this.getEndorsementCount(attestationId);
+
+    return Math.max(
+      0,
+      this.config.maxEndorsements - count
+    );
+  }
+
+  /**
+   * Checks whether the attestation is full.
+   */
+  isFull(attestationId: string): boolean {
+    return (
+      this.getEndorsementCount(attestationId) >=
+      this.config.maxEndorsements
+    );
+  }
+
+  /**
+   * Returns endorsement statistics.
+   */
+  getStatistics(
+    attestationId: string
+  ): EndorsementStatistics {
+    const total =
+      this.getEndorsementCount(attestationId);
+
+    return {
+      totalEndorsements: total,
+      maximumEndorsements:
+        this.config.maxEndorsements,
+      remainingCapacity: Math.max(
+        0,
+        this.config.maxEndorsements - total
+      ),
+      isFull: total >= this.config.maxEndorsements,
+    };
+  }
+
+  /**
+   * Removes an endorsement.
+   */
+  removeEndorsement(
+    attestationId: string,
+    endorser: string
+  ): boolean {
+    if (!this.config.allowRemoval) {
+      throw new InvalidEndorsement(
+        "Endorsement removal is disabled"
+      );
+    }
+
+    const normalizedAttestation =
+      this.normalizeAttestationId(attestationId);
+
+    const normalizedEndorser =
+      this.normalizeEndorser(endorser);
+
+    const compositeKey = this.createCompositeKey(
+      normalizedAttestation,
+      normalizedEndorser
+    );
+
+    const index = this.endorsementIndex.get(
+      normalizedAttestation
+    );
+
+    if (!index?.has(normalizedEndorser)) {
+      return false;
+    }
+
+    const current =
+      this.endorsements.get(normalizedAttestation);
+
+    if (!current) {
+      return false;
+    }
+
+    const position = current.findIndex(
+      (item) => item.endorser === normalizedEndorser
+    );
+
+    if (position === -1) {
+      throw new Error(
+        "Endorsement index is inconsistent with storage"
+      );
+    }
+
+    current.splice(position, 1);
+
+    index.delete(normalizedEndorser);
+
+    this.endorsementLookup.delete(compositeKey);
+
+    this.totalEndorsements--;
+
+    if (current.length === 0) {
+      this.endorsements.delete(
+        normalizedAttestation
+      );
+
+      this.endorsementIndex.delete(
+        normalizedAttestation
+      );
+    }
+
+    return true;
+  }
+
+  /**
+   * Removes all endorsements belonging
+   * to one attestation.
+   */
+  clearAttestation(
+    attestationId: string
+  ): number {
+    const normalized =
+      this.normalizeAttestationId(attestationId);
+
+    const current =
+      this.endorsements.get(normalized) ?? [];
+
+    const removed = current.length;
+
+    for (const item of current) {
+      const key = this.createCompositeKey(
+        normalized,
+        item.endorser
+      );
+
+      this.endorsementLookup.delete(key);
+    }
+
+    this.endorsements.delete(normalized);
+    this.endorsementIndex.delete(normalized);
+
+    this.totalEndorsements -= removed;
+
+    return removed;
+  }
+
+  /**
+   * Retrieves a paginated endorsement list.
+   */
+  getPaginatedEndorsements(
+    attestationId: string,
+    options: PaginationOptions
+  ): PaginatedEndorsements {
+    const normalized =
+      this.normalizeAttestationId(attestationId);
+
+    if (
+      !Number.isInteger(options.offset) ||
+      options.offset < 0
+    ) {
+      throw new InvalidEndorsement(
+        "Offset must be a non-negative integer"
+      );
+    }
+
+    if (
+      !Number.isInteger(options.limit) ||
+      options.limit < 1
+    ) {
+      throw new InvalidEndorsement(
+        "Limit must be a positive integer"
+      );
+    }
+
+    const all =
+      this.endorsements.get(normalized) ?? [];
+
+    const data = all
+      .slice(
+        options.offset,
+        options.offset + options.limit
+      )
+      .map((item) => ({ ...item }));
+
+    return {
+      data,
+      total: all.length,
+      offset: options.offset,
+      limit: options.limit,
+      hasMore:
+        options.offset + data.length < all.length,
+    };
+  }
+
+  /**
+   * Processes multiple endorsements.
+   */
+  endorseBatch(
+    attestationId: string,
+    endorsers: string[]
+  ): BatchEndorsementResult {
+    if (!this.config.allowBatch) {
+      throw new InvalidEndorsement(
+        "Batch endorsements are disabled"
+      );
+    }
+
+    if (!Array.isArray(endorsers)) {
+      throw new InvalidEndorsement(
+        "Endorsers must be an array"
+      );
+    }
+
+    const successful: Endorsement[] = [];
+
+    const failed: BatchEndorsementResult["failed"] = [];
+
+    for (const endorser of endorsers) {
+      try {
+        const result = this.endorse(
+          attestationId,
+          endorser
+        );
+
+        successful.push(result);
+      } catch (error) {
+        failed.push({
+          endorser,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Unknown error",
+        });
+      }
+    }
+
+    return {
+      successful,
+      failed,
+    };
+  }
+
+  /**
+   * Returns the overall number of endorsements.
+   */
+  getTotalEndorsements(): number {
+    return this.totalEndorsements;
+  }
+
+  /**
+   * Returns the configured maximum.
+   */
+  getMaximumEndorsements(): number {
+    return this.config.maxEndorsements;
+  }
+
+  /**
+   * Returns a copy of the active configuration.
+   */
+  getConfiguration(): EndorsementConfig {
+    return { ...this.config };
+  }
+
+  /**
+   * Validates internal storage consistency.
+   */
+  validateIntegrity(): boolean {
+    let calculatedTotal = 0;
+
+    for (const [attestationId, items] of this.endorsements) {
+      const index =
+        this.endorsementIndex.get(attestationId);
+
+      if (!index) {
+        return false;
+      }
+
+      if (items.length !== index.size) {
+        return false;
+      }
+
+      if (items.length > this.config.maxEndorsements) {
+        return false;
+      }
+
+      for (const item of items) {
+        if (!index.has(item.endorser)) {
+          return false;
+        }
+
+        const key = this.createCompositeKey(
+          attestationId,
+          item.endorser
+        );
+
+        if (!this.endorsementLookup.has(key)) {
+          return false;
+        }
+      }
+
+      calculatedTotal += items.length;
+    }
+
+    return (
+      calculatedTotal === this.totalEndorsements
+    );
+  }
+}
