@@ -40,10 +40,22 @@ const logger = {
 
 const requestLogger = (correlationId: string) => logger;
 
+// Maximum allowed request body size (default 1 MiB, configurable via env).
+const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES ?? 1_048_576);
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let body = "";
-    req.on("data", (chunk) => (body += chunk));
+    let byteLength = 0;
+    req.on("data", (chunk: Buffer) => {
+      byteLength += chunk.length;
+      if (byteLength > MAX_BODY_BYTES) {
+        req.destroy();
+        reject(Object.assign(new Error("Request body too large"), { code: "PAYLOAD_TOO_LARGE" }));
+        return;
+      }
+      body += chunk;
+    });
     req.on("end", () => resolve(body));
     req.on("error", reject);
   });
@@ -341,7 +353,19 @@ async function main() {
       attributes: { "http.method": req.method ?? "GET", "correlation.id": correlationId },
     });
 
-    const body = await readBody(req);
+    let body: string;
+    try {
+      body = await readBody(req);
+    } catch (err: unknown) {
+      span.end();
+      const code = (err as { code?: string }).code;
+      if (code === "PAYLOAD_TOO_LARGE") {
+        res.writeHead(413, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ errors: [{ message: "Request body too large" }] }));
+        return;
+      }
+      throw err;
+    }
     const headers = new HeaderMap();
     for (const [key, value] of Object.entries(req.headers)) {
       if (value) headers.set(key, Array.isArray(value) ? value.join(", ") : value);
