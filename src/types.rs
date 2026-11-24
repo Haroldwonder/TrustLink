@@ -554,21 +554,6 @@ pub enum RevocationListFormat {
     Bitstring = 1,
 }
 
-/// A bundle of attestations created by an issuer for a group of subjects.
-/// Each attestation in a bundle must be valid (not revoked, not deleted, not expired).
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AttestationBundle {
-    pub id: String,
-    pub issuer: Address,
-    pub claim_type: String,
-    pub attestation_ids: Vec<String>,
-    pub created_at: u64,
-    /// Cached validation status: true if all members are valid at creation time.
-    /// Queries should recompute this by checking expiration of each attestation.
-    pub all_valid: bool,
-}
-
 impl Attestation {
     pub fn hash_payload(env: &Env, payload: &Bytes) -> String {
         let hash = env.crypto().sha256(payload).to_array();
@@ -682,23 +667,6 @@ impl Attestation {
         AttestationStatus::Valid
     }
 }
-
-impl AttestationBundle {
-    pub fn generate_id(
-        env: &Env,
-        issuer: &Address,
-        claim_type: &String,
-        timestamp: u64,
-    ) -> String {
-        let mut payload = Bytes::new(env);
-        payload.append(&Bytes::from_slice(env, b"bundle:"));
-        payload.append(&issuer.clone().to_xdr(env));
-        payload.append(&claim_type.clone().to_xdr(env));
-        payload.append(&timestamp.to_xdr(env));
-        Attestation::hash_payload(env, &payload)
-    }
-}
-
 
 impl AttestationRequest {
     pub fn generate_id(
