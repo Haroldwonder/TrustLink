@@ -1,6 +1,11 @@
 #![no_std]
 
-use soroban_sdk::{contract, contractimpl, Address, Env, String};
+use soroban_sdk::{contract, contractclient, contractimpl, Address, Env, String};
+
+#[contractclient(name = "TrustLinkClient")]
+pub trait TrustLink {
+    fn has_valid_claim(env: Env, subject: Address, claim_type: String) -> bool;
+}
 
 #[contract]
 pub struct EventTicketingContract;
@@ -19,13 +24,12 @@ impl EventTicketingContract {
 
         // Verify attendee has a valid "EVENT_ORGANIZER" attestation from a trusted issuer
         // This ensures only verified event organizers can issue tickets
-        let trustlink = soroban_sdk::Address::from_contract_id(&env, &trustlink_id);
+        let trustlink = TrustLinkClient::new(&env, &trustlink_id);
         let claim = String::from_str(&env, "EVENT_ORGANIZER");
 
-        // In a real implementation, you would:
-        // 1. Call trustlink.has_valid_claim(&attendee, &claim)
-        // 2. Store ticket metadata in contract state
-        // 3. Return confirmation
+        if !trustlink.has_valid_claim(&attendee, &claim) {
+            return Err(String::from_str(&env, "attendee does not have EVENT_ORGANIZER attestation"));
+        }
 
         Ok(true)
     }
@@ -34,10 +38,22 @@ impl EventTicketingContract {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use soroban_sdk::testutils::Address as _;
 
     #[test]
     fn test_ticket_issuance() {
-        // Test that ticket issuance requires attestation verification
-        // Mock TrustLink integration for testing
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let event_ticketing_id = env.register_contract(None, EventTicketingContract);
+        let event_ticketing = EventTicketingContractClient::new(&env, &event_ticketing_id);
+
+        let organizer = Address::generate(&env);
+        let event_id = String::from_str(&env, "summer-festival-2024");
+
+        // Test: ticket issuance fails when organizer lacks attestation
+        assert!(event_ticketing
+            .try_issue_ticket(&organizer, &organizer, &event_id)
+            .is_err());
     }
 }

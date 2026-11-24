@@ -102,3 +102,34 @@ export async function validateWebhookUrl(urlString: string): Promise<void> {
     throw new Error(`Failed to resolve hostname: ${hostname}`);
   }
 }
+
+export const KNOWN_WEBHOOK_EVENT_TYPES = [
+  "attestation.created",
+  "attestation.imported",
+  "attestation.bridged",
+  "attestation.revoked",
+] as const;
+
+export type WebhookEventType = (typeof KNOWN_WEBHOOK_EVENT_TYPES)[number];
+
+const KNOWN_WEBHOOK_EVENT_TYPE_SET = new Set<string>(KNOWN_WEBHOOK_EVENT_TYPES);
+
+export function validateWebhookEventTypes(eventTypes: unknown): string[] {
+  if (!Array.isArray(eventTypes)) {
+    throw new Error("eventTypes must be an array of known event types");
+  }
+
+  const normalized: string[] = [];
+  for (const item of eventTypes) {
+    if (typeof item !== "string" || !KNOWN_WEBHOOK_EVENT_TYPE_SET.has(item)) {
+      throw new Error(
+        `Invalid webhook event type: ${String(item)}. Allowed types: ${KNOWN_WEBHOOK_EVENT_TYPES.join(", ")}`,
+      );
+    }
+    if (!normalized.includes(item)) {
+      normalized.push(item);
+    }
+  }
+
+  return normalized;
+}

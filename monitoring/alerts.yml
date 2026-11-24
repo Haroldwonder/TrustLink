@@ -116,6 +116,25 @@ groups:
             bulk compliance sweep, or an automation bug. Follow the runbook in
             docs/monitoring.md §8 to determine the root cause.
 
+      # Fires when the synthetic uptime check reports failures (#1736).
+      # The synthetic-uptime workflow pushes a result metric
+      # (trustlink_synthetic_uptime_success) via the Pushgateway; a value of 0
+      # means the last probe failed. This routes repeated failures to the
+      # alerting pipeline instead of relying on red Actions runs.
+      - alert: TrustLinkSyntheticUptimeFailing
+        expr: trustlink_synthetic_uptime_success == 0
+        for: 10m
+        labels:
+          severity: high
+        annotations:
+          summary: "Synthetic uptime check is failing"
+          description: >
+            The synthetic uptime probe for {{ $labels.target | default "the
+            public endpoint" }} has been failing for at least 10 minutes.
+            Check the synthetic-uptime workflow logs and the endpoint's
+            health. If the endpoint is not deployed in this environment,
+            disable the workflow or set its target to a deployed URL.
+
       # Fires when reconciliation detects sustained drift between the indexer's
       # view of state and the chain (#1207).
       - alert: TrustLinkReconciliationDrift

@@ -1,4 +1,4 @@
-use soroban_sdk::{Address, Env, String, Vec};
+use soroban_sdk::{Address, BytesN, Env, String, Vec};
 
 use crate::attestation::{store_attestation, validate_native_expiration};
 use crate::events::Events;
@@ -14,6 +14,7 @@ pub fn request_attestation(
     subject: Address,
     issuer: Address,
     claim_type: String,
+    evidence_hash: Option<BytesN<32>>,
 ) -> Result<String, Error> {
     subject.require_auth();
     Validation::require_not_paused(env)?;
@@ -22,17 +23,39 @@ pub fn request_attestation(
 
     let current_time = env.ledger().timestamp();
 
-    // Check if there's already a pending, unexpired request for the same (subject, issuer, claim_type)
+    // Get all pending request IDs for this issuer
     let pending_ids = Storage::get_pending_request_ids(env, &issuer);
+    let pending_count = pending_ids.len();
+
+    // RATE LIMIT: Check issuer's total pending request count
+    // This prevents a spammer from filling the issuer's pending list
+    if pending_count >= crate::types::MAX_PENDING_REQUESTS_PER_ISSUER {
+        return Err(Error::IssuerPendingRequestLimitExceeded);
+    }
+
+    // Check for duplicates and count pending requests for this specific (subject, issuer) pair
+    let mut subject_issuer_pending_count: u32 = 0;
     for existing_id in pending_ids.iter() {
         if let Ok(existing_req) = Storage::get_request(env, &existing_id) {
+            // Only count pending, unexpired requests for this subject-issuer pair
             if existing_req.subject == subject
-                && existing_req.claim_type == claim_type
                 && existing_req.status == RequestStatus::Pending
-                && current_time < existing_req.expires_at {
-                return Err(Error::DuplicateRequest);
+                && current_time < existing_req.expires_at
+            {
+                subject_issuer_pending_count += 1;
+
+                // Check for exact duplicate (same subject + claim_type)
+                if existing_req.claim_type == claim_type {
+                    return Err(Error::DuplicateRequest);
+                }
             }
         }
+    }
+
+    // RATE LIMIT: Check pending requests per (subject, issuer) pair
+    // This prevents a single subject from spamming a specific issuer
+    if subject_issuer_pending_count >= crate::types::MAX_PENDING_REQUESTS_PER_SUBJECT_ISSUER {
+        return Err(Error::SubjectIssuerPendingRequestLimitExceeded);
     }
 
     let request_id = AttestationRequest::generate_id(env, &subject, &issuer, &claim_type, current_time);
@@ -46,11 +69,13 @@ pub fn request_attestation(
         expires_at,
         status: RequestStatus::Pending,
         rejection_reason: None,
+        evidence_hash,
     };
 
     Storage::set_request(env, &request);
     Storage::add_pending_request(env, &issuer, &request_id);
-    Events::attestation_requested(env, &request_id, &subject, &issuer, &claim_type, expires_at);
+    Storage::add_subject_request(env, &subject, &request_id);
+    Events::attestation_requested(env, &request_id, &subject, &issuer, &claim_type, expires_at, &evidence_hash);
 
     Ok(request_id)
 }
@@ -157,7 +182,8 @@ pub fn reject_request(
 
 pub fn cancel_request(env: &Env, subject: Address, request_id: String) -> Result<(), Error> {
     subject.require_auth();
-    Validation::require_not_paused(env)?;
+    // Cancellation is allowed even when paused - it only reduces state and moves no value.
+    // This allows subjects to withdraw pending requests during incidents.
 
     let mut request = Storage::get_request(env, &request_id)?;
 
@@ -204,6 +230,29 @@ pub fn get_pending_requests(env: &Env, issuer: Address, start: u32, limit: u32) 
             result.push_back(req);
         }
         i += 1;
+    }
+    result
+}
+
+/// Get all attestation requests made by a subject, with pagination.
+/// Returns requests in reverse chronological order (newest first).
+pub fn get_requests_by_subject(env: &Env, subject: Address, start: u32, limit: u32) -> Vec<AttestationRequest> {
+    let all_ids = Storage::get_subject_request_ids(env, &subject);
+    let total = all_ids.len();
+    let start = start.min(total);
+    let end = (start + limit).min(total);
+    let mut result = Vec::new(env);
+    
+    // Iterate in reverse to get newest first
+    let mut i = if end == 0 { 0 } else { end - 1 };
+    while i >= start && i < total {
+        if let Some(id) = all_ids.get(i) {
+            if let Ok(req) = Storage::get_request(env, &id) {
+                result.push_back(req);
+            }
+        }
+        if i == 0 { break; }
+        i -= 1;
     }
     result
 }

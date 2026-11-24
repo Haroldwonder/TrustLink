@@ -3013,7 +3013,7 @@ fn test_attestation_remains_valid_after_issuer_removal() {
 }
 
 #[test]
-fn test_has_valid_claim_true_after_issuer_removal() {
+fn test_has_valid_claim_false_after_issuer_removal() {
     let env = Env::default();
     env.mock_all_auths();
     let (admin, issuer, client) = setup(&env);
@@ -3022,11 +3022,388 @@ fn test_has_valid_claim_true_after_issuer_removal() {
     let claim = String::from_str(&env, "KYC_PASSED");
     client.create_attestation(&issuer, &subject, &claim, &None, &None, &None);
 
+    // Sanity: valid while the issuer is registered.
+    assert!(client.has_valid_claim(&subject, &claim));
+
     // Remove the issuer
     client.remove_issuer(&admin, &issuer);
 
-    // has_valid_claim should still return true
+    // Strict behaviour: attestations from non-registered issuers are invalid.
+    assert!(!client.has_valid_claim(&subject, &claim));
+}
+
+#[test]
+fn test_has_valid_claim_from_issuer_false_after_issuer_removal() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, client) = setup(&env);
+
+    let subject = Address::generate(&env);
+    let claim = String::from_str(&env, "KYC_PASSED");
+    client.create_attestation(&issuer, &subject, &claim, &None, &None, &None);
+
+    assert!(client.has_valid_claim_from_issuer(&subject, &claim, &issuer));
+
+    client.remove_issuer(&admin, &issuer);
+
+    assert!(!client.has_valid_claim_from_issuer(&subject, &claim, &issuer));
+}
+
+#[test]
+fn test_has_any_claim_false_after_issuer_removal() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, client) = setup(&env);
+
+    let subject = Address::generate(&env);
+    let claim = String::from_str(&env, "KYC_PASSED");
+    client.create_attestation(&issuer, &subject, &claim, &None, &None, &None);
+
+    let mut claims = soroban_sdk::Vec::new(&env);
+    claims.push_back(claim.clone());
+    assert!(client.has_any_claim(&subject, &claims));
+
+    client.remove_issuer(&admin, &issuer);
+
+    assert!(!client.has_any_claim(&subject, &claims));
+}
+
+#[test]
+fn test_has_all_claims_false_after_issuer_removal() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, client) = setup(&env);
+
+    let subject = Address::generate(&env);
+    let claim = String::from_str(&env, "KYC_PASSED");
+    client.create_attestation(&issuer, &subject, &claim, &None, &None, &None);
+
+    let mut claims = soroban_sdk::Vec::new(&env);
+    claims.push_back(claim.clone());
+    assert!(client.has_all_claims(&subject, &claims));
+
+    client.remove_issuer(&admin, &issuer);
+
+    assert!(!client.has_all_claims(&subject, &claims));
+}
+
+#[test]
+fn test_get_valid_claims_empty_after_issuer_removal() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, client) = setup(&env);
+
+    let subject = Address::generate(&env);
+    let claim = String::from_str(&env, "KYC_PASSED");
+    client.create_attestation(&issuer, &subject, &claim, &None, &None, &None);
+
+    assert_eq!(client.get_valid_claims(&subject).len(), 1);
+
+    client.remove_issuer(&admin, &issuer);
+
+    assert_eq!(client.get_valid_claims(&subject).len(), 0);
+}
+
+#[test]
+fn test_get_attestation_by_type_none_after_issuer_removal() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, client) = setup(&env);
+
+    let subject = Address::generate(&env);
+    let claim = String::from_str(&env, "KYC_PASSED");
+    client.create_attestation(&issuer, &subject, &claim, &None, &None, &None);
+
+    assert!(client.get_attestation_by_type(&subject, &claim).is_some());
+
+    client.remove_issuer(&admin, &issuer);
+
+    assert!(client.get_attestation_by_type(&subject, &claim).is_none());
+}
+
+#[test]
+fn test_removed_issuer_attestations_do_not_affect_other_issuers() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, client) = setup(&env);
+    let other_issuer = Address::generate(&env);
+    client.register_issuer(&admin, &other_issuer);
+
+    let subject = Address::generate(&env);
+    let claim = String::from_str(&env, "KYC_PASSED");
+    client.create_attestation(&issuer, &subject, &claim, &None, &None, &None);
+    env.ledger().set_timestamp(env.ledger().timestamp() + 1);
+    client.create_attestation(&other_issuer, &subject, &claim, &None, &None, &None);
+
+    client.remove_issuer(&admin, &issuer);
+
+    // The remaining registered issuer's attestation keeps the claim valid.
     assert!(client.has_valid_claim(&subject, &claim));
+    assert!(client.has_valid_claim_from_issuer(&subject, &claim, &other_issuer));
+    assert!(!client.has_valid_claim_from_issuer(&subject, &claim, &issuer));
+}
+
+// ── Issue #1507: revoke_all_from_issuer emergency path ───────────────────────
+
+#[test]
+fn test_revoke_all_from_issuer_revokes_every_attestation() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, client) = setup(&env);
+
+    let claim = String::from_str(&env, "KYC_PASSED");
+    let subject1 = Address::generate(&env);
+    let subject2 = Address::generate(&env);
+    let id1 = client.create_attestation(&issuer, &subject1, &claim, &None, &None, &None);
+    env.ledger().set_timestamp(env.ledger().timestamp() + 1);
+    let id2 = client.create_attestation(&issuer, &subject2, &claim, &None, &None, &None);
+
+    let revoked = client.revoke_all_from_issuer(&admin, &issuer);
+    assert_eq!(revoked, 2);
+
+    assert!(client.get_attestation(&id1).revoked);
+    assert!(client.get_attestation(&id2).revoked);
+    assert!(!client.has_valid_claim(&subject1, &claim));
+    assert!(!client.has_valid_claim(&subject2, &claim));
+}
+
+#[test]
+fn test_revoke_all_from_issuer_works_after_issuer_removal() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, client) = setup(&env);
+
+    let subject = Address::generate(&env);
+    let claim = String::from_str(&env, "KYC_PASSED");
+    let id = client.create_attestation(&issuer, &subject, &claim, &None, &None, &None);
+
+    client.remove_issuer(&admin, &issuer);
+
+    let revoked = client.revoke_all_from_issuer(&admin, &issuer);
+    assert_eq!(revoked, 1);
+    assert!(client.get_attestation(&id).revoked);
+}
+
+#[test]
+fn test_revoke_all_from_issuer_is_admin_only() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, issuer, client) = setup(&env);
+
+    let subject = Address::generate(&env);
+    let claim = String::from_str(&env, "KYC_PASSED");
+    client.create_attestation(&issuer, &subject, &claim, &None, &None, &None);
+
+    let attacker = Address::generate(&env);
+    let result = client.try_revoke_all_from_issuer(&attacker, &issuer);
+    assert_eq!(result, Err(Ok(Error::Unauthorized)));
+}
+
+#[test]
+fn test_revoke_all_from_issuer_with_no_attestations_returns_zero() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, client) = setup(&env);
+
+    let revoked = client.revoke_all_from_issuer(&admin, &issuer);
+    assert_eq!(revoked, 0);
+}
+
+// ── Issue #1519: admin setter bounds ─────────────────────────────────────────
+
+#[test]
+fn test_set_multisig_ttl_bounds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, _, client) = setup(&env);
+
+    // min - 1 (zero) rejected
+    let result = client.try_set_multisig_ttl(&admin, &0);
+    assert_eq!(result, Err(Ok(Error::InvalidConfigValue)));
+
+    // min accepted
+    client.set_multisig_ttl(&admin, &1);
+    assert_eq!(client.get_multisig_ttl(), 1);
+
+    // max accepted
+    client.set_multisig_ttl(&admin, &crate::constants::MAX_MULTISIG_TTL_DAYS);
+    assert_eq!(client.get_multisig_ttl(), crate::constants::MAX_MULTISIG_TTL_DAYS);
+
+    // max + 1 rejected
+    let result = client.try_set_multisig_ttl(&admin, &(crate::constants::MAX_MULTISIG_TTL_DAYS + 1));
+    assert_eq!(result, Err(Ok(Error::InvalidConfigValue)));
+}
+
+#[test]
+fn test_set_chunk_size_bounds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, _, client) = setup(&env);
+
+    // min - 1 (zero) rejected
+    let result = client.try_set_chunk_size(&admin, &0);
+    assert_eq!(result, Err(Ok(Error::InvalidConfigValue)));
+
+    // min accepted
+    client.set_chunk_size(&admin, &1);
+    assert_eq!(client.get_chunk_size(), 1);
+
+    // max accepted
+    client.set_chunk_size(&admin, &crate::constants::MAX_CHUNK_SIZE);
+    assert_eq!(client.get_chunk_size(), crate::constants::MAX_CHUNK_SIZE);
+
+    // max + 1 rejected
+    let result = client.try_set_chunk_size(&admin, &(crate::constants::MAX_CHUNK_SIZE + 1));
+    assert_eq!(result, Err(Ok(Error::InvalidConfigValue)));
+}
+
+#[test]
+fn test_set_limits_bounds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, _, client) = setup(&env);
+
+    // zero per-issuer rejected
+    let result = client.try_set_limits(&admin, &0, &10);
+    assert_eq!(result, Err(Ok(Error::InvalidConfigValue)));
+
+    // zero per-subject rejected
+    let result = client.try_set_limits(&admin, &10, &0);
+    assert_eq!(result, Err(Ok(Error::InvalidConfigValue)));
+
+    // min accepted
+    client.set_limits(&admin, &1, &1);
+    let limits = client.get_limits();
+    assert_eq!(limits.max_attestations_per_issuer, 1);
+    assert_eq!(limits.max_attestations_per_subject, 1);
+
+    // max accepted
+    client.set_limits(
+        &admin,
+        &crate::constants::MAX_ATTESTATIONS_PER_ISSUER,
+        &crate::constants::MAX_ATTESTATIONS_PER_SUBJECT,
+    );
+    let limits = client.get_limits();
+    assert_eq!(limits.max_attestations_per_issuer, crate::constants::MAX_ATTESTATIONS_PER_ISSUER);
+    assert_eq!(limits.max_attestations_per_subject, crate::constants::MAX_ATTESTATIONS_PER_SUBJECT);
+
+    // max + 1 rejected
+    let result = client.try_set_limits(
+        &admin,
+        &(crate::constants::MAX_ATTESTATIONS_PER_ISSUER + 1),
+        &10,
+    );
+    assert_eq!(result, Err(Ok(Error::InvalidConfigValue)));
+    let result = client.try_set_limits(
+        &admin,
+        &10,
+        &(crate::constants::MAX_ATTESTATIONS_PER_SUBJECT + 1),
+    );
+    assert_eq!(result, Err(Ok(Error::InvalidConfigValue)));
+}
+
+#[test]
+fn test_set_decay_config_bounds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, _, client) = setup(&env);
+
+    // revocation_weight > 100 rejected
+    let result = client.try_set_decay_config(&admin, &30, &101);
+    assert_eq!(result, Err(Ok(Error::InvalidConfigValue)));
+
+    // revocation_weight == 100 accepted
+    client.set_decay_config(&admin, &30, &100);
+    let cfg = client.get_decay_config();
+    assert_eq!(cfg.revocation_weight, 100);
+
+    // half_life_days == 0 rejected
+    let result = client.try_set_decay_config(&admin, &0, &50);
+    assert_eq!(result, Err(Ok(Error::InvalidConfigValue)));
+
+    // half_life_days max accepted, max + 1 rejected
+    client.set_decay_config(&admin, &crate::constants::MAX_DECAY_HALF_LIFE_DAYS, &50);
+    let result = client.try_set_decay_config(
+        &admin,
+        &(crate::constants::MAX_DECAY_HALF_LIFE_DAYS + 1),
+        &50,
+    );
+    assert_eq!(result, Err(Ok(Error::InvalidConfigValue)));
+}
+
+#[test]
+fn test_set_rate_limit_bounds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, client) = setup(&env);
+
+    // zero rejected
+    let result = client.try_set_rate_limit(&admin, &issuer, &0);
+    assert_eq!(result, Err(Ok(Error::InvalidConfigValue)));
+
+    // min accepted
+    client.set_rate_limit(&admin, &issuer, &1);
+    assert_eq!(client.get_rate_limit(&issuer), 1);
+
+    // max accepted
+    client.set_rate_limit(&admin, &issuer, &crate::constants::MAX_RATE_LIMIT);
+    assert_eq!(client.get_rate_limit(&issuer), crate::constants::MAX_RATE_LIMIT);
+
+    // max + 1 rejected
+    let result = client.try_set_rate_limit(&admin, &issuer, &(crate::constants::MAX_RATE_LIMIT + 1));
+    assert_eq!(result, Err(Ok(Error::InvalidConfigValue)));
+}
+
+#[test]
+fn test_set_rate_limit_for_claim_type_bounds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, issuer, client) = setup(&env);
+    let claim = String::from_str(&env, "KYC_PASSED");
+
+    // zero rejected
+    let result = client.try_set_rate_limit_for_claim_type(&admin, &issuer, &claim, &0);
+    assert_eq!(result, Err(Ok(Error::InvalidConfigValue)));
+
+    // min accepted
+    client.set_rate_limit_for_claim_type(&admin, &issuer, &claim, &1);
+
+    // max accepted
+    client.set_rate_limit_for_claim_type(
+        &admin,
+        &issuer,
+        &claim,
+        &crate::constants::MAX_RATE_LIMIT,
+    );
+
+    // max + 1 rejected
+    let result = client.try_set_rate_limit_for_claim_type(
+        &admin,
+        &issuer,
+        &claim,
+        &(crate::constants::MAX_RATE_LIMIT + 1),
+    );
+    assert_eq!(result, Err(Ok(Error::InvalidConfigValue)));
+}
+
+#[test]
+fn test_set_council_timelock_delay_bounds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, _, client) = setup(&env);
+
+    // max accepted
+    client.set_council_timelock_delay(&admin, &crate::constants::MAX_TIMELOCK_SECS);
+    assert_eq!(client.get_council_timelock_delay(), crate::constants::MAX_TIMELOCK_SECS);
+
+    // max + 1 rejected
+    let result =
+        client.try_set_council_timelock_delay(&admin, &(crate::constants::MAX_TIMELOCK_SECS + 1));
+    assert_eq!(result, Err(Ok(Error::InvalidConfigValue)));
+
+    // min accepted
+    client.set_council_timelock_delay(&admin, &0);
+    assert_eq!(client.get_council_timelock_delay(), 0);
 }
 
 #[test]
@@ -12832,6 +13209,313 @@ fn test_get_issuer_tier_unregistered_returns_none() {
 
     // get_issuer_tier returns None for an address with no stored tier.
     assert_eq!(client.get_issuer_tier(&issuer), None);
+}
+
+// ── Issue #1506: bridge deregistration ───────────────────────────────────────
+
+#[test]
+fn test_remove_bridge_round_trip() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+
+    client.register_bridge(&admin, &bridge);
+    assert!(client.is_bridge(&bridge));
+    assert!(client.get_bridges().iter().any(|b| b == bridge));
+
+    client.remove_bridge(&admin, &bridge);
+    assert!(!client.is_bridge(&bridge));
+    assert!(!client.get_bridges().iter().any(|b| b == bridge));
+}
+
+#[test]
+fn test_removed_bridge_attestation_unauthorized() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+    let subject = Address::generate(&env);
+    let claim_type = String::from_str(&env, "KYC_PASSED");
+    let source_chain = String::from_str(&env, "ethereum");
+    let source_tx = String::from_str(&env, "0xabc123");
+
+    client.register_bridge(&admin, &bridge);
+    client.remove_bridge(&admin, &bridge);
+
+    let result = client.try_bridge_attestation(
+        &bridge,
+        &subject,
+        &claim_type,
+        &source_chain,
+        &source_tx,
+        &None,
+    );
+    assert_eq!(result, Err(Ok(types::Error::Unauthorized)));
+}
+
+#[test]
+fn test_remove_bridge_unauthorized() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+    let wrong_admin = Address::generate(&env);
+
+    client.register_bridge(&admin, &bridge);
+
+    let result = client.try_remove_bridge(&wrong_admin, &bridge);
+    assert_eq!(result, Err(Ok(types::Error::Unauthorized)));
+    assert!(client.is_bridge(&bridge));
+}
+
+#[test]
+fn test_remove_bridge_unknown() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+
+    let result = client.try_remove_bridge(&admin, &bridge);
+    assert_eq!(result, Err(Ok(types::Error::NotFound)));
+}
+
+#[test]
+fn test_register_bridge_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+
+    client.pause(&admin);
+
+    let result = client.try_register_bridge(&admin, &bridge);
+    assert_eq!(result, Err(Ok(types::Error::ContractPaused)));
+    assert!(!client.is_bridge(&bridge));
+}
+
+#[test]
+fn test_register_bridge_emits_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+    let timestamp = 1234567890u64;
+    env.ledger().set_timestamp(timestamp);
+
+    client.register_bridge(&admin, &bridge);
+
+    let events = env.events().all();
+    let mut found_event = false;
+    for (_, topic, data) in events {
+        let topic0: soroban_sdk::Symbol =
+            soroban_sdk::TryFromVal::try_from_val(&env, &topic.get(0).unwrap()).unwrap();
+        if topic0 == soroban_sdk::symbol_short!("brg_reg") {
+            let topic1: Address =
+                soroban_sdk::TryFromVal::try_from_val(&env, &topic.get(1).unwrap()).unwrap();
+            let event_data: (Address, u64) =
+                soroban_sdk::TryFromVal::try_from_val(&env, &data).unwrap();
+
+            assert_eq!(topic1, bridge);
+            assert_eq!(event_data.0, admin);
+            assert_eq!(event_data.1, timestamp);
+            found_event = true;
+            break;
+        }
+    }
+    assert!(found_event, "brg_reg event not found");
+}
+
+#[test]
+fn test_remove_bridge_emits_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let bridge = Address::generate(&env);
+    client.register_bridge(&admin, &bridge);
+
+    let timestamp = 1234567890u64;
+    env.ledger().set_timestamp(timestamp);
+
+    client.remove_bridge(&admin, &bridge);
+
+    let events = env.events().all();
+    let mut found_event = false;
+    for (_, topic, data) in events {
+        let topic0: soroban_sdk::Symbol =
+            soroban_sdk::TryFromVal::try_from_val(&env, &topic.get(0).unwrap()).unwrap();
+        if topic0 == soroban_sdk::symbol_short!("brg_rem") {
+            let topic1: Address =
+                soroban_sdk::TryFromVal::try_from_val(&env, &topic.get(1).unwrap()).unwrap();
+            let event_data: (Address, u64) =
+                soroban_sdk::TryFromVal::try_from_val(&env, &data).unwrap();
+
+            assert_eq!(topic1, bridge);
+            assert_eq!(event_data.0, admin);
+            assert_eq!(event_data.1, timestamp);
+            found_event = true;
+            break;
+        }
+    }
+    assert!(found_event, "brg_rem event not found");
+}
+
+// ── Issue #1518: admin config setters emit cfg_set events ────────────────────
+
+/// Assert that a `cfg_set` event was emitted for `key` with the given admin.
+fn assert_cfg_set_event(env: &Env, key: &str, admin: &Address) {
+    let key_sym = soroban_sdk::Symbol::new(env, key);
+    let mut found = false;
+    for (_, topic, data) in env.events().all() {
+        let topic0: soroban_sdk::Symbol =
+            soroban_sdk::TryFromVal::try_from_val(env, &topic.get(0).unwrap()).unwrap();
+        if topic0 != soroban_sdk::symbol_short!("cfg_set") {
+            continue;
+        }
+        let topic1: soroban_sdk::Symbol =
+            soroban_sdk::TryFromVal::try_from_val(env, &topic.get(1).unwrap()).unwrap();
+        if topic1 != key_sym {
+            continue;
+        }
+        let event_admin: Address =
+            soroban_sdk::TryFromVal::try_from_val(env, &data).unwrap();
+        assert_eq!(&event_admin, admin);
+        found = true;
+        break;
+    }
+    assert!(found, "cfg_set event for key {} not found", key);
+}
+
+#[test]
+fn test_set_fee_emits_cfg_set_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let token = register_test_token(&env, &admin);
+    let collector = Address::generate(&env);
+
+    client.set_fee(&admin, &100, &token, &collector);
+    assert_cfg_set_event(&env, "fee", &admin);
+}
+
+#[test]
+fn test_set_rate_limit_emits_cfg_set_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+
+    client.set_rate_limit(&admin, &1_000);
+    assert_cfg_set_event(&env, "rate_limit", &admin);
+}
+
+#[test]
+fn test_set_rate_limit_for_claim_type_emits_cfg_set_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let claim = String::from_str(&env, "KYC_PASSED");
+
+    client.set_rate_limit_for_claim_type(&admin, &claim, &1_000);
+    assert_cfg_set_event(&env, "rate_limit_ct", &admin);
+}
+
+#[test]
+fn test_set_limits_emits_cfg_set_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+
+    client.set_limits(&admin, &10, &100, &1_000);
+    assert_cfg_set_event(&env, "limits", &admin);
+}
+
+#[test]
+fn test_set_chunk_size_emits_cfg_set_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+
+    client.set_chunk_size(&admin, &50);
+    assert_cfg_set_event(&env, "chunk_size", &admin);
+}
+
+#[test]
+fn test_set_decay_config_emits_cfg_set_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+
+    client.set_decay_config(&admin, &Some(1_000), &Some(500));
+    assert_cfg_set_event(&env, "decay", &admin);
+}
+
+#[test]
+fn test_set_council_timelock_delay_emits_cfg_set_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+
+    client.set_council_timelock_delay(&admin, &1_000);
+    assert_cfg_set_event(&env, "timelock", &admin);
+}
+
+#[test]
+fn test_set_registered_claim_type_emits_cfg_set_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+
+    client.set_registered_claim_type(&admin, &true);
+    assert_cfg_set_event(&env, "req_claim_type", &admin);
+}
+
+#[test]
+fn test_set_metadata_hash_only_emits_cfg_set_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+
+    client.set_metadata_hash_only(&admin, &true);
+    assert_cfg_set_event(&env, "meta_hash_only", &admin);
+}
+
+#[test]
+fn test_set_claim_type_constraints_emits_cfg_set_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+    let claim = String::from_str(&env, "KYC_PASSED");
+
+    client.set_claim_type_constraints(&admin, &claim, &None, &None);
+    assert_cfg_set_event(&env, "claim_constraints", &admin);
+}
+
+#[test]
+fn test_set_multisig_ttl_emits_cfg_set_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (admin, _, client) = setup(&env);
+
+    client.set_multisig_ttl(&admin, &1_000);
+    assert_cfg_set_event(&env, "multisig_ttl", &admin);
 }
 
 // ── Issue #1509: bridge revocation and expiry ─────────────────────────────────

@@ -398,7 +398,14 @@ async function pollEvents() {
 // ---------------------------------------------------------------------------
 // Event classification helpers
 // ---------------------------------------------------------------------------
-const HIGH_SEVERITY = new Set(["revoked", "adm_xfer", "iss_rem"]);
+const HIGH_SEVERITY = new Set([
+  "revoked",
+  "adm_xfer",
+  "iss_rem",
+  "brg_reg",
+  "brg_rem",
+  "cfg_set",
+]);
 const MEDIUM_SEVERITY = new Set([
   "created",
   "bridged",
@@ -491,8 +498,8 @@ RPC_URL=https://soroban-testnet.stellar.org \
 
 | Severity     | Events                                                                        | Recommended Action                                                 |
 | ------------ | ----------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| **Critical** | `adm_xfer`, `iss_rem`                                                         | Page on-call immediately — admin control changed or issuer revoked |
-| **High**     | `revoked`                                                                     | Alert within minutes — an attestation trust decision was reversed  |
+| **Critical** | `adm_xfer`, `iss_rem`, `brg_reg`                                              | Page on-call immediately — admin control changed, issuer revoked, or a new bridge authority added |
+| **High**     | `revoked`, `brg_rem`, `cfg_set`                                               | Alert within minutes — a trust decision was reversed or configuration changed |
 | **Medium**   | `created`, `imported`, `bridged`, `iss_reg`, `ms_actv`                        | Log and notify via Slack/email within the hour                     |
 | **Low**      | `renewed`, `updated`, `endorsed`, `clmtype`, `ms_prop`, `ms_sign`, `exp_hook` | Aggregate in dashboards, review daily                              |
 
@@ -504,11 +511,13 @@ RPC_URL=https://soroban-testnet.stellar.org \
 
 3. **Issuer removals** (`iss_rem`) — Verify that the removal was intentional and that affected attestations are handled.
 
-4. **Bridge activity** (`bridged`) — Monitor for unexpected source chains or abnormal volume, which could indicate a bridge compromise.
+4. **Bridge activity** (`bridged`) — Monitor for unexpected source chains or abnormal volume, which could indicate a bridge compromise. Pair this with `brg_reg` / `brg_rem` alerts so that any change to the set of bridge authorities is reviewed immediately.
 
-5. **Expiration hooks** (`exp_hook`) — Track these to ensure callback contracts are responding. A backlog of unacknowledged hooks suggests the callback endpoint is down.
+5. **Configuration changes** (`cfg_set`) — Every admin setter emits a `cfg_set` event. Alert on all changes and page on changes to `fee`, `council_timelock_delay`, or `multisig_ttl`, which directly affect economics and security guarantees.
 
-6. **Fee collection** — Cross-reference `created` events with fee token transfer operations on Horizon to confirm fees are reaching the collector.
+6. **Expiration hooks** (`exp_hook`) — Track these to ensure callback contracts are responding. A backlog of unacknowledged hooks suggests the callback endpoint is down.
+
+7. **Fee collection** — Cross-reference `created` events with fee token transfer operations on Horizon to confirm fees are reaching the collector.
 
 ### Integration Targets
 
@@ -561,6 +570,9 @@ requires the following metrics to be exported by your TrustLink event indexer:
 | `trustlink_attestation_revoked_total` | Counter | Cumulative count of `revoked` events |
 | `trustlink_latest_ledger` | Gauge | Current chain tip ledger sequence |
 | `trustlink_indexer_last_processed_ledger` | Gauge | Last ledger processed by the indexer |
+| `trustlink_bridge_registered_total` | Counter | Cumulative count of `brg_reg` events |
+| `trustlink_bridge_removed_total` | Counter | Cumulative count of `brg_rem` events |
+| `trustlink_config_changed_total` | Counter | Cumulative count of `cfg_set` events, labelled by `key` |
 
 #### `TrustLinkContractPaused`
 
@@ -614,6 +626,8 @@ switch to a backup RPC endpoint if needed.
 - **Bridge attestations per day per source chain** — detect anomalies
 - **Mean time between `exp_hook` and renewal** — issuer responsiveness
 - **Active issuers** — track `iss_reg` minus `iss_rem` over time
+- **Registered bridges** — track `brg_reg` minus `brg_rem` over time
+- **Configuration changes per day by key** — `rate(trustlink_config_changed_total[1d])` grouped by `key`
 - **Multi-sig proposals pending** — `ms_prop` minus `ms_actv` backlog
 
 ### Indexer Metrics
@@ -643,6 +657,9 @@ Event types tracked:
 - `ms_actv` — Multi-sig activated
 - `adm_init` — Admin initialized
 - `adm_xfer` — Admin transferred
+- `brg_reg` — Bridge registered
+- `brg_rem` — Bridge removed
+- `cfg_set` — Admin configuration changed
 
 Example Prometheus query for revocation rate:
 ```promql
@@ -802,6 +819,7 @@ Follow the same import steps described in §9 but select
 - [ ] Rate-limit outbound webhook calls to avoid flooding downstream services
 - [ ] Set up a dead-letter queue for failed webhook deliveries
 - [ ] Test alerting end-to-end on the local network before enabling on testnet/mainnet
+- [ ] Confirm the indexer exports `trustlink_bridge_registered_total`, `trustlink_bridge_removed_total`, and `trustlink_config_changed_total{key}` and that `brg_reg`, `brg_rem`, and `cfg_set` alerts are wired to the on-call rotation
 
 ---
 
@@ -823,6 +841,10 @@ Adjust thresholds to match your expected traffic volume.
 | `issuer_removed` | Any `iss_rem` event | Critical | Immediate page |
 | `revocation_spike` | `revoked` events > 10 in any 5-minute window | High | 5 minutes |
 | `bridge_anomaly` | `bridged` events from an unrecognised `source_chain` | High | 5 minutes |
+| `bridge_registered` | Any `brg_reg` event | Critical | Immediate page |
+| `bridge_removed` | Any `brg_rem` event | High | 5 minutes |
+| `config_changed` | Any `cfg_set` event | High | 5 minutes |
+| `config_critical_changed` | `cfg_set` with `key` in (`fee`, `council_timelock_delay`, `multisig_ttl`) | Critical | Immediate page |
 | `issuer_deregistered_with_active_attestations` | `iss_rem` where issuer has > 0 active attestations | High | 15 minutes |
 | `multisig_proposal_expired` | `ms_prop` with no `ms_actv` within 7 days | Medium | Next business day |
 | `expiration_hook_backlog` | `exp_hook` events > 50 with no corresponding renewal in 24 h | Medium | 1 hour |
@@ -844,6 +866,96 @@ metrics to be exported by your indexer:
 |--------|------|-------------|
 | `trustlink_admin_added_total` | Counter | Cumulative count of `adm_add` events, labelled with `actor` and `timestamp` |
 | `trustlink_admin_removed_total` | Counter | Cumulative count of `adm_rem` events, labelled with `actor` and `timestamp` |
+
+The bridge and configuration rules require these additional metrics:
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `trustlink_bridge_registered_total` | Counter | `bridge` | Cumulative count of `brg_reg` events (bridge contracts added to the registry) |
+| `trustlink_bridge_removed_total` | Counter | `bridge` | Cumulative count of `brg_rem` events (bridge contracts removed from the registry) |
+| `trustlink_config_changed_total` | Counter | `key`, `admin` | Cumulative count of `cfg_set` events, one increment per configuration key changed |
+
+`cfg_set` keys currently emitted by the contract include `fee`,
+`rate_limit`, `rate_limit_claim_type`, `limits`, `chunk_size`, `decay_config`,
+`council_timelock_delay`, `registered_claim_type`, `metadata_hash_only`,
+`claim_type_constraints`, `multisig_ttl`, and `max_attestations_per_subject`.
+
+#### `bridge_registered` — Bridge contract registered
+
+**Severity:** Critical  
+**Condition:** Any `brg_reg` event
+
+A newly registered bridge can mint `Bridged` attestations for any subject and
+claim type, so an unexpected registration is equivalent to granting a new
+attestation authority. Verify the registration was planned and that the bridge
+address matches the expected cross-chain contract. If unplanned, remove the
+bridge immediately with `remove_bridge` and follow the incident response plan
+in `docs/security.md`.
+
+#### `bridge_removed` — Bridge contract removed
+
+**Severity:** High  
+**Condition:** Any `brg_rem` event
+
+A bridge was deregistered; its `bridge_attestation` calls now fail with
+`Unauthorized`. Confirm the removal was intentional (deprecation, rotation, or
+incident response). If the bridge is still expected to be live, re-register it
+with `register_bridge` after verifying the address.
+
+#### `config_changed` / `config_critical_changed` — Admin configuration changed
+
+**Severity:** High (Critical for `fee`, `council_timelock_delay`, `multisig_ttl`)  
+**Condition:** Any `cfg_set` event; escalate when `key` is security- or
+economics-relevant
+
+Every admin setter emits a `cfg_set` event carrying the acting admin, the
+configuration key, and the old and new values. Alert on any change and page
+immediately for the following keys:
+
+- `fee` — attestation fee changed; verify the new value against the published
+  fee schedule.
+- `council_timelock_delay` — a value of `0` disables the timelock on council
+  operations; treat as a security incident unless explicitly planned.
+- `multisig_ttl` — changing the proposal TTL alters how long multi-sig
+  proposals remain actionable.
+
+For all other keys, confirm the change matches a scheduled configuration
+ticket and record the old/new values in the operations log.
+
+Example PromQL rules:
+
+```yaml
+groups:
+  - name: trustlink-config
+    rules:
+      - alert: TrustLinkBridgeRegistered
+        expr: increase(trustlink_bridge_registered_total[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Bridge {{ $labels.bridge }} registered on TrustLink"
+
+      - alert: TrustLinkBridgeRemoved
+        expr: increase(trustlink_bridge_removed_total[5m]) > 0
+        labels:
+          severity: high
+        annotations:
+          summary: "Bridge {{ $labels.bridge }} removed from TrustLink"
+
+      - alert: TrustLinkConfigChanged
+        expr: increase(trustlink_config_changed_total[5m]) > 0
+        labels:
+          severity: high
+        annotations:
+          summary: "TrustLink config {{ $labels.key }} changed by {{ $labels.admin }}"
+
+      - alert: TrustLinkCriticalConfigChanged
+        expr: increase(trustlink_config_changed_total{key=~"fee|council_timelock_delay|multisig_ttl"}[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "TrustLink critical config {{ $labels.key }} changed by {{ $labels.admin }}"
+```
 
 ---
 
@@ -924,6 +1036,58 @@ metrics to be exported by your indexer:
 ### `revocation_spike` — Unusual number of revocations
 
 See the dedicated runbook in section 8.
+
+---
+
+### `bridge_registered` — Unexpected bridge registration
+
+**What happened:** A bridge contract was added to the registry via `brg_reg`.
+
+1. Confirm the registration was planned — cross-reference with the deployment
+   log or a bridge onboarding ticket.
+2. Verify the actor address (the admin who registered the bridge) is a known,
+   authorized admin.
+3. Verify the bridge address matches the expected cross-chain contract:
+   ```bash
+   stellar contract invoke --id "$CONTRACT_ID" --network mainnet \
+     -- is_bridge --bridge <BRIDGE_ADDRESS>
+   ```
+4. If unplanned, treat as a security incident:
+   - Remove the bridge immediately:
+     ```bash
+     stellar contract invoke --id "$CONTRACT_ID" --source "$ADMIN_SECRET" \
+       --network mainnet -- remove_bridge \
+       --admin "$ADMIN_PUBLIC" --bridge <BRIDGE_ADDRESS>
+     ```
+   - Audit `bridged` events emitted by the rogue bridge since registration.
+   - Follow the incident response plan in `docs/security.md`.
+
+---
+
+### `bridge_removed` — Bridge contract removed
+
+**What happened:** A bridge contract was removed from the registry via `brg_rem`.
+
+1. Confirm the removal was intentional (deprecation, key rotation, or incident
+   response).
+2. Check whether the bridge is still expected to be live; if so, re-register it
+   with `register_bridge` after verifying the address.
+3. Review `bridged` events from the removed bridge around the removal time to
+   confirm no in-flight cross-chain attestations were dropped.
+
+---
+
+### `config_changed` — Admin configuration changed
+
+**What happened:** An admin setter emitted a `cfg_set` event.
+
+1. Identify the `key`, `admin`, `old_value`, and `new_value` from the event.
+2. Confirm the change matches a scheduled configuration ticket.
+3. For `fee`, `council_timelock_delay`, and `multisig_ttl`, treat unplanned
+   changes as security incidents — a `council_timelock_delay` of `0` disables
+   the timelock on council operations.
+4. Record the change in the operations log and update any dependent monitoring
+   thresholds (e.g. fee-based revenue alerts).
 
 ---
 

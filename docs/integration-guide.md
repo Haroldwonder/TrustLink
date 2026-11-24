@@ -53,10 +53,10 @@ npm install @trustlink/contract @stellar/stellar-sdk
 ```
 
 ```typescript
-import { Client } from "@trustlink/contract";
+import { TrustLinkClient } from "@trustlink/contract";
 
-const client = new Client({ rpcUrl: "https://soroban-testnet.stellar.org", contractId: "C..." });
-const result = await client.has_valid_claim({ subject: "G...", claim_type: "KYC_PASSED" });
+const client = new TrustLinkClient({ rpcUrl: "https://soroban-testnet.stellar.org", contractId: "C..." });
+const result = await client.hasValidClaim("G...", "KYC_PASSED");
 ```
 
 ### Why do two packages exist?
@@ -244,9 +244,9 @@ The repository ships **two separate TypeScript packages** that both export a
 class named `TrustLinkClient`. They serve different purposes and are
 intentionally kept separate:
 
-| | `@trustlink/sdk` | `@trustlink/bindings` |
+| | `@trustlink/sdk` | `@trustlink/contract` |
 |---|---|---|
-| **npm install** | `npm install @trustlink/sdk` | `npm install @trustlink/bindings` |
+| **npm install** | `npm install @trustlink/sdk` | `npm install @trustlink/contract` |
 | **Source path** | `sdk/typescript/` | `bindings/typescript/` |
 | **Purpose** | Read-heavy frontends, dApps, dashboards | Server-side signers, scripts, raw access |
 | **Retry / circuit-breaker** | ✅ Automatic on all reads | ✗ |
@@ -261,7 +261,7 @@ intentionally kept separate:
   breaking, and pagination automatically.
 
 - Building a **backend service or script** that creates, revokes, or manages
-  attestations (and holds a secret key) → use **`@trustlink/bindings`**. It
+  attestations (and holds a secret key) → use **`@trustlink/contract`**. It
   exposes every write entry point and handles the full sign-and-submit
   lifecycle.
 
@@ -271,7 +271,7 @@ intentionally kept separate:
 
   ```typescript
   import { TrustLinkClient as ReadClient } from "@trustlink/sdk";
-  import { TrustLinkClient as WriteClient } from "@trustlink/bindings";
+  import { TrustLinkClient as WriteClient } from "@trustlink/contract";
   ```
 
 > If neither package exposes the specific entry point you need, you can always
@@ -325,14 +325,14 @@ const canBorrowLarge = await client.hasAllClaims("GABC...", [
 
 ---
 
-### Using `@trustlink/bindings` (Writes / Backend)
+### Using `@trustlink/contract` (Writes / Backend)
 
 ```bash
-npm install @trustlink/bindings
+npm install @trustlink/contract
 ```
 
 ```typescript
-import { TrustLinkClient } from "@trustlink/bindings";
+import { TrustLinkClient } from "@trustlink/contract";
 import { Keypair } from "@stellar/stellar-sdk";
 
 const client = new TrustLinkClient({
@@ -653,12 +653,18 @@ TrustLink errors are returned as `Error(Contract, #N)` values. This section cove
 | `#5` | `DuplicateAttestation`| An attestation with the same deterministic hash already exists | No         |
 | `#6` | `AlreadyRevoked`      | The attestation has already been revoked                       | No         |
 | `#7` | `Expired`             | The attestation's expiration timestamp has passed              | No         |
-| `#8` | `InvalidThreshold`    | Multi-sig threshold is 0 or exceeds the number of signers      | No         |
-| `#9` | `NotRequiredSigner`   | Cosigner address is not in the proposal's required-signers list| No         |
-| `#10`| `LimitExceeded`       | Issuer or subject has reached the configured attestation limit | No†        |
-| `#11`| `AlreadySigned`       | This issuer has already co-signed the proposal                 | No         |
-| `#12`| `ProposalFinalized`   | The multi-sig proposal has already been activated              | No         |
-| `#13`| `ProposalExpired`     | The 7-day co-signing window elapsed without reaching threshold | No         |
+| `#8` | `InvalidValidFrom`    | The `valid_from` timestamp is invalid                          | No         |
+| `#9` | `InvalidExpiration`   | The expiration timestamp is invalid                            | No         |
+| `#10`| `MetadataTooLong`     | Attestation metadata exceeds the maximum length                | No         |
+| `#11`| `InvalidTimestamp`    | A supplied timestamp is invalid                                | No         |
+| `#12`| `InvalidFee`          | The fee configuration is invalid                               | No         |
+| `#13`| `FeeTokenRequired`    | A fee is set but no fee token was supplied                     | No         |
+| `#16`| `InvalidThreshold`    | Multi-sig threshold is 0 or exceeds the number of signers      | No         |
+| `#17`| `NotRequiredSigner`   | Cosigner address is not in the proposal's required-signers list| No         |
+| `#18`| `AlreadySigned`       | This issuer has already co-signed the proposal                 | No         |
+| `#19`| `ProposalFinalized`   | The multi-sig proposal has already been activated              | No         |
+| `#20`| `ProposalExpired`     | The 7-day co-signing window elapsed without reaching threshold | No         |
+| `#29`| `LimitExceeded`       | Issuer or subject has reached the configured attestation limit | No†        |
 
 > † `LimitExceeded` is not retryable for the same issuer/subject until the admin raises the limit or stale attestations are revoked.
 
@@ -677,12 +683,18 @@ const TRUSTLINK_ERRORS: Record<
   5:  { name: "DuplicateAttestation", retryable: false, userMessage: "This attestation already exists." },
   6:  { name: "AlreadyRevoked",       retryable: false, userMessage: "This attestation has already been revoked." },
   7:  { name: "Expired",              retryable: false, userMessage: "This attestation has expired. Please renew your verification." },
-  8:  { name: "InvalidThreshold",     retryable: false, userMessage: "The approval threshold is invalid." },
-  9:  { name: "NotRequiredSigner",    retryable: false, userMessage: "Your account is not authorised to co-sign this proposal." },
-  10: { name: "LimitExceeded",        retryable: false, userMessage: "The attestation limit has been reached. Please contact support." },
-  11: { name: "AlreadySigned",        retryable: false, userMessage: "You have already signed this proposal." },
-  12: { name: "ProposalFinalized",    retryable: false, userMessage: "This proposal has already been completed." },
-  13: { name: "ProposalExpired",      retryable: false, userMessage: "The signing window for this proposal has closed." },
+  8:  { name: "InvalidValidFrom",     retryable: false, userMessage: "The start date for this attestation is invalid." },
+  9:  { name: "InvalidExpiration",    retryable: false, userMessage: "The expiration date for this attestation is invalid." },
+  10: { name: "MetadataTooLong",      retryable: false, userMessage: "The metadata is too long. Please shorten it." },
+  11: { name: "InvalidTimestamp",     retryable: false, userMessage: "A date supplied for this request is invalid." },
+  12: { name: "InvalidFee",           retryable: false, userMessage: "The fee settings are invalid." },
+  13: { name: "FeeTokenRequired",     retryable: false, userMessage: "A fee token is required for this payment." },
+  16: { name: "InvalidThreshold",     retryable: false, userMessage: "The approval threshold is invalid." },
+  17: { name: "NotRequiredSigner",    retryable: false, userMessage: "Your account is not authorised to co-sign this proposal." },
+  18: { name: "AlreadySigned",        retryable: false, userMessage: "You have already signed this proposal." },
+  19: { name: "ProposalFinalized",    retryable: false, userMessage: "This proposal has already been completed." },
+  20: { name: "ProposalExpired",      retryable: false, userMessage: "The signing window for this proposal has closed." },
+  29: { name: "LimitExceeded",        retryable: false, userMessage: "The attestation limit has been reached. Please contact support." },
 };
 
 interface TrustLinkErrorInfo {

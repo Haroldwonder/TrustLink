@@ -99,6 +99,36 @@ Emitted once during `initialize`.
 
 ---
 
+## Bridge events
+
+### `brg_reg` — Bridge registered
+
+Emitted by `register_bridge` after the `Bridge(addr)` key and the
+`BridgeList` entry are written. The bridge may then mint `Bridged`
+attestations for any subject and claim type.
+
+| Field | Type | Description |
+|---|---|---|
+| topic[0] | `Symbol("brg_reg")` | Discriminator |
+| topic[1] | `Address` | Bridge contract address |
+| data.0 | `Address` | Admin who registered the bridge |
+| data.1 | `u64` | Timestamp |
+
+### `brg_rem` — Bridge removed
+
+Emitted by `remove_bridge` after the `Bridge(addr)` key and the
+`BridgeList` entry are deleted. Subsequent `bridge_attestation` calls from
+this address fail with `Unauthorized`.
+
+| Field | Type | Description |
+|---|---|---|
+| topic[0] | `Symbol("brg_rem")` | Discriminator |
+| topic[1] | `Address` | Bridge contract address |
+| data.0 | `Address` | Admin who removed the bridge |
+| data.1 | `u64` | Timestamp |
+
+---
+
 ## Attestation events
 
 ### `created` — Attestation created
@@ -521,3 +551,33 @@ Same schema as `paused`.
 | topic[1] | `Address` | Admin |
 | data.0 | `&str` | `"max_per_subject"` label |
 | data.1 | `u32` | New limit (0 = unlimited) |
+
+### `cfg_set` — Admin configuration changed
+
+Generic config-change event emitted by every admin configuration setter.
+Indexers persist these to reconstruct the contract's configuration history.
+
+| Field | Type | Description |
+|---|---|---|
+| topic[0] | `Symbol("cfg_set")` | Discriminator |
+| topic[1] | `Symbol` | Config key (see table below) |
+| data.0 | `Address` | Admin who made the change |
+| data.1 | `Val` | Old value (`()` / `None` when previously unset) |
+| data.2 | `Val` | New value |
+
+#### `cfg_set` keys
+
+| Setter | Key symbol | New value type |
+|---|---|---|
+| `set_fee` | `fee` | `i128` |
+| `set_rate_limit` | `rate_lim` | `RateLimitConfig` |
+| `set_rate_limit_for_claim_type` | `rate_clm` | `(String, RateLimitConfig)` |
+| `set_limits` | `limits` | `Limits` |
+| `set_chunk_size` | `chunk` | `u32` |
+| `set_decay_config` | `decay` | `DecayConfig` |
+| `set_council_timelock_delay` | `tl_delay` | `u64` |
+| `set_registered_claim_type` | `clm_reg` | `(String, bool)` |
+| `set_metadata_hash_only` | `meta_hsh` | `bool` |
+| `set_claim_type_constraints` | `clm_cons` | `(String, Option<ClaimTypeConstraints>)` |
+| `set_multisig_ttl` | `ms_ttl` | `u64` |
+| `register_bridge` | `brg_reg` | `Address` |

@@ -75,6 +75,8 @@ pub enum StorageKey {
     // Attestation requests
     AttestationRequest(String),
     IssuerPendingRequests(Address),
+    SubjectPendingRequests(Address),
+    RequestNonce(Address),
     
     // Bundles
     Bundle(String),
@@ -106,6 +108,16 @@ pub enum StorageKey {
     // Endorsements and indexes
     Endorsements(String),
     EndorserIndex(Address),
+}
+
+/// Composite key mapping a bridge source transaction to the attestation it
+/// created. Stored as a separate `contracttype` struct so it doesn't count
+/// against the `StorageKey` enum variant limit (#1510).
+#[contracttype]
+#[derive(Clone)]
+pub struct BridgedSourceKey {
+    pub source_chain: String,
+    pub source_tx: String,
 }
 
 /// Composite key for per-issuer-per-claim-type last issuance timestamps.
@@ -367,6 +379,20 @@ impl Storage {
         env.storage().persistent().has(&StorageKey::Bridge(address.clone()))
     }
 
+    pub fn is_source_bridged(env: &Env, source_chain: &String, source_tx: &String) -> bool {
+        let key = BridgedSourceKey { source_chain: source_chain.clone(), source_tx: source_tx.clone() };
+        env.storage().persistent().has(&key)
+    }
+
+    /// Record that this source transaction produced `attestation_id`, so a
+    /// later relay of the same transaction is rejected (#1510).
+    pub fn set_source_bridged(env: &Env, source_chain: &String, source_tx: &String, attestation_id: &String) {
+        let key = BridgedSourceKey { source_chain: source_chain.clone(), source_tx: source_tx.clone() };
+        let ttl = get_ttl_lifetime(env);
+        env.storage().persistent().set(&key, attestation_id);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
     pub fn add_bridge(env: &Env, bridge: &Address) {
         let key = StorageKey::Bridge(bridge.clone());
         let ttl = get_ttl_lifetime(env);
@@ -382,6 +408,22 @@ impl Storage {
         list.push_back(bridge.clone());
         let list_key = StorageKey::BridgeList;
         env.storage().persistent().set(&list_key, &list);
+        env.storage().persistent().extend_ttl(&list_key, ttl, ttl);
+    }
+
+    pub fn remove_bridge(env: &Env, bridge: &Address) {
+        env.storage().persistent().remove(&StorageKey::Bridge(bridge.clone()));
+        // Filter the address out of the ordered BridgeList so it stays consistent.
+        let ttl = get_ttl_lifetime(env);
+        let list = Self::get_bridge_list(env);
+        let mut updated = Vec::new(env);
+        for existing in list.iter() {
+            if &existing != bridge {
+                updated.push_back(existing);
+            }
+        }
+        let list_key = StorageKey::BridgeList;
+        env.storage().persistent().set(&list_key, &updated);
         env.storage().persistent().extend_ttl(&list_key, ttl, ttl);
     }
 
@@ -687,6 +729,12 @@ impl Storage {
         get_misc_config(env).storage_limits
     }
 
+    /// Read the current `MiscConfig` bundle (used to capture old values before
+    /// an admin setter mutates one of its fields).
+    pub fn get_misc_config(env: &Env) -> MiscConfig {
+        get_misc_config(env)
+    }
+
     pub fn set_limits(env: &Env, limits: &StorageLimits) {
         let mut config = get_misc_config(env);
         config.storage_limits = limits.clone();
@@ -927,6 +975,74 @@ impl Storage {
         }
         env.storage().persistent().set(&key, &updated);
         env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // Per-subject request index for get_requests_by_subject
+    pub fn get_subject_request_ids(env: &Env, subject: &Address) -> Vec<String> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::SubjectPendingRequests(subject.clone()))
+            .unwrap_or(Vec::new(env))
+    }
+
+    pub fn add_subject_request(env: &Env, subject: &Address, request_id: &String) {
+        let key = StorageKey::SubjectPendingRequests(subject.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut list = Self::get_subject_request_ids(env, subject);
+        list.push_back(request_id.clone());
+        env.storage().persistent().set(&key, &list);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // Per-subject nonce counter for unique request IDs
+    pub fn get_request_nonce(env: &Env, subject: &Address) -> u64 {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::RequestNonce(subject.clone()))
+            .unwrap_or(0u64)
+    }
+
+    pub fn get_and_increment_request_nonce(env: &Env, subject: &Address) -> u64 {
+        let key = StorageKey::RequestNonce(subject.clone());
+        let ttl = get_ttl_lifetime(env);
+        let current: u64 = env.storage().persistent().get(&key).unwrap_or(0u64);
+        env.storage().persistent().set(&key, &(current + 1));
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+        current
+    }
+
+    // Per-subject request index for get_requests_by_subject
+    pub fn get_subject_request_ids(env: &Env, subject: &Address) -> Vec<String> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::SubjectPendingRequests(subject.clone()))
+            .unwrap_or(Vec::new(env))
+    }
+
+    pub fn add_subject_request(env: &Env, subject: &Address, request_id: &String) {
+        let key = StorageKey::SubjectPendingRequests(subject.clone());
+        let ttl = get_ttl_lifetime(env);
+        let mut list = Self::get_subject_request_ids(env, subject);
+        list.push_back(request_id.clone());
+        env.storage().persistent().set(&key, &list);
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+    }
+
+    // Per-subject nonce counter for unique request IDs
+    pub fn get_request_nonce(env: &Env, subject: &Address) -> u64 {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::RequestNonce(subject.clone()))
+            .unwrap_or(0u64)
+    }
+
+    pub fn get_and_increment_request_nonce(env: &Env, subject: &Address) -> u64 {
+        let key = StorageKey::RequestNonce(subject.clone());
+        let ttl = get_ttl_lifetime(env);
+        let current: u64 = env.storage().persistent().get(&key).unwrap_or(0u64);
+        env.storage().persistent().set(&key, &(current + 1));
+        env.storage().persistent().extend_ttl(&key, ttl, ttl);
+        current
     }
 
     pub fn cleanup_expired_requests(env: &Env, issuer: &Address) {

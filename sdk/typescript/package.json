@@ -51,7 +51,7 @@
     "provenance": true
   },
   "engines": {
-    "node": ">=16.0.0"
+    "node": ">=20 <21"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^14.0.0"

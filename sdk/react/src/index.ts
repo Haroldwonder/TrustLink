@@ -3,3 +3,6 @@ export type { IssuerStats, UseIssuerStatsResult } from "./useIssuerStats";
 
 export { useGlobalStats } from "./useGlobalStats";
 export type { GlobalStats, UseGlobalStatsResult } from "./useGlobalStats";
+
+export { useHasValidClaim } from "./useHasValidClaim";
+export type { UseHasValidClaimResult } from "./useHasValidClaim";

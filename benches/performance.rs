@@ -257,6 +257,65 @@ fn benchmark_has_any_claim_worst_case() {
     println!("has_any_claim worst-case (10 misses) CU: {}", cu);
 }
 
+// ── Attestation-request lifecycle benchmarks (Issue #1747) ────────────────────
+
+/// Seed `pending` open attestation requests for `issuer`, each targeting a
+/// distinct subject, so that request/fulfil/cleanup costs can be measured
+/// against a realistic backlog.
+fn seed_pending_requests(
+    e: &Env,
+    client: &TrustLinkContractClient,
+    issuer: &Address,
+    pending: u32,
+) -> Vec<Address> {
+    let mut subjects: Vec<Address> = Vec::new(e);
+    for i in 0..pending {
+        let subject = Address::generate(e);
+        let claim = String::from_str(e, &format!("PENDING_CLAIM_{}", i));
+        client.request_attestation(issuer, &subject, &claim, &None);
+        subjects.push_back(subject);
+    }
+    subjects
+}
+
+/// Benchmark the attestation request lifecycle with 1, 50 and 200 pending
+/// requests already open for the issuer.  Measures the CU cost of submitting
+/// one more request, fulfilling an existing one, and cleaning up expired ones.
+#[test]
+fn benchmark_attestation_request_lifecycle() {
+    for &pending in &[1u32, 50, 200] {
+        let e = Env::default();
+        let (client, admin, issuer, _) = setup_contract(&e);
+        client.set_limits(&admin, &20_000u32, &(pending + 10));
+
+        let seeded = seed_pending_requests(&e, &client, &issuer, pending);
+
+        // Cost of submitting a new request while `pending` are already open.
+        let new_subject = Address::generate(&e);
+        let new_claim = String::from_str(&e, "NEW_REQUEST");
+        let cu_request = measure_cu(&e, || {
+            client.request_attestation(&issuer, &new_subject, &new_claim, &None);
+        });
+
+        // Cost of fulfilling one of the pre-seeded requests.
+        let fulfil_subject = seeded.get(0).expect("seeded subject missing");
+        let fulfil_claim = String::from_str(&e, "PENDING_CLAIM_0");
+        let cu_fulfil = measure_cu(&e, || {
+            client.fulfill_request(&issuer, &fulfil_subject, &fulfil_claim, &None);
+        });
+
+        // Cost of cleaning up expired requests with `pending` open.
+        let cu_cleanup = measure_cu(&e, || {
+            client.cleanup_expired_requests(&issuer);
+        });
+
+        println!(
+            "attestation_request_lifecycle ({} pending): request={} CU, fulfil={} CU, cleanup={} CU",
+            pending, cu_request, cu_fulfil, cu_cleanup
+        );
+    }
+}
+
 #[test]
 fn benchmark_all() {
     benchmark_create_attestation();
@@ -266,6 +325,7 @@ fn benchmark_all() {
     benchmark_has_all_claims();
     benchmark_has_any_claim_short_circuit();
     benchmark_has_any_claim_worst_case();
+    benchmark_attestation_request_lifecycle();
 
     println!("All benchmarks complete. Run `cargo test --test performance -- --nocapture` to see CU results.");
 }

@@ -48,3 +48,40 @@ pub const MAX_AUDIT_LOG_ENTRIES: u32 = 100;
 /// Enforced in `Storage::push_attestation_version`.
 pub const MAX_VERSION_HISTORY: u32 = 20;
 
+/// Issue #1519: Minimum chunk size for `ChunkedIndex` writes.
+/// A chunk size of `0` would make chunked writes impossible.
+pub const MIN_CHUNK_SIZE: u32 = 1;
+
+/// Issue #1519: Maximum chunk size for `ChunkedIndex` writes.
+/// Prevents writing the whole index into a single ledger entry, which would
+/// eventually exceed the ledger entry size limit and trap all creations.
+pub const MAX_CHUNK_SIZE: u32 = 1_000;
+
+/// Issue #1519: Minimum multisig proposal TTL in days.
+/// A TTL of `0` would make every new proposal expire at creation.
+pub const MIN_MULTISIG_TTL_DAYS: u32 = 1;
+
+/// Issue #1519: Maximum multisig proposal TTL in days.
+pub const MAX_MULTISIG_TTL_DAYS: u32 = 365;
+
+/// Issue #1519: Minimum per-issuer / per-subject issuance limit.
+/// A limit of `0` would silently block all issuance.
+pub const MIN_LIMITS: u32 = 1;
+
+/// Issue #1519: Maximum per-issuer / per-subject issuance limit.
+pub const MAX_LIMITS: u32 = 1_000_000;
+
+/// Issue #1519: Maximum rate limit (issuances per window).
+/// Prevents values such as `u64::MAX` from halting an issuer forever.
+pub const MAX_RATE_LIMIT: u64 = 1_000_000;
+
+/// Issue #1519: Maximum decay half-life in days.
+pub const MAX_HALF_LIFE_DAYS: u32 = 3_650;
+
+/// Issue #1519: Maximum revocation weight, expressed as a percentage.
+pub const MAX_REVOCATION_WEIGHT: u32 = 100;
+
+/// Issue #1519: Maximum council timelock delay in seconds (30 days).
+/// A huge delay would permanently block council actions.
+pub const MAX_TIMELOCK_SECS: u64 = 30 * SECS_PER_DAY;
+

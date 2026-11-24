@@ -84,6 +84,10 @@ pub enum Error {
     RequestExpired = 38,
     /// Duplicate request.
     DuplicateRequest = 39,
+    /// Issuer has too many pending requests (rate limit exceeded).
+    IssuerPendingRequestLimitExceeded = 52,
+    /// Subject-issuer pair has too many pending requests (rate limit exceeded).
+    SubjectIssuerPendingRequestLimitExceeded = 53,
 
     // Admin and governance (40-43)
     /// Cannot remove the last admin.
@@ -114,4 +118,7 @@ pub enum Error {
     InvalidAttestation = 51,
     /// Claim type has been deprecated; new attestations cannot be issued for it.
     ClaimTypeDeprecated = 54,
+    /// Issue #1519: An admin setter received an out-of-range value (e.g. zero
+    /// multisig TTL, unbounded chunk size, zero limits, revocation_weight > 100).
+    InvalidConfigValue = 55,
 }

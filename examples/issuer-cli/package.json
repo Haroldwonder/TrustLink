@@ -10,6 +10,9 @@
     "start": "node issuer-cli.mjs",
     "test": "node --test issuer-cli.test.mjs"
   },
+  "engines": {
+    "node": ">=20 <21"
+  },
   "dependencies": {
     "@stellar/stellar-sdk": "^12.0.0"
   }

@@ -8,7 +8,7 @@
 //! - Advanced features (Delegation, DisputeRecord, DecayConfig, AttestationTemplate, AttestationVersionSnapshot)
 //! - Utility types (GlobalStats, IssuerStats, HealthStatus, AuditEntry, Endorsement)
 
-use soroban_sdk::{contracterror, contracttype, xdr::ToXdr, Address, Bytes, Env, String, Vec};
+use soroban_sdk::{contracterror, contracttype, xdr::ToXdr, Address, Bytes, BytesN, Env, String, Vec};
 
 /// Default lifetime for a multi-sig proposal: 7 days in seconds.
 pub const MULTISIG_PROPOSAL_TTL_SECS: u64 = 7 * 24 * 60 * 60;
@@ -18,6 +18,15 @@ pub const ATTESTATION_REQUEST_TTL_SECS: u64 = 7 * 24 * 60 * 60;
 
 /// Seconds in one day.
 pub const SECS_PER_DAY: u64 = 86_400;
+
+/// Maximum pending requests allowed per issuer.
+/// Prevents a spammer from filling an issuer's pending list and causing
+/// O(n) scans in request_attestation, get_pending_requests, and cleanup_expired_requests.
+pub const MAX_PENDING_REQUESTS_PER_ISSUER: u32 = 100;
+
+/// Maximum pending requests allowed per (subject, issuer) pair.
+/// Prevents a single subject from spamming requests to a specific issuer.
+pub const MAX_PENDING_REQUESTS_PER_SUBJECT_ISSUER: u32 = 10;
 
 /// Status of an attestation request.
 #[contracttype]
@@ -46,6 +55,9 @@ pub struct AttestationRequest {
     pub expires_at: u64,
     pub status: RequestStatus,
     pub rejection_reason: Option<String>,
+    /// Optional SHA-256 hash of supporting documents submitted by the subject.
+    /// Allows issuers to match off-chain evidence to on-chain requests.
+    pub evidence_hash: Option<BytesN<32>>,
 }
 
 /// Trust tier assigned to a registered issuer.
@@ -273,6 +285,8 @@ pub struct ClaimTypeConstraints {
 pub enum CouncilOperation {
     RemoveIssuer(Address),
     PauseContract,
+    /// Remove a registered bridge contract via council quorum (issue #1506).
+    RemoveBridge(Address),
 }
 
 #[contracttype]
@@ -661,6 +675,7 @@ impl AttestationRequest {
         issuer: &Address,
         claim_type: &String,
         timestamp: u64,
+        nonce: u64,
     ) -> String {
         let mut payload = Bytes::new(env);
         payload.append(&Bytes::from_slice(env, b"req:"));
@@ -668,6 +683,7 @@ impl AttestationRequest {
         payload.append(&issuer.clone().to_xdr(env));
         payload.append(&claim_type.clone().to_xdr(env));
         payload.append(&timestamp.to_xdr(env));
+        payload.append(&nonce.to_xdr(env));
         Attestation::hash_payload(env, &payload)
     }
 }

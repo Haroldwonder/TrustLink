@@ -12,6 +12,9 @@
     "test": "vitest run",
     "prepublishOnly": "npm run build"
   },
+  "engines": {
+    "node": ">=20 <21"
+  },
   "dependencies": {
     "@stellar/stellar-sdk": "^12.0.0"
   },

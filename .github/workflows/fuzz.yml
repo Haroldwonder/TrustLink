@@ -4,6 +4,7 @@ name: Contract Fuzz
 # The two cargo-fuzz targets drive actual Soroban contract logic:
 #   - fuzz_validate_claim_type  : Validation::validate_claim_type
 #   - fuzz_multisig_lifecycle   : propose/cosign finalization invariant
+#   - fuzz_attestation_requests : request/fulfill/reject/cancel/cleanup lifecycle
 #
 # Each target is given -max_total_time=60 on PRs so the job stays under
 # the 15-minute timeout.  The nightly schedule raises the limit to 300 s
@@ -39,6 +40,7 @@ jobs:
         target:
           - fuzz_validate_claim_type
           - fuzz_multisig_lifecycle
+          - fuzz_attestation_requests
 
     steps:
       - name: Checkout repository

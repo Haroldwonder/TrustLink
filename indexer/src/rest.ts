@@ -1,5 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import Fastify, { FastifyInstance } from "fastify";
+import swagger from "@fastify/swagger";
+import swaggerUi from "@fastify/swagger-ui";
 import { requireApiKey } from "./auth";
 import {
   buildAttestationExportWhere,
@@ -10,8 +12,29 @@ import {
 import { getLastLedger } from "./indexer-state";
 import { getMetrics } from "./metrics";
 import { validateWebhookUrl } from "./webhook-validation";
+import { getVersionInfo } from "./version";
+import { StrKey } from "@stellar/stellar-sdk";
 
 let rpcClient: any | null = null;
+
+// Parse and validate MAX_LAG_LEDGERS at startup (fail fast on invalid values)
+let MAX_LAG: number;
+try {
+  const lagStr = process.env.MAX_LAG_LEDGERS ?? "10";
+  const parsed = parseInt(lagStr, 10);
+  if (isNaN(parsed) || parsed < 0) {
+    throw new Error(`Invalid MAX_LAG_LEDGERS: "${lagStr}" is not a valid non-negative integer`);
+  }
+  MAX_LAG = parsed;
+} catch (err) {
+  console.error("Failed to parse MAX_LAG_LEDGERS:", err instanceof Error ? err.message : err);
+  process.exit(1);
+}
+
+// Helper to validate Stellar addresses (Ed25519 public key or contract)
+function isValidStellarAddress(address: string): boolean {
+  return StrKey.isValidEd25519PublicKey(address) || StrKey.isValidContract(address);
+}
 
 async function getRpcClient() {
   if (!rpcClient) {
@@ -25,8 +48,190 @@ async function getRpcClient() {
   return rpcClient;
 }
 
+// Schema definitions for OpenAPI documentation
+const attestationsBySubjectSchema = {
+  params: {
+    type: "object",
+    required: ["subject"],
+    properties: {
+      subject: { type: "string", description: "Subject wallet address" },
+    },
+  },
+  querystring: {
+    type: "object",
+    properties: {
+      limit: { type: "string", default: "50" },
+      after: { type: "string", description: "Cursor for pagination" },
+      claim_type: { type: "string", description: "Filter by claim type" },
+      issuer: { type: "string", description: "Filter by issuer address" },
+      revoked: { type: "string", enum: ["true", "false"], description: "Filter by revocation status" },
+    },
+  },
+  response: {
+    200: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              issuer: { type: "string" },
+              subject: { type: "string" },
+              claimType: { type: "string" },
+              timestamp: { type: "string" },
+              expiration: { type: ["string", "null"] },
+              isRevoked: { type: "boolean" },
+            },
+          },
+        },
+        nextCursor: { type: ["string", "null"] },
+      },
+    },
+  },
+};
+
+const attestationsByIssuerSchema = {
+  params: {
+    type: "object",
+    required: ["address"],
+    properties: {
+      address: { type: "string", description: "Issuer wallet address" },
+    },
+  },
+  querystring: {
+    type: "object",
+    properties: {
+      limit: { type: "string", default: "50" },
+      after: { type: "string", description: "Cursor for pagination" },
+    },
+  },
+  response: {
+    200: {
+      type: "object",
+      properties: {
+        items: { type: "array" },
+        nextCursor: { type: ["string", "null"] },
+      },
+    },
+  },
+};
+
+const validClaimSchema = {
+  params: {
+    type: "object",
+    required: ["address", "claim_type"],
+    properties: {
+      address: { type: "string", description: "Subject wallet address" },
+      claim_type: { type: "string", description: "Claim type identifier" },
+    },
+  },
+  response: {
+    200: {
+      type: "object",
+      properties: {
+        valid: { type: "boolean" },
+        attestationId: { type: ["string", "null"] },
+      },
+    },
+  },
+};
+
+const statsSchema = {
+  response: {
+    200: {
+      type: "object",
+      properties: {
+        total_attestations: { type: "integer" },
+        total_revocations: { type: "integer" },
+        total_issuers: { type: "integer" },
+      },
+    },
+  },
+};
+
+const versionSchema = {
+  response: {
+    200: {
+      type: "object",
+      properties: {
+        version: { type: "string", description: "Indexer package version" },
+        buildTimestamp: { type: "string", description: "Build timestamp" },
+        contractId: { type: "string", description: "Stellar contract ID" },
+        network: { type: "string", description: "Network (testnet/mainnet)" },
+        nodeEnv: { type: "string", description: "Node environment" },
+        timestamp: { type: "string", description: "Current server time" },
+      },
+    },
+  },
+};
+
 export function buildRestServer(db: PrismaClient): FastifyInstance {
-  const fastify = Fastify({ logger: false });
+  const fastify = Fastify({
+    logger: {
+      level: logger.level,
+      transport: {
+        target: "pino/file",
+        options: {
+          destination: 1, // stdout
+        },
+      },
+      serializers: {
+        req(request) {
+          return {
+            method: request.method,
+            url: request.url,
+            headers: {
+              ...request.headers,
+              "x-api-key": request.headers["x-api-key"] ? "[REDACTED]" : undefined,
+            },
+            correlationId: request.headers["x-correlation-id"],
+          };
+        },
+      },
+    },
+  });
+
+  // Register OpenAPI/Swagger documentation
+  fastify.register(swagger, {
+    openapi: {
+      info: {
+        title: "TrustLink Indexer API",
+        description: "REST API for querying attestations, managing webhooks, and monitoring the indexer",
+        version: "1.0.0",
+      },
+      servers: [
+        { url: "https://indexer.trustlink.io", description: "Production" },
+        { url: "https://indexer-testnet.trustlink.io", description: "Testnet" },
+        { url: "http://localhost:3000", description: "Local development" },
+      ],
+      components: {
+        securitySchemes: {
+          ApiKey: {
+            type: "apiKey",
+            in: "header",
+            name: "X-API-Key",
+            description: "API key for admin endpoints",
+          },
+        },
+      },
+      tags: [
+        { name: "Attestations", description: "Query attestations by subject or issuer" },
+        { name: "Webhooks", description: "Manage webhook subscriptions" },
+        { name: "Admin", description: "Admin operations and monitoring" },
+        { name: "Health", description: "Health check and status endpoints" },
+      ],
+    },
+  });
+
+  fastify.register(swaggerUi, {
+    routePrefix: "/docs",
+    uiConfig: {
+      docExpansion: "list",
+      deepLinking: false,
+    },
+  });
 
   fastify.get("/health", async (_request, reply) => {
     let dbConnected = false;
@@ -54,7 +259,6 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
   });
 
   fastify.get("/ready", async (_request, reply) => {
-    const MAX_LAG = parseInt(process.env.MAX_LAG_LEDGERS ?? "10", 10);
     try {
       const checkpoint = await db.checkpoint.findUnique({ where: { id: 1 } });
       const rpc = await getRpcClient();
@@ -74,15 +278,37 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
     }
   });
 
+  fastify.get("/version", { schema: versionSchema }, async () => {
+    return getVersionInfo();
+  });
+
   fastify.get("/metrics", async () => getMetrics());
 
   fastify.get<{ Params: { subject: string }; Querystring: { limit?: string; after?: string } }>(
     "/attestations/:subject",
-    async (req) => {
+    { schema: attestationsBySubjectSchema },
+    async (req, reply) => {
+      const { subject } = req.params;
+      
+      // Validate address format
+      if (!isValidStellarAddress(subject)) {
+        reply.code(400);
+        return { error: "Invalid address: must be a valid Ed25519 public key or contract" };
+      }
+
       const limit = Math.min(parseInt(req.query.limit ?? "50", 10) || 50, 500);
       const after = req.query.after;
 
-      const where: Record<string, any> = { subject: req.params.subject };
+      // Validate cursor format - must be a positive integer if provided
+      if (after !== undefined) {
+        const cursorNum = parseInt(after, 10);
+        if (isNaN(cursorNum) || cursorNum <= 0) {
+          reply.code(400);
+          return { error: "Invalid cursor: must be a positive integer" };
+        }
+      }
+
+      const where: Record<string, any> = { subject };
       const cursor = after ? { id: after } : undefined;
 
       const attestations = await db.attestation.findMany({
@@ -103,7 +329,16 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
 
   fastify.get<{ Params: { address: string; claim_type: string } }>(
     "/subjects/:address/claims/:claim_type/valid",
+    { schema: validClaimSchema },
     async (req, reply) => {
+      const { address } = req.params;
+      
+      // Validate address format
+      if (!isValidStellarAddress(address)) {
+        reply.code(400);
+        return { error: "Invalid address: must be a valid Ed25519 public key or contract" };
+      }
+
       // Get ledger time from latest checkpoint for consistency with on-chain behavior
       const checkpoint = await db.checkpoint.findUnique({ where: { id: 1 } });
       // Use ledger sequence as the time source (falls back to 0 if no checkpoint)
@@ -111,7 +346,7 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
 
       const attestation = await db.attestation.findFirst({
         where: {
-          subject: req.params.address,
+          subject: address,
           claimType: req.params.claim_type,
           isRevoked: false,
           // Filter out expired attestations: expiration IS NULL OR expiration > ledgerTime
@@ -134,11 +369,29 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
 
   fastify.get<{ Params: { address: string }; Querystring: { limit?: string; after?: string } }>(
     "/issuers/:address/attestations",
-    async (req) => {
+    { schema: attestationsByIssuerSchema },
+    async (req, reply) => {
+      const { address } = req.params;
+      
+      // Validate address format
+      if (!isValidStellarAddress(address)) {
+        reply.code(400);
+        return { error: "Invalid address: must be a valid Ed25519 public key or contract" };
+      }
+
       const limit = Math.min(parseInt(req.query.limit ?? "50", 10) || 50, 500);
       const after = req.query.after;
 
-      const where: Record<string, any> = { issuer: req.params.address };
+      // Validate cursor format - must be a positive integer if provided
+      if (after !== undefined) {
+        const cursorNum = parseInt(after, 10);
+        if (isNaN(cursorNum) || cursorNum <= 0) {
+          reply.code(400);
+          return { error: "Invalid cursor: must be a positive integer" };
+        }
+      }
+
+      const where: Record<string, any> = { issuer: address };
       const cursor = after ? { id: after } : undefined;
 
       const attestations = await db.attestation.findMany({
@@ -184,6 +437,12 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
       return { error: "Invalid from/to timestamp" };
     }
 
+    const rangeError = validateExportDateRange(fromTimestamp, toTimestamp);
+    if (rangeError) {
+      reply.code(400);
+      return { error: rangeError };
+    }
+
     const where = buildAttestationExportWhere({
       issuer: req.query.issuer,
       subject: req.query.subject,
@@ -191,6 +450,15 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
       fromTimestamp,
       toTimestamp,
     });
+
+    const maxRows = getExportMaxRows();
+    if (typeof db.attestation?.count === "function") {
+      const totalMatching = await db.attestation.count({ where });
+      if (totalMatching > maxRows) {
+        reply.code(400);
+        return { error: `Export exceeds maximum allowed rows (${maxRows})` };
+      }
+    }
 
     const contentType = format === "csv" ? "text/csv; charset=utf-8" : "application/json; charset=utf-8";
     const extension = format === "csv" ? "csv" : "json";
@@ -200,36 +468,57 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
       .header("Content-Disposition", `attachment; filename="attestations.${extension}"`)
       .header("Transfer-Encoding", "chunked");
 
-    return reply.send(createAttestationExportStream(db, where, format));
+    return reply.send(createAttestationExportStream(db, where, format, maxRows));
   });
 
-  fastify.get("/stats", async () => {
+  fastify.get("/stats", { schema: statsSchema }, async () => {
     const [total, revoked, issuers] = await Promise.all([
       db.attestation.count(),
       db.attestation.count({ where: { isRevoked: true } }),
-      db.attestation.findMany({
-        distinct: ["issuer"],
-        select: { issuer: true },
-      }),
+      db.issuer.count(),
     ]);
     return {
       total_attestations: total,
       total_revocations: revoked,
-      total_issuers: issuers.length,
+      total_issuers: issuers,
     };
   });
 
-  fastify.get("/webhooks", async () =>
-    db.webhook.findMany({
-      select: { id: true, url: true, active: true, rotatedAt: true, createdAt: true },
-      orderBy: { createdAt: "desc" },
-    }),
+  fastify.get<{ Querystring: { limit?: string; after?: string; active?: string } }>(
+    "/webhooks",
+    async (req) => {
+      const limit = Math.min(parseInt(req.query.limit ?? "50", 10) || 50, 500);
+      const after = req.query.after;
+      const activeFilter = req.query.active === "false" ? false : req.query.active === "true" ? true : undefined;
+
+      const where: Record<string, any> = {};
+      if (activeFilter !== undefined) {
+        where.active = activeFilter;
+      }
+
+      const cursor = after ? { id: after } : undefined;
+
+      const webhooks = await db.webhook.findMany({
+        where,
+        select: { id: true, url: true, active: true, rotatedAt: true, createdAt: true },
+        orderBy: { createdAt: "desc" },
+        take: limit + 1,
+        skip: cursor ? 1 : 0,
+        cursor,
+      });
+
+      const hasMore = webhooks.length > limit;
+      const items = webhooks.slice(0, limit);
+      const nextCursor = hasMore ? items[items.length - 1]?.id : null;
+
+      return { items, nextCursor };
+    },
   );
 
-  fastify.post<{ Body: { url: string; secret?: string } }>(
+  fastify.post<{ Body: { url: string; secret?: string; eventTypes?: string[] } }>(
     "/webhooks",
     async (req, reply) => {
-      const { url, secret: clientSecret } = req.body ?? {};
+      const { url, secret: clientSecret, eventTypes } = req.body ?? {};
       if (!url) {
         reply.code(400);
         return { error: "url is required" };
@@ -240,6 +529,16 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
       } catch (err) {
         reply.code(400);
         return { error: err instanceof Error ? err.message : "invalid webhook url" };
+      }
+
+      let validatedEventTypes: string[] | undefined;
+      if (eventTypes !== undefined) {
+        try {
+          validatedEventTypes = validateWebhookEventTypes(eventTypes);
+        } catch (err) {
+          reply.code(400);
+          return { error: err instanceof Error ? err.message : "invalid eventTypes" };
+        }
       }
 
       // If client provides a secret, validate it; otherwise generate server-side
@@ -260,6 +559,7 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
           data: {
             url,
             secret_encrypted: secretEncrypted,
+            ...(validatedEventTypes !== undefined ? { eventTypes: validatedEventTypes } : {}),
           },
         });
         
@@ -270,12 +570,83 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
           url: webhook.url,
           secret: secret, // Returned ONLY on creation
           active: webhook.active,
+          eventTypes: webhook.eventTypes ?? validatedEventTypes ?? [],
           rotatedAt: webhook.rotatedAt,
         };
       } catch (err) {
         reply.code(400);
         return { error: err instanceof Error ? err.message : "failed to create webhook" };
       }
+    },
+  );
+
+  fastify.patch<{
+    Params: { id: string };
+    Body: { active?: boolean; url?: string; eventTypes?: string[] };
+  }>(
+    "/webhooks/:id",
+    async (req, reply) => {
+      const { active, url, eventTypes } = req.body ?? {};
+
+      if (active === undefined && url === undefined && eventTypes === undefined) {
+        reply.code(400);
+        return { error: "At least one of active, url, or eventTypes must be provided" };
+      }
+
+      const updateData: { active?: boolean; url?: string; eventTypes?: string[] } = {};
+
+      if (active !== undefined) {
+        if (typeof active !== "boolean") {
+          reply.code(400);
+          return { error: "active must be a boolean" };
+        }
+        updateData.active = active;
+      }
+
+      if (url !== undefined) {
+        if (typeof url !== "string" || !url) {
+          reply.code(400);
+          return { error: "url must be a non-empty string" };
+        }
+        try {
+          await validateWebhookUrl(url);
+        } catch (err) {
+          reply.code(400);
+          return { error: err instanceof Error ? err.message : "invalid webhook url" };
+        }
+        updateData.url = url;
+      }
+
+      if (eventTypes !== undefined) {
+        try {
+          updateData.eventTypes = validateWebhookEventTypes(eventTypes);
+        } catch (err) {
+          reply.code(400);
+          return { error: err instanceof Error ? err.message : "invalid eventTypes" };
+        }
+      }
+
+      const existing = await db.webhook.findUnique({ where: { id: req.params.id } });
+      if (!existing) {
+        reply.code(404);
+        return { error: "Webhook not found" };
+      }
+
+      const updated = await db.webhook.update({
+        where: { id: req.params.id },
+        data: updateData,
+        select: {
+          id: true,
+          url: true,
+          active: true,
+          eventTypes: true,
+          rotatedAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      return updated;
     },
   );
 
@@ -324,6 +695,8 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
           },
         });
         
+        const gracePeriodDays = parseInt(process.env.WEBHOOK_ROTATION_GRACE_DAYS ?? "7", 10);
+        
         reply.code(200);
         // Return the NEW plaintext secret ONLY once
         return {
@@ -331,7 +704,8 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
           url: webhook.url,
           secret: newSecret, // New secret returned once
           rotatedAt: new Date(),
-          graceMessage: "Old secret will be accepted for 7 days via X-TrustLink-Signature-Next header",
+          gracePeriodDays,
+          graceMessage: `Old secret will be accepted for ${gracePeriodDays} days via X-TrustLink-Signature-Next header`,
         };
       } catch (err) {
         reply.code(500);
@@ -364,7 +738,14 @@ export function buildRestServer(db: PrismaClient): FastifyInstance {
   }>("/admin/webhook-failures", async (req, reply) => {
     const { status, eventType, limit: limitStr, offset: offsetStr, sort } = req.query;
     const limit = Math.min(parseInt(limitStr ?? "50", 10) || 50, 200);
-    const offset = parseInt(offsetStr ?? "0", 10) || 0;
+    
+    // Validate offset: must be a non-negative integer
+    const offset = parseInt(offsetStr ?? "0", 10);
+    if (isNaN(offset) || offset < 0 || !Number.isInteger(offset)) {
+      reply.code(400);
+      return { error: "Invalid offset: must be a non-negative integer" };
+    }
+    
     const orderBy = sort === "asc" ? "asc" : "desc";
 
     const where: Record<string, unknown> = {};

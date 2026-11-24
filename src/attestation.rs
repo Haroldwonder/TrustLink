@@ -532,6 +532,11 @@ pub fn bridge_attestation(
     validate_source_reference(&source_chain, &source_tx)?;
     validate_native_expiration(env, expiration)?;
 
+    // A source transaction can be bridged once, however many ledgers later it is relayed (#1510).
+    if Storage::is_source_bridged(env, &source_chain, &source_tx) {
+        return Err(Error::SourceAlreadyBridged);
+    }
+
     // Check limits before creating attestation
     let limits = Storage::get_limits(env);
     let issuer_count = crate::storage::ChunkedIndex::issuer_count(env, &bridge);
@@ -562,6 +567,7 @@ pub fn bridge_attestation(
     if Storage::has_attestation(env, &attestation_id) {
         return Err(Error::DuplicateAttestation);
     }
+    Storage::set_source_bridged(env, &source_chain, &source_tx, &attestation_id);
 
     let attestation = Attestation {
         id: attestation_id.clone(),
@@ -738,10 +744,10 @@ pub fn revoke_attestation(
 ) -> Result<(), Error> {
     issuer.require_auth();
     Validation::require_not_paused(env)?;
-    // Allow both registered issuers and registered bridges to revoke
-    // attestations they created — bridges could not previously revoke their
-    // own bridged attestations because require_issuer rejected them.
-    Validation::require_authorized_creator(env, &issuer)?;
+    // Revocation is a safety operation: it must remain available to the
+    // original issuer even after an admin removes them from the registry.
+    // Authorisation is therefore based solely on the caller being the
+    // attestation's issuer (checked below), not on current registration.
     validate_reason(&reason)?;
 
     let mut attestation = Storage::get_attestation(env, &attestation_id)?;
@@ -836,7 +842,9 @@ pub fn revoke_attestations_batch(
 
     issuer.require_auth();
     Validation::require_not_paused(env)?;
-    Validation::require_issuer(env, &issuer)?;
+    // Like `revoke_attestation`, batch revocation must stay available to the
+    // original issuer even after they are removed from the registry. Each
+    // attestation's issuer is compared against the caller below.
     validate_reason(&reason)?;
 
     if attestation_ids.len() > MAX_BATCH {
@@ -913,7 +921,52 @@ pub fn update_expiration(
     attestation_id: String,
     new_expiration: Option<u64>,
 ) -> Result<(), Error> {
-    renew_attestation(env, issuer, attestation_id, new_expiration)
+    issuer.require_auth();
+    Validation::require_not_paused(env)?;
+    validate_native_expiration(env, new_expiration)?;
+
+    let mut attestation = Storage::get_attestation(env, &attestation_id)?;
+    if attestation.issuer != issuer {
+        return Err(Error::Unauthorized);
+    }
+    if attestation.deleted {
+        return Err(Error::InvalidStatus);
+    }
+    if attestation.revoked {
+        return Err(Error::AlreadyRevoked);
+    }
+
+    // Shortening (or clearing) validity is a safety operation and is allowed
+    // for the original issuer even if they are no longer registered. Extending
+    // validity creates trust, so it still requires current registration.
+    let extends_validity = match (new_expiration, attestation.expiration) {
+        (Some(new_exp), Some(old_exp)) => new_exp > old_exp,
+        (Some(_), None) => true,
+        (None, _) => false,
+    };
+    if extends_validity {
+        Validation::require_issuer(env, &issuer)?;
+    }
+
+    if let (Some(expiration), Some(valid_from)) = (new_expiration, attestation.valid_from) {
+        if expiration <= valid_from {
+            return Err(Error::InvalidExpiration);
+        }
+    }
+
+    attestation.expiration = new_expiration;
+    Storage::set_attestation(env, &attestation);
+    Events::attestation_renewed(env, &attestation_id, &issuer, new_expiration);
+    let details = new_expiration.map(|ts| u64_to_string(env, ts));
+    Storage::append_audit_entry(env, &attestation_id, &AuditEntry {
+        action: AuditAction::Renewed,
+        actor: issuer.clone(),
+        timestamp: env.ledger().timestamp(),
+        details,
+    });
+    // Keep the attestation and its indexes live until the new expiration.
+    Storage::extend_attestation_ttl_for_expiry(env, &attestation);
+    Ok(())
 }
 
 pub fn transfer_attestation(
