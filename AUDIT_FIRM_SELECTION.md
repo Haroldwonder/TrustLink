@@ -442,7 +442,7 @@ This contract has been audited by [Auditor Firm Name] on [Date].
 - **Completion Date:** [Date]
 - **Status:** ✅ All critical findings resolved
 
-For security concerns, please email security@trustlink.io
+For security concerns, please email security@trustlink.dev
 ```
 
 ---

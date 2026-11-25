@@ -62,6 +62,7 @@ The following are **out of scope**:
 
 ## Contact
 
-- **GitHub Private Advisory:** [Submit here](../../security/advisories/new)
+- **GitHub Private Advisory (preferred):** [Submit here](../../security/advisories/new)
+- **Email (fallback):** security@trustlink.dev
 
 For general questions that are not security-sensitive, open a [GitHub Discussion](../../discussions) or a regular issue.
