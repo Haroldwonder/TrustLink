@@ -381,7 +381,7 @@ Action required:
 
 Recovery will be complete by [TIME].
 
-Contact: security@trustlink.io
+Contact: https://github.com/Haroldwonder/TrustLink/security/advisories/new
 ```
 
 #### Step 7 — Verify operations (30 min)
