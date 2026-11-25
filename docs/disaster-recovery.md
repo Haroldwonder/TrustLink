@@ -381,7 +381,7 @@ Action required:
 
 Recovery will be complete by [TIME].
 
-Contact: security@trustlink.io
+Contact: security@trustlink.dev
 ```
 
 #### Step 7 — Verify operations (30 min)
