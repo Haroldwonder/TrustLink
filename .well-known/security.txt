@@ -1,6 +1,9 @@
-Contact: mailto:security@trustlink.io
 Contact: https://github.com/Haroldwonder/TrustLink/security/advisories/new
 Expires: 2027-12-31T23:59:00.000Z
 Preferred-Languages: en
 Canonical: https://github.com/Haroldwonder/TrustLink/blob/main/.well-known/security.txt
 Policy: https://github.com/Haroldwonder/TrustLink/blob/main/SECURITY.md
+# GitHub private vulnerability reporting must be enabled for the Contact URL above to work.
+# If it is unavailable, open a minimal issue titled "Security contact request" (no vulnerability details).
+# Do not use security@trustlink.io or hello@trustlink.io; both mailboxes currently reject mail (550 5.1.10).
+# Do not use any trustlink.dev address; the domain does not resolve.
