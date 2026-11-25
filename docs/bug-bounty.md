@@ -14,6 +14,18 @@ This document outlines the scope, severity tiers, and reward structure for Trust
 
 ---
 
+## Contact
+
+| Channel | Address | Status |
+| ------- | ------- | ------ |
+| **GitHub Private Vulnerability Reporting** | https://github.com/TrustLink-Org/trustlink/security/advisories/new | **Preferred — use this** |
+| Email | `security@trustlink.io` | **Not in service** — do not use |
+| Email | `hello@trustlink.io` | **Not in service** — do not use |
+
+GitHub Private Vulnerability Reporting is the only supported private reporting channel. The email mailboxes previously listed here are no longer in service and reject mail. If the private advisory channel is unavailable, follow the fallback instructions in [SECURITY.md](../SECURITY.md) — open a minimal issue titled `Security contact request` **without any vulnerability details** so a maintainer can enable private reporting and follow up directly.
+
+---
+
 ## Scope
 
 ### In Scope
@@ -113,7 +125,7 @@ https://github.com/TrustLink-Org/trustlink/security/advisories/new
 
 This is the only supported private reporting channel. Reports submitted here are visible only to repository maintainers and the reporter.
 
-> **Note:** The previously listed `security@trustlink.io` address is no longer in service and must not be used. If the private advisory channel is unavailable, follow the fallback instructions in [SECURITY.md](../SECURITY.md) — open a minimal issue titled `Security contact request` **without any vulnerability details** so a maintainer can enable private reporting and follow up directly.
+> **Note:** The previously listed `security@trustlink.io` and `hello@trustlink.io` addresses are no longer in service and must not be used. If the private advisory channel is unavailable, follow the fallback instructions in [SECURITY.md](../SECURITY.md) — open a minimal issue titled `Security contact request` **without any vulnerability details** so a maintainer can enable private reporting and follow up directly.
 
 **Response Time:** 48 hours (Monday–Friday)
 
@@ -177,29 +189,6 @@ To remain eligible for rewards:
 - **Do not** exploit vulnerabilities for personal gain or unauthorized access
 - **Do not** publicly disclose the vulnerability without prior agreement
 - **Do not** share the vulnerability with third parties before disclosure
-- **Do not** access, modify, or delete other users' data or funds
-- **Do not** conduct denial-of-service (DoS) attacks on production systems
-- **Do not** violate applicable laws or regulations
+- **Do not** access, mod
 
-Violations may disqualify you from future bounty eligibility and result in legal action.
-
-### No Guarantee
-
-TrustLink reserves the right to:
-
-- Decline or defer rewards for out-of-scope vulnerabilities
-- Reduce rewards for duplicate reports
-- Disqualify researchers who violate safe harbor conduct
-- Modify the program scope, tiers, or rewards with 30 days' notice
-
----
-
-## Previous Audits & Known Findings
-
-### Security Audit Status
-
-- **Pre-Mainnet Audit:** In Progress (scheduled completion by Q3 2026)
-- **Audit Firm:** OpenZeppelin (or equivalent tier)
-- **Audit Scope:** [AUDIT_SCOPE.md](./AUDIT_SCOPE.
-
-/* … truncated 5992 chars — edit only what you need near the top … */
+/* … truncated 850 chars — edit only what you need near the top … */
