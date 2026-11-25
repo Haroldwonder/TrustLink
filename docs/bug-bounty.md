@@ -106,7 +106,7 @@ Rewards may be adjusted based on:
 
 ### 1. Report Submission
 
-**Email:** security@trustlink.io  
+**GitHub Private Advisory:** [Submit a vulnerability report](https://github.com/Haroldwonder/TrustLink/security/advisories/new)  
 **Response Time:** 48 hours (Monday–Friday)
 
 **Include in your report:**
@@ -343,7 +343,7 @@ Researchers are encouraged to focus on these trust boundaries for maximum impact
 
 | Item                  | Contact                                                 |
 | --------------------- | ------------------------------------------------------- |
-| **Security Reports**  | security@trustlink.io                                   |
+| **Security Reports**  | [GitHub Private Advisory](https://github.com/Haroldwonder/TrustLink/security/advisories/new) |
 | **General Inquiries** | hello@trustlink.io                                      |
 | **GitHub Issues**     | https://github.com/Haroldwonder/TrustLink/issues            |
 | **Documentation**     | https://github.com/Haroldwonder/TrustLink/tree/main/docs    |

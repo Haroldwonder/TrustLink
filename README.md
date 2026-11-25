@@ -63,14 +63,14 @@ See [docs/security-review.md](./docs/security-review.md) for details and remedia
 
 ### Reporting Security Issues
 
-If you discover a security vulnerability, please email security@trustlink.io with:
+If you discover a security vulnerability, please use GitHub's [private vulnerability reporting](https://github.com/Haroldwonder/TrustLink/security/advisories/new) — click **"Report a vulnerability"** on the Security Advisories page. Include:
 
 - Description of the vulnerability
 - Steps to reproduce
 - Potential impact
 - Suggested fix (if any)
 
-Please do not disclose security issues publicly until they have been addressed.
+Do not open a public issue or disclose the vulnerability publicly until it has been addressed. See [SECURITY.md](./SECURITY.md) for the full policy.
 
 ### Bug Bounty Program
 
