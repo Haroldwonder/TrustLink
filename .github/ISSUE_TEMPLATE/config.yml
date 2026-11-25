@@ -6,3 +6,6 @@ contact_links:
   - name: Request a private security channel
     url: https://github.com/TrustLink/trustlink/issues/new
     about: If private reporting is unavailable, open a minimal public issue requesting a private channel. Do not include vulnerability details.
+  - name: Security contact (email)
+    url: mailto:security@trustlink.dev
+    about: Private security contact. Use this if the advisory form is unavailable. Do not include vulnerability details in public issues.
