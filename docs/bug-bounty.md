@@ -106,7 +106,15 @@ Rewards may be adjusted based on:
 
 ### 1. Report Submission
 
-**Email:** security@trustlink.io  
+**Primary channel — GitHub Private Vulnerability Reporting:**  
+Submit reports through GitHub's private advisory channel at  
+https://github.com/TrustLink-Org/trustlink/security/advisories/new  
+(or use the **"Report a vulnerability"** button on the repository's **Security** tab).
+
+This is the only supported private reporting channel. Reports submitted here are visible only to repository maintainers and the reporter.
+
+> **Note:** The previously listed `security@trustlink.io` address is no longer in service and must not be used. If the private advisory channel is unavailable, follow the fallback instructions in [SECURITY.md](../SECURITY.md) — open a minimal issue titled `Security contact request` **without any vulnerability details** so a maintainer can enable private reporting and follow up directly.
+
 **Response Time:** 48 hours (Monday–Friday)
 
 **Include in your report:**
@@ -192,174 +200,6 @@ TrustLink reserves the right to:
 
 - **Pre-Mainnet Audit:** In Progress (scheduled completion by Q3 2026)
 - **Audit Firm:** OpenZeppelin (or equivalent tier)
-- **Audit Scope:** [AUDIT_SCOPE.md](./AUDIT_SCOPE.md)
+- **Audit Scope:** [AUDIT_SCOPE.md](./AUDIT_SCOPE.
 
-### Known Limitations
-
-Certain design constraints are **intentional** and are not eligible for bounty rewards:
-
-1. **Admin Key Compromise** — Admin is a single address (no multisig on-chain). Mitigation is operational (hardware wallet or multisig account).
-2. **Imported Attestations** — Admin can import fabricated attestations. Integrators distinguish via `imported` flag.
-3. **Bridge Contract Trust** — Registered bridges have broad authority. Vetting before registration is essential.
-4. **No Subject Consent** — Subjects cannot reject attestations about them. This is by design for permissionless flows.
-5. **Storage TTL Expiry** — Persistent storage has a 30-day TTL and can be evicted. Regular interaction required.
-
-See [docs/security.md — Known Limitations](./security.md#known-limitations) for full details.
-
-### Pre-Audit Findings
-
-Three findings were identified in early security review:
-
-| Finding     | Severity | Status      | Details                                               |
-| ----------- | -------- | ----------- | ----------------------------------------------------- |
-| FINDING-001 | MEDIUM   | ✅ Resolved | `initialize()` state read before auth                 |
-| FINDING-002 | HIGH     | ✅ Resolved | `revoke_attestation()` missing `require_issuer` check |
-| FINDING-003 | HIGH     | ✅ Resolved | `update_expiration()` missing `require_issuer` check  |
-
-See [docs/security-review.md](./security-review.md) for details.
-
----
-
-## Frequently Asked Questions
-
-### How are duplicates handled?
-
-If multiple researchers report the same vulnerability:
-
-- **First report:** Receives full reward amount
-- **Subsequent reports:** Receive 10–50% of reward, depending on uniqueness of attack vector or evidence
-
-We encourage coordinated disclosure if you're aware of prior reports.
-
-### Can I test on mainnet?
-
-**Testnet only.** Do not test vulnerabilities on mainnet without explicit permission. Testing should be limited to:
-
-- Public `query` functions
-- Deploying test transactions to testnet
-- Creating attestations with test data
-
-**Never:**
-
-- Transfer real funds without authorization
-- Modify or delete other users' attestations
-- Conduct operations intended to cause financial loss
-
-### What if I find a vulnerability after mainnet launch?
-
-Post-launch findings are still eligible for rewards. The reward may be adjusted based on:
-
-- Whether funds were at risk
-- Whether the vulnerability was exploited before being reported
-- The time to patch after reporting
-
-### Can I disclose before receiving payment?
-
-No. Disclosure must be coordinated and embargoed until:
-
-1. A fix is developed and tested
-2. A patch release is prepared
-3. Affected users have time to upgrade
-
-Early public disclosure may disqualify you from the bounty.
-
-### What if I disagree with the severity assessment?
-
-We're open to discussion. If you believe your report was under-scored:
-
-1. **Respond to triage email** with your CVSS justification
-2. **Include additional evidence** or attack scenarios
-3. Our security lead will re-evaluate within 5 business days
-
-### Can I negotiate rewards?
-
-Reward amounts are based on severity and impact using the tiers above. We may increase rewards for:
-
-- Exceptional clarity and quality of report
-- High-impact proof of concept
-- Pre-launch vs. post-launch timing
-
-We do not negotiate downward.
-
----
-
-## Trust Boundaries & High-Impact Areas
-
-Researchers are encouraged to focus on these trust boundaries for maximum impact:
-
-### Admin Boundary
-
-**Trust Assumption:** Admin is trusted and uses secure key management.
-
-**Attack Surface:**
-
-- Can the admin's authority be bypassed or impersonated?
-- Can administrative functions be called without proper auth?
-- Can the admin transfer their own privileges without authorization?
-
-### Issuer Boundary
-
-**Trust Assumption:** Registered issuers are vetted before registration.
-
-**Attack Surface:**
-
-- Can an unregistered issuer create attestations?
-- Can an issuer modify or revoke attestations they did not create?
-- Can an issuer revoke their own de-registration?
-
-### Multi-Sig Boundary
-
-**Trust Assumption:** M-of-N co-signers enforce consensus for high-value claims.
-
-**Attack Surface:**
-
-- Can a single issuer finalize a multi-sig proposal without threshold approval?
-- Can the threshold be modified after proposal creation?
-- Can signatures be forged or replayed?
-
-### Bridge Boundary
-
-**Trust Assumption:** Bridge contracts only relay valid cross-chain attestations.
-
-**Attack Surface:**
-
-- Can a bridge create attestations for unauthorized claim types?
-- Can a bridge forge `source_chain` or `source_tx` values?
-- Can the bridge be unregistered and re-registered to bypass safeguards?
-
-### Fee Boundary
-
-**Trust Assumption:** Fee collection does not introduce reentrancy or theft.
-
-**Attack Surface:**
-
-- Can fee transfers be exploited via reentrancy?
-- Can the fee collector be changed without admin authorization?
-- Can token balance checks be bypassed?
-
----
-
-## Contact & Resources
-
-| Item                  | Contact                                                 |
-| --------------------- | ------------------------------------------------------- |
-| **Security Reports**  | security@trustlink.io                                   |
-| **General Inquiries** | hello@trustlink.io                                      |
-| **GitHub Issues**     | https://github.com/Haroldwonder/TrustLink/issues            |
-| **Documentation**     | https://github.com/Haroldwonder/TrustLink/tree/main/docs    |
-| **Testnet Contract**  | CAK7PYYSWWQH6ML3ZPO4OB2EIONODOEESE3MIV3YGFDMHEU4EUOBUJQN |
-
----
-
-## Acknowledgments
-
-We are grateful to the security researchers and community members who help us keep TrustLink secure. Researchers whose vulnerabilities are accepted will be publicly credited in our [Security Hall of Fame](#hall-of-fame) (unless they prefer anonymity).
-
-### Hall of Fame
-
-Coming soon after first accepted reports.
-
----
-
-**Last Updated:** June 27, 2026  
-**Next Review:** December 27, 2026
+/* … truncated 5992 chars — edit only what you need near the top … */

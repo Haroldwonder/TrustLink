@@ -3,3 +3,5 @@ Expires: 2027-12-31T23:59:00.000Z
 Preferred-Languages: en
 Canonical: https://github.com/Haroldwonder/TrustLink/blob/main/.well-known/security.txt
 Policy: https://github.com/Haroldwonder/TrustLink/blob/main/SECURITY.md
+# GitHub private vulnerability reporting must be enabled for the Contact URL above to work.
+# If it is unavailable, open a minimal issue titled "Security contact request" (no vulnerability details).

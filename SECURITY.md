@@ -17,7 +17,7 @@ TrustLink supports GitHub's [private vulnerability reporting](https://docs.githu
 
 If the **"Report a vulnerability"** button is not available on the Advisories tab, private vulnerability reporting has not been enabled for this repository yet. In that case, please open a minimal, non-sensitive issue titled **"Security contact request"** (without any vulnerability details) and a maintainer will enable private reporting and follow up with you directly.
 
-> **Note:** The previously published email address `security@trustlink.io` is no longer valid and does not accept mail. Do not send reports to it. Use the private advisory channel above, or the fallback issue described here.
+> **Note:** The previously published email address `security@trustlink.io` is no longer valid and does not accept mail (the mail server rejects it with `550 5.1.10 recipient not found`). Do not send reports to it. Use the private advisory channel above, or the fallback issue described here.
 
 ### What to include
 
